@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<package>
+  <name>fw_ctrl</name>
+  <version>0.0.1</version>
+  <description>
+
+	fixed wing control
+
+  </description>
+  <url>http://www.asl.ethz.com</url>
+  <author>Thomas Stastny</author>
+  <maintainer email="thomas.stastny@mavt.ethz.ch">Thomas Stastny</maintainer>
+  <license>Apache 2.0</license>
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <build_depend>roscpp</build_depend>
+  <build_depend>std_msgs</build_depend>
+  <build_depend>mavros</build_depend>
+
+  <run_depend>roscpp</run_depend>
+  <run_depend>std_msgs</run_depend>
+  <run_depend>mavros</run_depend>
+</package>
