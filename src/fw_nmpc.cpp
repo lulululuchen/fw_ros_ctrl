@@ -1,7 +1,7 @@
 #include <ros/ros.h>
 #include <ros/package.h>
 
-#include "fw_nmpc.h"
+#include <fw_nmpc.h>
 
 using namespace fw_nmpc;
 
