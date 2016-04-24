@@ -1,0 +1,9 @@
+<launch>
+  <node name="sim" pkg="fw_ctrl" type="fw_sim">
+  	<param name="/sim/loop_rate" type="float" value="100.0" />
+  	<rosparam file="$(find fw_ctrl)/techpodParams.yaml"/>
+  	<rosparam file="$(find fw_ctrl)/nmpcParams.yaml"/>
+  	<rosparam file="$(find fw_ctrl)/environmentVars.yaml"/>
+  	<rosparam file="$(find fw_ctrl)/guidanceParams.yaml"/>
+  </node>
+</launch>

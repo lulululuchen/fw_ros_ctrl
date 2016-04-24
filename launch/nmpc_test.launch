@@ -1,6 +1,0 @@
-<launch>
-  <node name="fixedwing_control"
-  pkg="fixedwing_nmpc"
-  type="fixedwing_nmpc_node"/>
-
-</launch>

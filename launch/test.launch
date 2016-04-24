@@ -1,5 +1,0 @@
-<launch>
-  <node name="test_node"
-  pkg="fixedwing_nmpc"
-  type="test_node"/>
-</launch>

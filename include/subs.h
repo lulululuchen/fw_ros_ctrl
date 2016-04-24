@@ -17,7 +17,7 @@
  * class definition for subscription data //TODO: put callbacks here? maybe an init() function for subs? maybe even pubs??
  */
 
-class subscriptions
+class Subscriptions
 {
 
 public:

@@ -11,14 +11,9 @@
 #include <std_msgs/UInt64.h>
 #include <std_msgs/Float32.h>
 #include <std_msgs/Float32MultiArray.h>
-#include <sensor_msgs/NavSatFix.h>
-#include <geometry_msgs/Vector3Stamped.h>
 
 // INCLUDES for mavros
-#include <mavros/AslCtrlData.h>
 #include <mavros/ActuatorControl.h>
-#include <mavros/AslEkfExt.h>
-#include <mavros/AslNmpcParams.h>
 
 // INCLUDES for ...
 #include "subs.h"
@@ -73,7 +68,7 @@ public:
 	void	setACADO_Y(double Y[NY]);
 	void	setACADO_W(double W[NY]);
 
-	/* gets */
+	/* gets/sets */
 	int 	getLoopRate();
 
 	/* functions */
@@ -85,12 +80,12 @@ public:
 	void	publishAugmStates();
 	void	publishNmpcInfo(ros::Time t_start);
 
-	int		LOOP_RATE;
+	double	LOOP_RATE;
 
 private:
 
 	/* subscription data */
-	subscriptions 	subs_;
+	Subscriptions 	subs_;
 
 	/* node handles */
 	ros::NodeHandle nmpc_;

@@ -6,7 +6,7 @@
 using namespace fw_nmpc;
 
 FwNMPC::FwNMPC() :
-		LOOP_RATE(20), //MAGIC NUMBER
+		LOOP_RATE(20.0), //MAGIC NUMBER
 		t_lastctrl({0}),
 		bModeChanged(false),
 		last_ctrl_mode(0)
@@ -48,6 +48,8 @@ void FwNMPC::aslctrlDataCb(const mavros::AslCtrlData::ConstPtr& msg) {
 	subs_.aslctrl_data.p 							= msg->p;
 	subs_.aslctrl_data.r 							= msg->r;
 	subs_.aslctrl_data.AirspeedRef		= msg->AirspeedRef;
+	subs_.aslctrl_data.PitchAngleRef	= msg->PitchAngleRef;
+	subs_.aslctrl_data.RollAngleRef		= msg->RollAngleRef;
 	subs_.aslctrl_data.uThrot 				= msg->uThrot;
 	subs_.aslctrl_data.uElev 					= msg->uElev;
 	subs_.aslctrl_data.uAil 					= msg->uAil;
@@ -66,7 +68,7 @@ void FwNMPC::localPosCb(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr
 
 	subs_.local_pos.vector.x = msg->pose.pose.position.x;
 	subs_.local_pos.vector.y = msg->pose.pose.position.y;
-	subs_.local_pos.vector.z = -msg->pose.pose.position.z; // note conversion from z-altitude to z-down!
+	subs_.local_pos.vector.z = -msg->pose.pose.position.z; // note conversion from z-altitude to z-down! TODO: this is AMSL.. should use height above ellipsoid. take from ekf ext
 }
 
 void FwNMPC::ekfExtCb(const mavros::AslEkfExt::ConstPtr& msg) {
@@ -269,7 +271,7 @@ int FwNMPC::nmpcIteration() {
 
 	int RET[2] = {0, 0};
 
-	/* check mode */
+	/* check mode */ //TODO: should include some checking to make sure not on ground/ other singularity ridden cases
 	bModeChanged = (subs_.aslctrl_data.aslctrl_mode - last_ctrl_mode) > 0 ? false : true;
 	last_ctrl_mode = subs_.aslctrl_data.aslctrl_mode;
 	if (subs_.aslctrl_data.aslctrl_mode == 7) {
@@ -389,7 +391,7 @@ int main(int argc, char **argv)
 	}
 
 	/* NMPC Loop */
-	int loop_rate = nmpc.getLoopRate();
+	double loop_rate = nmpc.getLoopRate();
 	ros::Rate nmpc_rate(loop_rate);
 	while (ros::ok()) {
 

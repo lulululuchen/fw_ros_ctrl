@@ -23,7 +23,7 @@ include_directories(
   ${catkin_INCLUDE_DIRS}
 )
 
-add_library(fw_nmpc
+add_library(fw_nmpc_lib
   src/fw_nmpc.cpp
   src/acado_solver/acado_auxiliary_functions.c
   src/acado_solver/acado_integrator.c
@@ -41,12 +41,25 @@ add_library(fw_nmpc
   src/acado_solver/qpoases/SRC/EXTRAS/SolutionAnalysis.cpp
 )
 
-add_executable(fw_ctrl
+add_library(fw_sim_lib
+  src/fw_sim.cpp
+)
+
+add_executable(fw_nmpc
   src/fw_nmpc.cpp
 )
 
-target_link_libraries(fw_ctrl
-  fw_nmpc
+add_executable(fw_sim
+  src/fw_sim.cpp
+)
+
+target_link_libraries(fw_nmpc
+  fw_nmpc_lib
+  ${catkin_LIBRARIES} 
+)
+
+target_link_libraries(fw_sim
+  fw_sim_lib
   ${catkin_LIBRARIES} 
 )
 

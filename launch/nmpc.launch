@@ -1,6 +1,4 @@
 <launch>
-  <node name="nmpc"
-  pkg="fixedwing_nmpc"
-  type="fixedwing_nmpc_node"/>
-
+  <node name="nmpc" pkg="fw_ctrl" type="fw_nmpc"/>
+  <param name="/nmpc/loop_rate" type="float" value="20.0" />
 </launch>
