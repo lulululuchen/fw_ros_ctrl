@@ -1,7 +1,11 @@
 #include <ros/ros.h>
 #include <ros/package.h>
 
+#include <geometry_msgs/TwistStamped.h>
+
 #include <fw_nmpc.h>
+#include <math.h>
+#include <string.h>
 
 using namespace fw_nmpc;
 
@@ -9,32 +13,35 @@ FwNMPC::FwNMPC() :
 		LOOP_RATE(20.0), //MAGIC NUMBER
 		t_lastctrl({0}),
 		bModeChanged(false),
-		last_ctrl_mode(0)
+		last_ctrl_mode(0),
+		prev_ctrl_horiz_({0}),
+		prev_wp_idx_(-1),
+		last_wp_idx_(-1)
 {
 
 	ROS_INFO("Instance of NMPC created");
 
 	/* subscribers */
 	aslctrl_data_sub_	= nmpc_.subscribe("/mavros/aslctrl/data", 1, &FwNMPC::aslctrlDataCb, this);
-	local_pos_sub_ 		= nmpc_.subscribe("/mavros/local", 1, &FwNMPC::localPosCb, this);
-	glob_vel_sub_ 		= nmpc_.subscribe("/mavros/gp_vel", 1, &FwNMPC::globVelCb, this);
+	glob_pos_sub_ 		= nmpc_.subscribe("/mavros/global", 1, &FwNMPC::globPosCb, this);
 	ekf_ext_sub_			= nmpc_.subscribe("/mavros/aslekf_extended", 1, &FwNMPC::ekfExtCb, this);
 	nmpc_params_sub_ 	= nmpc_.subscribe("/mavros/nmpc_params", 1, &FwNMPC::nmpcParamsCb, this);
+	waypoint_list_sub_= nmpc_.subscribe("/mavros/waypoints", 1, &FwNMPC::waypointListCb, this);
+	current_wp_sub_		= nmpc_.subscribe("/mavros/current_wp", 1, &FwNMPC::currentWpCb, this);
+	home_wp_sub_			= nmpc_.subscribe("/mavros/home_wp", 1, &FwNMPC::homeWpCb, this);
 
 	/* publishers */
-	act_sp_pub_				= nmpc_.advertise<mavros::ActuatorControl>("/mavros/actuator_control", 10, true);
+	// to pixhawk
+	att_sp_pub_				= nmpc_.advertise<geometry_msgs::TwistStamped>("/mavros/cmd_vel", 10, true);
+	// for logging
 	kkt_pub_					= nmpc_.advertise<std_msgs::Float32>("/nmpc/info/kkt",10,true);
 	obj_pub_					= nmpc_.advertise<std_msgs::Float32>("/nmpc/info/obj",10,true);
 	tsolve_pub_				= nmpc_.advertise<std_msgs::UInt64>("/nmpc/info/tsolve",10,true);
 	tctrl_pub_				= nmpc_.advertise<std_msgs::UInt64>("/nmpc/info/tctrl",10,true);
-	delT_pub_					= nmpc_.advertise<std_msgs::Float32>("/nmpc/augm/delT",10,true);
-	intg_e_Va_pub_		= nmpc_.advertise<std_msgs::Float32>("/nmpc/augm/intg_e_Va",10,true);
-	intg_e_theta_pub_	= nmpc_.advertise<std_msgs::Float32>("/nmpc/augm/intg_e_theta",10,true);
-	intg_e_phi_pub_  	= nmpc_.advertise<std_msgs::Float32>("/nmpc/augm/intg_e_phi",10,true);
-	x_w2_uT_pub_ 			= nmpc_.advertise<std_msgs::Float32>("/nmpc/augm/x_w2_uT",10,true);
-	x_w2_uE_pub_			= nmpc_.advertise<std_msgs::Float32>("/nmpc/augm/x_w2_uE",10,true);
-	x_w2_uA_pub_			= nmpc_.advertise<std_msgs::Float32>("/nmpc/augm/x_w2_uA",10,true);
-	x_w2_uR_pub_			= nmpc_.advertise<std_msgs::Float32>("/nmpc/augm/x_w2_uR",10,true);
+	// augmented states
+	intg_e_t_pub_			= nmpc_.advertise<std_msgs::Float32>("/nmpc/augm/intg_e_t",10,true);
+	intg_e_chi_pub_		= nmpc_.advertise<std_msgs::Float32>("/nmpc/augm/intg_e_chi",10,true);
+	sw_pub_						= nmpc_.advertise<std_msgs::Float32>("/nmpc/augm/sw",10,true);
 
 }
 
@@ -42,52 +49,45 @@ void FwNMPC::aslctrlDataCb(const mavros::AslCtrlData::ConstPtr& msg) {
 
 	subs_.aslctrl_data.header 				= msg->header;
 	subs_.aslctrl_data.aslctrl_mode 	= msg->aslctrl_mode;
-	subs_.aslctrl_data.PitchAngle 		= msg->PitchAngle;
-	subs_.aslctrl_data.q 							= msg->q;
-	subs_.aslctrl_data.RollAngle 			= msg->RollAngle;
-	subs_.aslctrl_data.p 							= msg->p;
-	subs_.aslctrl_data.r 							= msg->r;
+	subs_.aslctrl_data.YawAngle 			= msg->YawAngle;
 	subs_.aslctrl_data.AirspeedRef		= msg->AirspeedRef;
-	subs_.aslctrl_data.PitchAngleRef	= msg->PitchAngleRef;
-	subs_.aslctrl_data.RollAngleRef		= msg->RollAngleRef;
-	subs_.aslctrl_data.uThrot 				= msg->uThrot;
-	subs_.aslctrl_data.uElev 					= msg->uElev;
-	subs_.aslctrl_data.uAil 					= msg->uAil;
-	subs_.aslctrl_data.uRud 					= msg->uRud;
 
 }
 
-void FwNMPC::globVelCb(const geometry_msgs::Vector3Stamped::ConstPtr& msg) {
+void FwNMPC::globPosCb(const sensor_msgs::NavSatFix::ConstPtr& msg) {
 
-	subs_.global_vel.vector.x = msg->vector.x;
-	subs_.global_vel.vector.y = msg->vector.y;
-	subs_.global_vel.vector.z = msg->vector.z;
-}
-
-void FwNMPC::localPosCb(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& msg) {
-
-	subs_.local_pos.vector.x = msg->pose.pose.position.x;
-	subs_.local_pos.vector.y = msg->pose.pose.position.y;
-	subs_.local_pos.vector.z = -msg->pose.pose.position.z; // note conversion from z-altitude to z-down! TODO: this is AMSL.. should use height above ellipsoid. take from ekf ext
+	subs_.glob_pos.latitude = msg->latitude;
+	subs_.glob_pos.longitude = msg->longitude;
 }
 
 void FwNMPC::ekfExtCb(const mavros::AslEkfExt::ConstPtr& msg) {
 
 	subs_.ekf_ext.airspeed 			= msg->airspeed;
-	subs_.ekf_ext.beta 					= msg->beta;
-	subs_.ekf_ext.alpha 				= msg->alpha;
 	subs_.ekf_ext.windSpeed 		= msg->windSpeed;
 	subs_.ekf_ext.windDirection = msg->windDirection;
 }
 
 void FwNMPC::nmpcParamsCb(const mavros::AslNmpcParams::ConstPtr& msg) {
 
-	subs_.nmpc_params.Aw2 			= msg->Aw2;
-	subs_.nmpc_params.Bw2 			= msg->Bw2;
-	subs_.nmpc_params.Cw2 			= msg->Cw2;
-	subs_.nmpc_params.Dw2 			= msg->Dw2;
-	subs_.nmpc_params.alpha_co 	= msg->alpha_co;
+	subs_.nmpc_params.k_chi 		= msg->k_chi;
 	subs_.nmpc_params.Qdiag 		= msg->Qdiag;
+}
+
+void FwNMPC::waypointListCb(const mavros::WaypointList::ConstPtr& msg) {
+
+	subs_.waypoint_list.waypoints = msg->waypoints;
+}
+
+void FwNMPC::currentWpCb(const std_msgs::Int32::ConstPtr& msg) {
+
+	subs_.current_wp.data = msg->data;
+}
+
+void FwNMPC::homeWpCb(const geographic_msgs::GeoPoint::ConstPtr& msg) {
+
+	subs_.home_wp.latitude = msg->latitude;
+	subs_.home_wp.longitude = msg->longitude;
+	subs_.home_wp.altitude = msg->altitude;
 }
 
 int FwNMPC::initNMPC() {
@@ -109,67 +109,146 @@ void FwNMPC::initACADOVars() {
 	//TODO: maybe actually wait for all subscriptions to be filled here before initializing?
 
 	/* put something reasonable here.. NOT all zeros, solver is initialized from here */
-	double X[NX] = {14.0, 0.0, 0.015, 0.0, 0.0, 0.0, 0.0, 0.015, 0.393, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-	double U[NU] = {0.391, -0.006, 0.0, 0.0};
-	double OD[NOD] = {-8.0, 1.0, -127.0, 16.0, 14.0, 0.015, 0.0, 0.0, 0.14};
-	double Y[NY] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-	double W[NY] = {5.0, 50.0, 50.0, 500.0, 0.1, 5.0, 0.1, 0.0, 0.0, 0.0, 100.0, 0.1, 1.0, 0.1, 0.1};
+	double X[NX] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+	double U[NU] = {0.0};
+	double OD[NOD] = {15.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+	double Y[NY] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+	double W[NY] = {0.0, 10.0, 0.0, 0.0, 10.0, 100.0};
 
 	/* these set a constant value for each variable through the horizon */
-	setACADO_X0(X);
-	setACADO_X(X);
-	setACADO_U(U);
-	setACADO_OD(OD);
-	setACADO_Y(Y);
-	setACADO_W(W);
+
+	// states
+	for (int i = 0; i < N + 1; ++i) {
+		for (int j = 0; j < NX; ++j) acadoVariables.x[ i * NX + j ] = X[ j ];
+	}
+
+	// controls
+	for (int i = 0; i < N; ++i) {
+		for (int j = 0; j < NU; ++j) acadoVariables.u[ i * NU + j ] = U[ j ];
+	}
+
+	// online data
+	for (int i = 0; i < N + 1; ++i) {
+		for (int j = 0; j < NOD; ++j) {
+			if (j >= NOD-NU) acadoVariables.od[ i * NOD + j ] = prev_ctrl_horiz_[ i * NU + j-(NOD-NU) ];
+			else acadoVariables.od[ i * NOD + j ] = OD[ j ];
+		}
+	}
+
+	// references
+	for (int i = 0; i < N + 1; ++i) {
+		for (int j = 0; j < NY; ++j) acadoVariables.y[ i * NY + j ] = Y[ j ];
+	}
+
+	// weights
+	for (int i = 0; i < N; ++i) {
+		for (int ii = 0; ii < NY; ++ii) {
+			for (int j = 0; j < NY; ++j) {
+				if ( ii==j ) {
+					acadoVariables.W[ (i + ii) * NY + j ] = ( ii<NY-1 ) ? W[ ii ] : W[ ii ] * (1.0 - (double)i / (double)N) * (1.0 - (double)i / (double)N); //TODO: could include optional power here
+				}
+				else acadoVariables.W[ (i + ii) * NY + j ] = 0;
+			}
+		}
+	}
+
+	for (int ii = 0; ii < NYN; ++ii) {
+		for (int j = 0; j < NYN; ++j) {
+			if ( ii==j ) {
+				acadoVariables.WN[ (N + ii) * NYN + j ] = ( ii<NYN-1 ) ? W[ ii ] : 0.0;
+			}
+			else acadoVariables.WN[ (N + ii) * NYN + j ] = 0;
+		}
+	}
 }
 
-void FwNMPC::setACADO_X0(double X0[NX]) {
+void FwNMPC::updateACADO_X0() {
+
+	double X0[NX];
+	paths_.ll2NE(X0[0], X0[1], (double)subs_.glob_pos.latitude, (double)subs_.glob_pos.longitude); // n, e
+	X0[2]		= (double)subs_.aslctrl_data.YawAngle;						// xi
+	X0[3]		= acadoVariables.x0[3];														// intg_e_t
+	X0[4]		= acadoVariables.x0[4];														// intg_e_chi
+	X0[5]		= acadoVariables.x0[5];														// sw
 
 	for (int i = 0; i < NX; ++i) acadoVariables.x0[ i ] = X0[ i ];
 }
 
-void FwNMPC::setACADO_X(double X[NX]) {
+void FwNMPC::updateACADO_OD() {
+
+	/* update online data */
+	double OD[NOD];
+	OD[0] = (double)subs_.ekf_ext.airspeed;	// airspeed
+	OD[1] = paths_.path_current.pparam1;
+	OD[2] = paths_.path_current.pparam2;
+	OD[3] = paths_.path_current.pparam3;
+	OD[4] = paths_.path_current.pparam4;
+	OD[5] = paths_.path_current.pparam5;
+	OD[6] = paths_.path_current.pparam6;
+	OD[7] = paths_.path_current.pparam7;
+	OD[8] = paths_.path_current.pparam8;
+	OD[9] = paths_.path_current.pparam9;
+	OD[10] = paths_.path_next.pparam1;
+	OD[11] = paths_.path_next.pparam2;
+	OD[12] = paths_.path_next.pparam3;
+	OD[13] = paths_.path_next.pparam4;
+	OD[14] = paths_.path_next.pparam5;
+	OD[15] = paths_.path_next.pparam6;
+	OD[16] = paths_.path_next.pparam7;
+	OD[17] = paths_.path_next.pparam8;
+	OD[18] = paths_.path_next.pparam9;
+	OD[19] = (double)subs_.ekf_ext.windSpeed * cos((double)subs_.ekf_ext.windDirection);
+	OD[20] = (double)subs_.ekf_ext.windSpeed * sin((double)subs_.ekf_ext.windDirection);
+	OD[21] = (double)subs_.nmpc_params.k_chi;
+	// current_online_data[22] = mu_r_prev;
 
 	for (int i = 0; i < N + 1; ++i) {
-		for (int j = 0; j < NX; ++j) acadoVariables.x[ i * NX + j ] = X[ j ];
+		for (int j = 0; j < NOD; ++j) {
+			if (j >= NOD-NU) acadoVariables.od[ i * NOD + j ] = prev_ctrl_horiz_[ i * NU + j-(NOD-NU) ];
+			else acadoVariables.od[ i * NOD + j ] = OD[ j ];
+		}
 	}
 }
 
-void FwNMPC::setACADO_U(double U[NU]) {
+void FwNMPC::updateACADO_Y() {
 
-	for (int i = 0; i < N; ++i) {
-		for (int j = 0; j < NU; ++j) acadoVariables.u[ i * NU + j ] = U[ j ];
-	}
-}
-
-void FwNMPC::setACADO_OD(double OD[NOD]) {
-
-	for (int i = 0; i < N + 1; ++i) {
-		for (int j = 0; j < NOD; ++j) acadoVariables.od[ i * NOD + j ] = OD[ j ];
-	}
-}
-
-void FwNMPC::setACADO_Y(double Y[NY]) {
+	/* update references */
+	double Y[NY];
+	Y[0] 	= 0.0;	// e_t
+	Y[1] 	= 0.0;	// e_chi
+	Y[2] 	= 0.0;	// intg_e_t
+	Y[3] 	= 0.0;	// intg_e_chi
+	Y[4] 	= 0.0; 	// mu_r
+	Y[5] 	= 0.0;	// delta_mu_r_k
 
 	for (int i = 0; i < N + 1; ++i) {
 		for (int j = 0; j < NY; ++j) acadoVariables.y[ i * NY + j ] = Y[ j ];
 	}
 }
 
-void FwNMPC::setACADO_W(double W[NY]) {
+void FwNMPC::updateACADO_W() {
 
-	for (int i = 0; i < NY; ++i) {
-		for (int j = 0; j < NY; ++j) {
-			if ( i==j ) acadoVariables.W[ i * NY + j ] = W[ i ];
-			else acadoVariables.W[ i * NY + j ] = 0;
+	/* update objective gains */
+	double W[NY];
+	for (int i = 0; i < NY; i++) W[ i ] = (double)subs_.nmpc_params.Qdiag[ i ];
+
+	for (int i = 0; i < N; ++i) {
+		for (int ii = 0; ii < NY; ++ii) {
+			for (int j = 0; j < NY; ++j) {
+				if ( ii==j ) {
+					acadoVariables.W[ (i + ii) * NY + j ] = ( ii<NY-1 ) ? W[ ii ] : W[ ii ] * (1.0 - (double)i / (double)N) * (1.0 - (double)i / (double)N); //TODO: could include optional power here
+				}
+				else acadoVariables.W[ (i + ii) * NY + j ] = 0;
+			}
 		}
 	}
 
-	for (int i = 0; i < NYN; ++i) {
+	for (int ii = 0; ii < NYN; ++ii) {
 		for (int j = 0; j < NYN; ++j) {
-			if ( i==j ) acadoVariables.WN[ i * (NYN) + j ] = W[ i ];
-			else acadoVariables.WN[ i * (NYN) + j ] = 0;
+			if ( ii==j ) {
+				acadoVariables.WN[ (N + ii) * NYN + j ] = ( ii<NYN-1 ) ? W[ ii ] : 0.0;
+			}
+			else acadoVariables.WN[ (N + ii) * NYN + j ] = 0;
 		}
 	}
 }
@@ -178,93 +257,46 @@ int FwNMPC::getLoopRate() {
 	return LOOP_RATE;
 }
 
-void FwNMPC::update() {
-
-	double current_states[NX];
-	current_states[0]		= (double)subs_.ekf_ext.airspeed;					// Va
-	current_states[1]		= (double)subs_.ekf_ext.beta;							// beta
-	current_states[2]		= (double)subs_.ekf_ext.alpha;						// alpha
-	current_states[3]		= (double)subs_.aslctrl_data.p;						// p
-	current_states[4]		= (double)subs_.aslctrl_data.q;						// q
-	current_states[5]		= (double)subs_.aslctrl_data.r;						// r
-	current_states[6]		= (double)subs_.aslctrl_data.RollAngle;		// phi
-	current_states[7]		= (double)subs_.aslctrl_data.PitchAngle;	// theta
-	current_states[8]		= acadoVariables.x0[8];										// delT
-	current_states[9]		= acadoVariables.x0[9];										// intg_e_Va
-	current_states[10]	= acadoVariables.x0[10];									// intg_e_theta
-	current_states[11]	= acadoVariables.x0[11];									// intg_e_phi
-	current_states[12]	= acadoVariables.x0[12];									// x_w2_uT
-	current_states[13]	= acadoVariables.x0[13];									// x_w2_uE
-	current_states[14]	= acadoVariables.x0[14];									// x_w2_uA
-	current_states[15]	= acadoVariables.x0[15];									// x_w2_uR
-	setACADO_X0(current_states);
-
-	/* update references */
-	double current_references[NY];
-	current_references[0] 	= 0.0;	// e_Va
-	current_references[1] 	= 0.0;	// e_theta
-	current_references[2] 	= 0.0;	// e_phi
-	current_references[3] 	= 0.0;	// e_beta
-	current_references[4] 	= 0.0; 	// p
-	current_references[5] 	= 0.0;	// q
-	current_references[6] 	= 0.0;	// r
-	current_references[7] 	= 0.0;	// intg_e_Va
-	current_references[8] 	= 0.0;	// intg_e_theta
-	current_references[9] 	= 0.0;	// intg_e_phi
-	current_references[11] 	= 0.0;	// Q_alpha
-	current_references[12] 	= 0.0;	// z_w2_uT
-	current_references[13] 	= 0.0;	// z_w2_uE
-	current_references[14] 	= 0.0;	// z_w2_uA
-	current_references[15] 	= 0.0;	// z_w2_uR
-	setACADO_Y(current_references);
-
-	/* update online data */
-	double current_online_data[NOD];
-	current_online_data[0] = (double)subs_.nmpc_params.Aw2;							// w2 weight
-	current_online_data[1] = (double)subs_.nmpc_params.Bw2;							// w2 weight
-	current_online_data[2] = (double)subs_.nmpc_params.Cw2;							// w2 weight
-	current_online_data[3] = (double)subs_.nmpc_params.Dw2;							// w2 weight
-	current_online_data[4] = (double)subs_.aslctrl_data.AirspeedRef;		// airspeed reference
-	current_online_data[5] = (double)subs_.aslctrl_data.PitchAngleRef;	// pitch angle reference
-	current_online_data[6] = (double)subs_.aslctrl_data.RollAngleRef;		// roll angle reference
-	current_online_data[7] = 0.0;																				// sideslip angle reference
-	current_online_data[8] = (double)subs_.nmpc_params.alpha_co;				// angle of attack cut off
-	setACADO_OD(current_online_data);
-
-	/* update objective gains */
-	double current_objective_gains[NY];
-	for (int i = 0; i < NY; i++) current_objective_gains[ i ] = (double)subs_.nmpc_params.Qdiag[ i ];
-	setACADO_W(current_objective_gains);
-}
-
 void FwNMPC::initHorizon() {
+
+	// update home wp
+	const double new_home_wp[2] = {subs_.home_wp.latitude, subs_.home_wp.longitude};
+	paths_.setHomeWp( new_home_wp );
+	prev_wp_idx_ = -1;
 
 	//TODO: sliding window and/or low pass filter
 
-	/* hold current states constant through horizion */
+	/* hold current states constant through horizion */ //TODO: could at least propagate position init with current velocity
 	for (int i = 0; i < N + 1; ++i) {
 		for (int j = 0; j < NX-NX_AUGM; ++j) acadoVariables.x[ i * NX + j ] = acadoVariables.x0[ j ];
 	}
 
 	/* initialize augmented states */
 	for (int i = 0; i < N + 1; ++i) {
-		for (int j = NX_AUGM; j < NX; ++j) acadoVariables.x[ i * NX + j ] = 0.0; //TODO: NOT ALL ZEROS
+		for (int j = NX_AUGM; j < NX; ++j) acadoVariables.x[ i * NX + j ] = 0.0; //TODO: NOT ALL NECESSARILY ZEROS
 	}
 
 	/* get current controls */
-	double U[NU] = {subs_.aslctrl_data.uThrot, subs_.aslctrl_data.uElev, subs_.aslctrl_data.uAil, subs_.aslctrl_data.uRud}; // w/o CONVERSIONS
+//	double U[NU] = {0.0};
+	double U = 0.0; // MAGIC NUMBER.. do we actually want to start with the current bank angle?? .. or the command should probably stick to zero at start.
 
 	/* saturate controls */
-	for (int i = 0; i < NU; ++i) {
-		if (U[i] < subs_.CTRL_SATURATION[i][0]) U[i] = subs_.CTRL_SATURATION[i][0];
-		if (U[i] > subs_.CTRL_SATURATION[i][1]) U[i] = subs_.CTRL_SATURATION[i][1];
-	}
+//	for (int i = 0; i < NU; ++i) {
+//		if (U[i] < subs_.CTRL_SATURATION[i][0]) U[i] = subs_.CTRL_SATURATION[i][0];
+//		if (U[i] > subs_.CTRL_SATURATION[i][1]) U[i] = subs_.CTRL_SATURATION[i][1];
+//	}
+	if (U < subs_.CTRL_SATURATION[0]) U = subs_.CTRL_SATURATION[0];
+	if (U > subs_.CTRL_SATURATION[1]) U = subs_.CTRL_SATURATION[1];
 
 	/* normalize controls */
-	for (int i = 0; i < NU; ++i)  U[ i ] = U[ i ] * subs_.CTRL_NORMALIZATION[ i ];
+//	for (int i = 0; i < NU; ++i)  U[ i ] = U[ i ] * subs_.CTRL_NORMALIZATION[ i ];
+	U = U * subs_.CTRL_NORMALIZATION;
 
 	/* hold current controls constant through horizon */
-	setACADO_U(U);
+//	for (int i = 0; i < N; ++i) {
+//		for (int j = 0; j < NU; ++j) acadoVariables.u[ i * NU + j ] = U[ j ];
+//	}
+	for (int i = 0; i < N; ++i) acadoVariables.u[ i ] = U;
 }
 
 int FwNMPC::nmpcIteration() {
@@ -285,18 +317,45 @@ int FwNMPC::nmpcIteration() {
 			bModeChanged = false;
 		}
 
+		/* update ACADO states/references/weights */
+		updateACADO_X0();
+		updateACADO_Y();
+		updateACADO_W();
+
+		/* check current waypoint */
+		if ( subs_.current_wp.data != prev_wp_idx_ ) {
+			// reset switch state, sw, horizon //TODO: encapsulate
+			for (int i = 1; i < N + 2; ++i) {
+				acadoVariables.x[ i * NX - 1 ] = 0.0;
+			}
+			acadoVariables.x0[ NX ] = 0.0;
+		}
+
+		/* update path */
+		if ( subs_.current_wp.data != last_wp_idx_ ) {
+			prev_wp_idx_ = last_wp_idx_;
+		}
+		paths_.updatePaths(subs_.waypoint_list, subs_.current_wp.data, prev_wp_idx_);
+		last_wp_idx_ = subs_.current_wp.data;
+
+		/* update ACADO online data */
+		updateACADO_OD();
+
 		/* Prepare first step */
 		RET[0] = preparationStep();
 
 		/* Perform the feedback step. */
 		RET[1] = feedbackStep();
 
+		/* store ctrl horizon before shift */
+		memcpy(prev_ctrl_horiz_, acadoVariables.u, sizeof(prev_ctrl_horiz_));
+
 		/* publish control action */
 		publishControls(subs_.aslctrl_data.header);
 
-		//TODO: this should be interpolated in the event of Tnmpc ~= Tfcall
-		/* Optional: shift the initialization (look at acado_common.h). */
-		shiftStates(2, 0, 0);
+		//TODO: this should be interpolated in the event of Tnmpc ~= Tfcall //TODO: should this be before the feedback step?
+		/* Optional: shift the initialization (look in acado_common.h). */
+//		shiftStates(1, 0, 0);
 		shiftControls( 0 );
 
 		//TODO: this should be interpolated in the event of Tnmpc ~= Tfcall
@@ -319,25 +378,23 @@ void FwNMPC::publishControls(std_msgs::Header header) {
 
 	//TODO: this should be interpolated in the event of Tnmpc ~= Tfcall
 	/* Apply the NEXT control immediately to the process, first NU components. */
-	double ctrl[NU];
-	for (int i = 0; i < NU; ++i)  ctrl[ i ] = acadoVariables.u[ NU + i ] / subs_.CTRL_NORMALIZATION[ i ];
+//	double ctrl[NU];
+	double ctrl;
+//	for (int i = 0; i < NU; ++i)  ctrl[ i ] = acadoVariables.u[ i ] / subs_.CTRL_NORMALIZATION[ i ];
+	ctrl = acadoVariables.u[0] / subs_.CTRL_NORMALIZATION;
 
 	/* saturate controls */
-	for (int i = 0; i < NU; ++i) {
-		if (ctrl[i] < subs_.CTRL_SATURATION[i][0]) ctrl[i] = subs_.CTRL_SATURATION[i][0];
-		if (ctrl[i] > subs_.CTRL_SATURATION[i][1]) ctrl[i] = subs_.CTRL_SATURATION[i][1];
-	}
+//	for (int i = 0; i < NU; ++i) {
+//		if (ctrl[i] < subs_.CTRL_SATURATION[i][0]) ctrl[i] = subs_.CTRL_SATURATION[i][0];
+//		if (ctrl[i] > subs_.CTRL_SATURATION[i][1]) ctrl[i] = subs_.CTRL_SATURATION[i][1];
+//	}
+	if (ctrl < subs_.CTRL_SATURATION[0]) ctrl = subs_.CTRL_SATURATION[0];
+	if (ctrl > subs_.CTRL_SATURATION[1]) ctrl = subs_.CTRL_SATURATION[1];
 
-	mavros::ActuatorControl actuator_msg;
-	actuator_msg.group_mix 		= 1;								// actuator group -- fmu group
-	actuator_msg.header 		 	= header;						// return px4 timestamp for latency monitoring --> REMEMBER to change ros::now in actuator_control plugin to take px4 timestamp
-	actuator_msg.controls[0] 	= (float)ctrl[2]; 	// CH_AIL_R
-	actuator_msg.controls[1] 	= (float)ctrl[1]; 	// CH_ELV
-	actuator_msg.controls[2] 	= (float)ctrl[3]; 	// CH_RDR
-	actuator_msg.controls[3] 	= (float)ctrl[0]; 	// CH_THR_1
-	actuator_msg.controls[4] 	= 0.0f;					 		// CH_FLAPS
-	actuator_msg.controls[5] 	= -(float)ctrl[2];	// CH_AIL_L
-	act_sp_pub_.publish(actuator_msg);
+	//NOTE: using cmd_vel members.. because dont want to convert to quaternions.
+	geometry_msgs::TwistStamped att_sp_msg;
+	att_sp_msg.twist.angular.x = ctrl; // mu
+	att_sp_pub_.publish(att_sp_msg);
 
 	/* update last control timestamp / publish elapsed ctrl loop time */
 	ros::Duration t_elapsed = ros::Time::now() - t_lastctrl;
@@ -348,14 +405,9 @@ void FwNMPC::publishControls(std_msgs::Header header) {
 
 void FwNMPC::publishAugmStates() {
 
-	delT_pub_.publish( (float)acadoVariables.x0[NX-NX_AUGM] );
-	intg_e_Va_pub_.publish( (float)acadoVariables.x0[NX-NX_AUGM+1] );
-	intg_e_theta_pub_.publish( (float)acadoVariables.x0[NX-NX_AUGM+2] );
-	intg_e_phi_pub_.publish( (float)acadoVariables.x0[NX-NX_AUGM+3] );
-	x_w2_uT_pub_.publish( (float)acadoVariables.x0[NX-NX_AUGM+4] );
-	x_w2_uE_pub_.publish( (float)acadoVariables.x0[NX-NX_AUGM+5] );
-	x_w2_uA_pub_.publish( (float)acadoVariables.x0[NX-NX_AUGM+6] );
-	x_w2_uR_pub_.publish( (float)acadoVariables.x0[NX-NX_AUGM+7] );
+	intg_e_t_pub_.publish( (float)acadoVariables.x0[NX-NX_AUGM] );
+	intg_e_chi_pub_.publish( (float)acadoVariables.x0[NX-NX_AUGM+1] );
+	sw_pub_.publish( (float)acadoVariables.x0[NX-NX_AUGM+2] );
 }
 
 void FwNMPC::publishNmpcInfo(ros::Time t_start) {
@@ -390,16 +442,15 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	/* NMPC Loop */
+	/*
+	 * NMPC loop
+	 */
 	double loop_rate = nmpc.getLoopRate();
 	ros::Rate nmpc_rate(loop_rate);
 	while (ros::ok()) {
 
 		/* empty callback queues */
 		ros::spinOnce();
-
-		/* update ACADO states/controls */
-		nmpc.update();
 
 		/* nmpc iteration step */
 		ret = nmpc.nmpcIteration();

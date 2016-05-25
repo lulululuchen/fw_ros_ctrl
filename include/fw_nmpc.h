@@ -13,11 +13,11 @@
 #include <std_msgs/Float32MultiArray.h>
 
 // INCLUDES for mavros
-#include <mavros/ActuatorControl.h>
+#include <mavros/WaypointPush.h>
 
 // INCLUDES for ...
 #include "subs.h"
-#include <math.h>
+#include "path_manager.h"
 
 // INCLUDES for ACADO
 #include "acado_common.h"
@@ -30,7 +30,7 @@
 #define NY 	ACADO_NY 	/* Number of measurements/references on nodes 0..N - 1. */
 #define NYN	ACADO_NYN	/* Number of measurements/references on node N. */
 #define N		ACADO_N		/* Number of intervals in the horizon. */
-#define NX_AUGM 8			/* Number of augmented differential state variables. */
+#define NX_AUGM 3			/* Number of augmented differential state variables. */
 
 /* global variables used by the solver. */
 ACADOvariables acadoVariables;
@@ -50,10 +50,12 @@ public:
 
 	/* callbacks */
 	void 	aslctrlDataCb(const mavros::AslCtrlData::ConstPtr& msg);
-	void 	globVelCb(const geometry_msgs::Vector3Stamped::ConstPtr& msg);
-	void 	localPosCb(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& msg);
+	void 	globPosCb(const sensor_msgs::NavSatFix::ConstPtr& msg);
 	void 	ekfExtCb(const mavros::AslEkfExt::ConstPtr& msg);
 	void 	nmpcParamsCb(const mavros::AslNmpcParams::ConstPtr& msg);
+	void 	waypointListCb(const mavros::WaypointList::ConstPtr& msg);
+	void 	currentWpCb(const std_msgs::Int32::ConstPtr& msg);
+	void 	homeWpCb(const geographic_msgs::GeoPoint::ConstPtr& msg);
 
 	/* initializations */
 	int 	initNMPC();
@@ -61,19 +63,18 @@ public:
 	void 	initHorizon();
 
 	/* sets */
-	void 	setACADO_X0(double X0[NX]);
-	void 	setACADO_X(double X[NX]);
-	void	setACADO_U(double U[NU]);
-	void	setACADO_OD(double OD[NOD]);
-	void	setACADO_Y(double Y[NY]);
-	void	setACADO_W(double W[NY]);
+	void 	updateACADO_X0();
+	void	updateACADO_OD();
+	void	updateACADO_Y();
+	void	updateACADO_W();
 
-	/* gets/sets */
+	/* gets */
 	int 	getLoopRate();
 
 	/* functions */
 	void 	update();
 	int 	nmpcIteration();
+	void 	ll2NE(double &n, double &e, const double lat, const double lon, const double lat0, const double lon0);
 
 	/* publishing encapsulation */
 	void	publishControls(std_msgs::Header header);
@@ -92,25 +93,28 @@ private:
 
 	/* subscribers */
 	ros::Subscriber aslctrl_data_sub_;
-	ros::Subscriber local_pos_sub_;			// UTM coordinates NE(rel H)
-	ros::Subscriber glob_vel_sub_;			// NED
+	ros::Subscriber glob_pos_sub_;
 	ros::Subscriber ekf_ext_sub_;
 	ros::Subscriber nmpc_params_sub_;
+	ros::Subscriber waypoint_list_sub_;
+	ros::Subscriber current_wp_sub_;
+	ros::Subscriber home_wp_sub_;
 
 	/* publishers */
-	ros::Publisher act_sp_pub_;
+	// to pixhawk
+	ros::Publisher att_sp_pub_;
+	// for logging
 	ros::Publisher kkt_pub_;
 	ros::Publisher obj_pub_;
 	ros::Publisher tsolve_pub_;
 	ros::Publisher tctrl_pub_;
-	ros::Publisher delT_pub_;
-	ros::Publisher intg_e_Va_pub_;
-	ros::Publisher intg_e_theta_pub_;
-	ros::Publisher intg_e_phi_pub_;
-	ros::Publisher x_w2_uT_pub_;
-	ros::Publisher x_w2_uE_pub_;
-	ros::Publisher x_w2_uA_pub_;
-	ros::Publisher x_w2_uR_pub_;
+	// augm states
+	ros::Publisher intg_e_t_pub_;
+	ros::Publisher intg_e_chi_pub_;
+	ros::Publisher sw_pub_;
+
+	/* services */
+//	ros::ServiceClient wp_pull_serviceClient_ = nmpc_.serviceClient<mavros::WaypointPull>("/mavros/mission/pull");
 
 	/* time keeping */
 	ros::Time	t_lastctrl;
@@ -118,6 +122,14 @@ private:
 	/* controller switch */
 	bool	bModeChanged;
 	int		last_ctrl_mode;
+
+	/* control horizon */
+	double prev_ctrl_horiz_[ NU * N ];
+
+	/* path definitions */
+	int prev_wp_idx_;
+	int last_wp_idx_;
+	PathManager paths_;
 
 	/* node functions */
 	void 	shutdown();
