@@ -1,0 +1,9 @@
+<launch>
+  <arg name="file_name" value="/home/documents/recordings/odroidbags" />
+
+  <arg name="nmpc_topics" value="" />
+
+  <arg name="recorded_topics" value="$(arg nmpc_topics)" />
+
+	<node pkg="rosbag" type="record" name="record"  args="-o $(arg file_name) $(arg recorded_topics)" />
+</launch>
