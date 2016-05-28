@@ -1,0 +1,68 @@
+# Common configuration for PX4 autopilot
+#
+# node:
+startup_px4_usb_quirk: true
+
+# --- system plugins ---
+
+# sys_status & sys_time connection options
+conn:
+  heartbeat: 5.0    # send hertbeat every n seconds
+  timeout: 10.0     # hertbeat timeout in seconds
+  timesync: 0.1     # TIMESYNC period in seconds (feature disabled if 0.0)
+  system_time: 1.0  # send system time to FCU every n seconds
+
+# sys_status
+sys:
+  min_voltage: 10.0   # diagnostics min voltage
+  disable_diag: false # disable all sys_status diagnostics, except heartbeat
+
+# sys_time
+time:
+  time_ref_source: "fcu"  # time_reference source
+  timesync_avg_alpha: 0.6 # timesync averaging factor
+  reset_thres_ms: 100.0   # reset trigger threshold [ms]
+
+# time correction
+time_corr:
+  conf_level: 1.0e-2
+  disc_factor: 1.0e-4
+  frac_value: 0.5
+  init_batch_size: 20
+  batch_size: 5
+
+# --- mavros plugins (alphabetical order) ---
+
+# 3dr_radio
+tdr_radio:
+  low_rssi: 40  # raw rssi lower level for diagnostics
+
+# command
+cmd:
+  use_comp_id_system_control: false # quirk for some old FCUs
+
+# global_position
+global_position:
+  send_tf: false            # send TF?
+  frame_id: "local_origin"  # pose and TF frame_id
+  child_frame_id: "fcu"     # pose and TF child_frame_id
+  rot_covariance: 99999.0   # covariance for attitude?
+
+# gps
+gps:
+  frame_id: "gps"
+
+# setpoint_attitude
+setpoint_attitude:
+  listen_tf: false
+  listen_twist: true
+  pose_with_covariance: false
+  frame_id: "local_origin"
+  child_frame_id: "attitude"
+  tf_rate_limit: 10.0
+  reverse_throttle: false   # allow reversed throttle
+
+# waypoint
+mission:
+  pull_after_gcs: true  # update mission if gcs updates
+

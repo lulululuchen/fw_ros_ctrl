@@ -1,7 +1,6 @@
 #include "acado_common.h"
 #include <math.h>
 #include <string.h>
-#include <stdbool.h>
 
 bool check_line_seg( const double *pos, const double *pparams );
 bool check_curve_seg( const double *pos, const double *pparams, const double n_dot, const double e_dot );
