@@ -32,7 +32,7 @@ FwNMPC::FwNMPC() :
 
 	/* publishers */
 	// to pixhawk
-	att_sp_pub_				= nmpc_.advertise<geometry_msgs::TwistStamped>("/mavros/cmd_vel", 10, true);
+	att_sp_pub_				= nmpc_.advertise<geometry_msgs::TwistStamped>("/mavros/setpoint_attitude/cmd_vel", 10, true);
 	// for logging
 	kkt_pub_					= nmpc_.advertise<std_msgs::Float32>("/nmpc/info/kkt",10,true);
 	obj_pub_					= nmpc_.advertise<std_msgs::Float32>("/nmpc/info/obj",10,true);
