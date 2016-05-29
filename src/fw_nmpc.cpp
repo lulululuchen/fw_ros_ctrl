@@ -178,7 +178,11 @@ void FwNMPC::updateACADO_OD() {
 
 	/* update online data */
 	double OD[NOD];
-	OD[0] = (double)subs_.ekf_ext.airspeed;	// airspeed
+//	OD[0] = (double)subs_.ekf_ext.airspeed;	// airspeed
+	double tmp_airsp_ref = (double)subs_.aslctrl_data.AirspeedRef;
+	if ( tmp_airsp_ref < 11.0 ) tmp_airsp_ref = 11.0; //TODO: remove hard-coding, set as params, or input from pixhawk velmin/max
+	if ( tmp_airsp_ref > 20.0 ) tmp_airsp_ref = 20.0;
+	OD[0] = tmp_airsp_ref;	// airspeed reference
 	OD[1] = paths_.path_current.pparam1;
 	OD[2] = paths_.path_current.pparam2;
 	OD[3] = paths_.path_current.pparam3;
