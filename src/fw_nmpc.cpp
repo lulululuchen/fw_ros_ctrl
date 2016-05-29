@@ -306,7 +306,7 @@ int FwNMPC::nmpcIteration() {
 	/* check mode */ //TODO: should include some checking to make sure not on ground/ other singularity ridden cases
 	bModeChanged = (subs_.aslctrl_data.aslctrl_mode - last_ctrl_mode) > 0 ? false : true;
 	last_ctrl_mode = subs_.aslctrl_data.aslctrl_mode;
-	if (subs_.aslctrl_data.aslctrl_mode == 7) {
+	if (subs_.aslctrl_data.aslctrl_mode == 5) {
 
 		/* start timer */
 		ros::Time t_start = ros::Time::now();
