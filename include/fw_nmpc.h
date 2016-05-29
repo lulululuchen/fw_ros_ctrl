@@ -123,8 +123,8 @@ private:
 	bool	bModeChanged;
 	int		last_ctrl_mode;
 
-	/* control horizon */
-	double prev_ctrl_horiz_[ NU * N ];
+	/* control horizon */ //NOTE: the generated ctrl horizon is actually on length=N, but the online data struct needs N+1 values
+	double prev_ctrl_horiz_[ NU * (N + 1) ];
 
 	/* path definitions */
 	int prev_wp_idx_;

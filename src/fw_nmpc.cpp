@@ -348,7 +348,8 @@ int FwNMPC::nmpcIteration() {
 		RET[1] = feedbackStep();
 
 		/* store ctrl horizon before shift */
-		memcpy(prev_ctrl_horiz_, acadoVariables.u, sizeof(prev_ctrl_horiz_));
+		memcpy(prev_ctrl_horiz_, acadoVariables.u, sizeof(acadoVariables.u)); //NOTE: only copies N sets of ctrls
+		memcpy(prev_ctrl_horiz_+(N*NU), acadoVariables.u+((N-1)*NU), 8*NU); //NOTE: this assume doubles (8 bytes)
 
 		/* publish control action */
 		publishControls(subs_.aslctrl_data.header);
