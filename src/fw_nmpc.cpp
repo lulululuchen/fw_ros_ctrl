@@ -202,6 +202,8 @@ void FwNMPC::initHorizon() {
 //		for (int j = 0; j < NU; ++j) acadoVariables.u[ i * NU + j ] = U[ j ];
 //	}
 	for (int i = 0; i < N; ++i) acadoVariables.u[ i ] = U;
+	memcpy(prev_ctrl_horiz_, acadoVariables.u, sizeof(acadoVariables.u)); //NOTE: only copies N sets of ctrls
+	memcpy(prev_ctrl_horiz_+(N*NU), acadoVariables.u+((N-1)*NU), 8*NU); //NOTE: this assume doubles (8 bytes)
 }
 
 void FwNMPC::updateACADO_X0() {
@@ -380,9 +382,11 @@ int FwNMPC::nmpcIteration() {
 
 		/* Prepare first step */
 		RET[0] = preparationStep();
+		if ( RET[0] != 0 ) ROS_ERROR("nmpcIteration: preparation step error, code %d", RET[0]);
 
 		/* Perform the feedback step. */
 		RET[1] = feedbackStep();
+		if ( RET[1] != 0 ) ROS_ERROR("nmpcIteration: preparation step error, code %d", RET[1]);
 
 		/* store ctrl horizon before shift */
 		memcpy(prev_ctrl_horiz_, acadoVariables.u, sizeof(acadoVariables.u)); //NOTE: only copies N sets of ctrls
@@ -497,8 +501,8 @@ void FwNMPC::publishNmpcInfo(ros::Time t_start, uint64_t t_ctrl) {
 	fw_ctrl::NmpcInfo nmpc_info;
 
 	/* solver info */
-	nmpc_info.kkt = (float)getKKT();
-	nmpc_info.obj = (float)getObjective();
+	nmpc_info.kkt = (double)getKKT();
+	nmpc_info.obj = (double)getObjective();
 
 	/* solve time in us */
 	ros::Duration t_elapsed = ros::Time::now() - t_start;

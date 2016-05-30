@@ -2,8 +2,8 @@
 # Thomas Stastny | thomas.stastny@mavt.ethz.ch
 
 # solver info
-float32 kkt
-float32 obj
+float64 kkt
+float64 obj
 
 # timing
 uint64 t_solve
