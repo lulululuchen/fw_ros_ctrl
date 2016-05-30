@@ -15,6 +15,7 @@
 // INCLUDES for fw_ctrl
 #include <fw_ctrl/AcadoVars.h>
 #include <fw_ctrl/NmpcInfo.h>
+#include <fw_ctrl/AcadoVarsDebug.h>
 
 using namespace fw_nmpc;
 
@@ -43,6 +44,7 @@ FwNMPC::FwNMPC() :
 	att_sp_pub_ = nmpc_.advertise<geometry_msgs::TwistStamped>("/mavros/setpoint_attitude/cmd_vel", 10, true);
 	nmpc_info_pub_ = nmpc_.advertise<fw_ctrl::NmpcInfo>("/nmpc/info",10,true);
 	acado_vars_pub_	= nmpc_.advertise<fw_ctrl::AcadoVars>("/nmpc/acado_vars",10,true);
+	acado_vars_debug_pub_	= nmpc_.advertise<fw_ctrl::AcadoVarsDebug>("/nmpc/acado_vars_debug",10,true);
 }
 
 void FwNMPC::aslctrlDataCb(const mavros::AslCtrlData::ConstPtr& msg) {
@@ -498,6 +500,13 @@ void FwNMPC::publishAcadoVars() {
 	acado_vars.y_delta_mu_r = (float)acadoVariables.y[5];
 
 	acado_vars_pub_.publish(acado_vars);
+
+	fw_ctrl::AcadoVarsDebug acado_vars_debug;
+
+	for (int i=0; i<1080; i++) acado_vars_debug.W[i] = (float)acadoVariables.W[i];
+	for (int i=0; i<6; i++) acado_vars_debug.WN[i] = (float)acadoVariables.WN[i];
+
+	acado_vars_debug_pub_.publish(acado_vars_debug);
 }
 
 void FwNMPC::publishNmpcInfo(ros::Time t_start, uint64_t t_ctrl) {
