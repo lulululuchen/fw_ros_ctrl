@@ -13,7 +13,6 @@ add_message_files(
   FILES
   AcadoVars.msg
   NmpcInfo.msg
-  AcadoVarsDebug.msg
 )
 
 generate_messages(
