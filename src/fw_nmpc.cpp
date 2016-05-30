@@ -94,6 +94,7 @@ int FwNMPC::initNMPC() {
 
 	/* Initialize ACADO variables */
 	initACADOVars();
+	ROS_ERROR("initNMPC: ACADO variables initialized");
 
 	/* Initialize the solver. */
 	int RET = initializeSolver();
@@ -140,24 +141,37 @@ void FwNMPC::initACADOVars() {
 		for (int j = 0; j < NY; ++j) acadoVariables.y[ i * NY + j ] = Y[ j ];
 	}
 
-	// weights
+	// weights -- fill all non-diagonals with zero!
 	for (int i = 0; i < N; ++i) {
-		for (int ii = 0; ii < NY; ++ii) {
-			for (int j = 0; j < NY; ++j) {
-				if ( ii==j ) {
-					acadoVariables.W[ (i + ii) * NY + j ] = ( ii<NY-1 ) ? W[ ii ] : W[ ii ] * (1.0 - (double)i / (double)N) * (1.0 - (double)i / (double)N); //TODO: could include optional power here
+		for (int j = 0; j < NY; ++j) {
+			for (int k = 0; k < NY; ++k) {
+				if ( j == k ) {
+					if ( j<NY-1 ) {
+						acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ];
+					}
+					else {
+						acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ] * (1.0 - i / N) * (1.0 - i / N);
+					}
 				}
-				else acadoVariables.W[ (i + ii) * NY + j ] = 0;
+				else {
+					acadoVariables.W[ NY * NY * i + NY * j + k ] = 0.0;
+				}
 			}
 		}
 	}
-
-	for (int ii = 0; ii < NYN; ++ii) {
+	for (int i = 0; i < NYN; ++i) {
 		for (int j = 0; j < NYN; ++j) {
-			if ( ii==j ) {
-				acadoVariables.WN[ (N + ii) * NYN + j ] = ( ii<NYN-1 ) ? W[ ii ] : 0.0;
+			if ( i == j ) {
+				if ( i<NYN-1 ) {
+					acadoVariables.WN[ i * NYN + i ] =  W[ i ];
+				}
+				else {
+					acadoVariables.WN[ i * NYN + i ] =  0.0;
+				}
 			}
-			else acadoVariables.WN[ (N + ii) * NYN + j ] = 0;
+			else {
+				acadoVariables.WN[ i * NYN + j ] =  0.0;
+			}
 		}
 	}
 }
@@ -282,23 +296,23 @@ void FwNMPC::updateACADO_W() {
 	double W[NY];
 	for (int i = 0; i < NY; i++) W[ i ] = (double)subs_.nmpc_params.Qdiag[ i ];
 
+	// only update diagonal terms
 	for (int i = 0; i < N; ++i) {
-		for (int ii = 0; ii < NY; ++ii) {
-			for (int j = 0; j < NY; ++j) {
-				if ( ii==j ) {
-					acadoVariables.W[ (i + ii) * NY + j ] = ( ii<NY-1 ) ? W[ ii ] : W[ ii ] * (1.0 - (double)i / (double)N) * (1.0 - (double)i / (double)N); //TODO: could include optional power here
-				}
-				else acadoVariables.W[ (i + ii) * NY + j ] = 0;
+		for (int j = 0; j < NY; ++j) {
+			if ( j<NY-1 ) {
+				acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ];
+			}
+			else {
+				acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ] * (1.0 - i / N) * (1.0 - i / N);
 			}
 		}
 	}
-
-	for (int ii = 0; ii < NYN; ++ii) {
-		for (int j = 0; j < NYN; ++j) {
-			if ( ii==j ) {
-				acadoVariables.WN[ (N + ii) * NYN + j ] = ( ii<NYN-1 ) ? W[ ii ] : 0.0;
-			}
-			else acadoVariables.WN[ (N + ii) * NYN + j ] = 0;
+	for (int i = 0; i < NYN; ++i) {
+		if ( i<NYN-1 ) {
+			acadoVariables.WN[ i * NYN + i ] =  W[ i ];
+		}
+		else {
+			acadoVariables.WN[ i * NYN + i ] =  0.0;
 		}
 	}
 }
@@ -314,18 +328,16 @@ void FwNMPC::reqSubs() { //TODO: extend this and/or change this to all subs/init
 	subs_.home_wp.longitude = 0.0;
 	subs_.current_wp.data = 0;
 
-  /* pull current waypoint list */
+	/* pull current waypoint list */
 	ros::ServiceClient wp_pull_client_ = nmpc_.serviceClient<mavros::WaypointPull>("/mavros/mission/pull");
 	mavros::WaypointPull wp_pull_srv;
 
-	  if (wp_pull_client_.call(wp_pull_srv))
-	  {
-	    ROS_ERROR("fw_nmpc: received %iu waypoints", (uint32_t)wp_pull_srv.response.wp_received);
-	  }
-	  else
-	  {
-	    ROS_ERROR("fw_nmpc: failed to call wp pull service");
-	  }
+	if (wp_pull_client_.call(wp_pull_srv)) {
+		ROS_ERROR("reqSubs: received %d waypoints", (int)wp_pull_srv.response.wp_received);
+	}
+	else {
+		ROS_ERROR("reqSubs: failed to call wp pull service");
+	}
 
 	/* wait for home waypoint */
 	while ( subs_.home_wp.latitude < 0.1 && subs_.home_wp.longitude < 0.1 ) {
@@ -336,6 +348,8 @@ void FwNMPC::reqSubs() { //TODO: extend this and/or change this to all subs/init
 
 		sleep(0.5);
 	}
+
+	ROS_ERROR("reqSubs: received home waypoint");
 
 	return;
 }
