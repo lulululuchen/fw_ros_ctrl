@@ -49,7 +49,7 @@ void FwNMPC::aslctrlDataCb(const mavros::AslCtrlData::ConstPtr& msg) {
 
 	subs_.aslctrl_data.header 				= msg->header;
 	subs_.aslctrl_data.aslctrl_mode 	= msg->aslctrl_mode;
-	subs_.aslctrl_data.YawAngle 			= msg->YawAngle;
+	subs_.aslctrl_data.YawAngle 			= msg->YawAngle * 0.017453292519943f;
 	subs_.aslctrl_data.AirspeedRef		= msg->AirspeedRef;
 
 }
@@ -224,10 +224,10 @@ void FwNMPC::updateACADO_OD() {
 
 	/* update online data */
 	double OD[NOD];
-//	OD[0] = (double)subs_.ekf_ext.airspeed;	// airspeed
-	double tmp_airsp_ref = (double)subs_.aslctrl_data.AirspeedRef;
-	if ( tmp_airsp_ref < 11.0 ) tmp_airsp_ref = 11.0; //TODO: remove hard-coding, set as params, or input from pixhawk velmin/max
-	if ( tmp_airsp_ref > 20.0 ) tmp_airsp_ref = 20.0;
+	double tmp_airsp_ref = (double)subs_.ekf_ext.airspeed;	// airspeed //TODO: does this need even more filtering?
+//	double tmp_airsp_ref = (double)subs_.aslctrl_data.AirspeedRef;
+	if ( tmp_airsp_ref < 12.4 ) tmp_airsp_ref = 12.4; //TODO: remove hard-coding, set as params, or input from pixhawk velmin/max
+	if ( tmp_airsp_ref > 22.0 ) tmp_airsp_ref = 22.0;
 	OD[0] = tmp_airsp_ref;	// airspeed reference
 	OD[1] = paths_.path_current.pparam1;
 	OD[2] = paths_.path_current.pparam2;
@@ -454,11 +454,11 @@ void FwNMPC::publishAcadoVars() {
 	/* states (note: this only records the "measured" state values, not the horizon states) */
 	for (int i=0; i<N+1; i++) {
 		acado_vars.n[i] = (float)acadoVariables.x[NX * i];
-		acado_vars.e[i] = (float)acadoVariables.x[NX * i]+1;
-		acado_vars.xi[i] = (float)acadoVariables.x[NX * i]+2;
-		acado_vars.intg_e_t[i] = (float)acadoVariables.x[NX * i]+3;
-		acado_vars.intg_e_chi[i] = (float)acadoVariables.x[NX * i]+4;
-		acado_vars.sw[i] = (float)acadoVariables.x[NX * i]+5;
+		acado_vars.e[i] = (float)acadoVariables.x[NX * i + 1];
+		acado_vars.xi[i] = (float)acadoVariables.x[NX * i + 2];
+		acado_vars.intg_e_t[i] = (float)acadoVariables.x[NX * i + 3];
+		acado_vars.intg_e_chi[i] = (float)acadoVariables.x[NX * i + 4];
+		acado_vars.sw[i] = (float)acadoVariables.x[NX * i + 5];
 	}
 
 	/* controls */
@@ -487,7 +487,7 @@ void FwNMPC::publishAcadoVars() {
 	acado_vars.wn = (float)acadoVariables.od[19];
 	acado_vars.we = (float)acadoVariables.od[20];
 	acado_vars.k_chi = (float)acadoVariables.od[21];
-	for (int i=0; i<N+1; i++) acado_vars.mu_r_prev[i] = (float)acadoVariables.od[NOD * i]+22;
+	for (int i=0; i<N+1; i++) acado_vars.mu_r_prev[i] = (float)acadoVariables.od[NOD * i + 22];
 
 	/* references */
 	acado_vars.y_e_t = (float)acadoVariables.y[0];
