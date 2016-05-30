@@ -2,15 +2,15 @@
 # Thomas Stastny | thomas.stastny@mavt.ethz.ch
 
 # states (note: this only records the "measured" state values, not the horizon states)
-float32 n			# northing [m]
-float32 e			# easting [m]
-float32 xi			# heading angle [rad]
-float32 intg_e_t	# integral of track position error [m-s]
-float32 intg_e_chi	# integral of course angle error [rad-s]
-float32 sw			# track switching state [~]
+float32 n[31]			# northing [m]
+float32 e[31]			# easting [m]
+float32 xi[31]			# heading angle [rad]
+float32 intg_e_t[31]	# integral of track position error [m-s]
+float32 intg_e_chi[31]	# integral of course angle error [rad-s]
+float32 sw[31]			# track switching state [~]
 
 # controls
-float32 mu_r		# bank angle reference [rad]
+float32 mu_r[30]		# bank angle reference [rad]
 
 # online data
 float32 V			# airspeed reference
@@ -35,7 +35,7 @@ float32 pparam9_next
 float32 wn			# northing wind speed
 float32 we			# easting wind speed
 float32 k_chi		# course angle gradient gain
-float32 mu_r_prev	# previous control input
+float32 mu_r_prev[31]	# previous control input
 
 # references
 float32 y_e_t

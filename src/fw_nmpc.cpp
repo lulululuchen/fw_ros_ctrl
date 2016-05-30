@@ -164,6 +164,8 @@ void FwNMPC::initACADOVars() {
 
 void FwNMPC::initHorizon() {
 
+	ROS_ERROR("initHorizon: hold states constant through horizon (first time in loop)");
+
 	// update home wp
 	const double new_home_wp[2] = {subs_.home_wp.latitude, subs_.home_wp.longitude};
 	paths_.setHomeWp( new_home_wp );
@@ -450,15 +452,17 @@ void FwNMPC::publishAcadoVars() {
 	fw_ctrl::AcadoVars acado_vars;
 
 	/* states (note: this only records the "measured" state values, not the horizon states) */
-	acado_vars.n = (float)acadoVariables.x0[0];
-	acado_vars.e = (float)acadoVariables.x0[1];
-	acado_vars.xi = (float)acadoVariables.x0[2];
-	acado_vars.intg_e_t = (float)acadoVariables.x0[3];
-	acado_vars.intg_e_chi = (float)acadoVariables.x0[4];
-	acado_vars.sw = (float)acadoVariables.x0[5];
+	for (int i=0; i<N+1; i++) {
+		acado_vars.n[i] = (float)acadoVariables.x[NX * i];
+		acado_vars.e[i] = (float)acadoVariables.x[NX * i]+1;
+		acado_vars.xi[i] = (float)acadoVariables.x[NX * i]+2;
+		acado_vars.intg_e_t[i] = (float)acadoVariables.x[NX * i]+3;
+		acado_vars.intg_e_chi[i] = (float)acadoVariables.x[NX * i]+4;
+		acado_vars.sw[i] = (float)acadoVariables.x[NX * i]+5;
+	}
 
 	/* controls */
-	acado_vars.mu_r = (float)acadoVariables.u[0];
+	for (int i=0; i<N; i++) acado_vars.mu_r[i] = (float)acadoVariables.u[NU * i];
 
 	/* online data */
 	acado_vars.V = (float)acadoVariables.od[0];
@@ -483,7 +487,7 @@ void FwNMPC::publishAcadoVars() {
 	acado_vars.wn = (float)acadoVariables.od[19];
 	acado_vars.we = (float)acadoVariables.od[20];
 	acado_vars.k_chi = (float)acadoVariables.od[21];
-	acado_vars.mu_r_prev = (float)acadoVariables.od[22];
+	for (int i=0; i<N+1; i++) acado_vars.mu_r_prev[i] = (float)acadoVariables.od[NOD * i]+22;
 
 	/* references */
 	acado_vars.y_e_t = (float)acadoVariables.y[0];
