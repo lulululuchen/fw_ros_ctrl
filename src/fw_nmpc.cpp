@@ -343,7 +343,7 @@ int FwNMPC::nmpcIteration() {
 	int RET[2] = {0, 0};
 
 	/* check mode */ //TODO: should include some checking to make sure not on ground/ other singularity ridden cases
-	bModeChanged = (subs_.aslctrl_data.aslctrl_mode - last_ctrl_mode) > 0 ? false : true;
+	bModeChanged = (subs_.aslctrl_data.aslctrl_mode - last_ctrl_mode) > 0 ? true : false;
 	last_ctrl_mode = subs_.aslctrl_data.aslctrl_mode;
 	if (subs_.aslctrl_data.aslctrl_mode == 5) {
 
