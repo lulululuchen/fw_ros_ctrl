@@ -7,6 +7,9 @@
 #include <math.h>
 #include <string.h>
 
+// INCLUDES for mavros
+#include <mavros/WaypointPull.h>
+
 using namespace fw_nmpc;
 
 FwNMPC::FwNMPC() :
@@ -42,7 +45,6 @@ FwNMPC::FwNMPC() :
 	intg_e_t_pub_			= nmpc_.advertise<std_msgs::Float32>("/nmpc/augm/intg_e_t",10,true);
 	intg_e_chi_pub_		= nmpc_.advertise<std_msgs::Float32>("/nmpc/augm/intg_e_chi",10,true);
 	sw_pub_						= nmpc_.advertise<std_msgs::Float32>("/nmpc/augm/sw",10,true);
-
 }
 
 void FwNMPC::aslctrlDataCb(const mavros::AslCtrlData::ConstPtr& msg) {
@@ -162,6 +164,48 @@ void FwNMPC::initACADOVars() {
 	}
 }
 
+void FwNMPC::initHorizon() {
+
+	// update home wp
+	const double new_home_wp[2] = {subs_.home_wp.latitude, subs_.home_wp.longitude};
+	paths_.setHomeWp( new_home_wp );
+	prev_wp_idx_ = -1;
+
+	//TODO: sliding window and/or low pass filter
+
+	/* hold current states constant through horizion */ //TODO: could at least propagate position init with current velocity
+	for (int i = 0; i < N + 1; ++i) {
+		for (int j = 0; j < NX-NX_AUGM; ++j) acadoVariables.x[ i * NX + j ] = acadoVariables.x0[ j ];
+	}
+
+	/* initialize augmented states */
+	for (int i = 0; i < N + 1; ++i) {
+		for (int j = NX_AUGM; j < NX; ++j) acadoVariables.x[ i * NX + j ] = 0.0; //TODO: NOT ALL NECESSARILY ZEROS
+	}
+
+	/* get current controls */
+//	double U[NU] = {0.0};
+	double U = 0.0; // MAGIC NUMBER.. do we actually want to start with the current bank angle?? .. or the command should probably stick to zero at start.
+
+	/* saturate controls */
+//	for (int i = 0; i < NU; ++i) {
+//		if (U[i] < subs_.CTRL_SATURATION[i][0]) U[i] = subs_.CTRL_SATURATION[i][0];
+//		if (U[i] > subs_.CTRL_SATURATION[i][1]) U[i] = subs_.CTRL_SATURATION[i][1];
+//	}
+	if (U < subs_.CTRL_SATURATION[0]) U = subs_.CTRL_SATURATION[0];
+	if (U > subs_.CTRL_SATURATION[1]) U = subs_.CTRL_SATURATION[1];
+
+	/* normalize controls */
+//	for (int i = 0; i < NU; ++i)  U[ i ] = U[ i ] * subs_.CTRL_NORMALIZATION[ i ];
+	U = U * subs_.CTRL_NORMALIZATION;
+
+	/* hold current controls constant through horizon */
+//	for (int i = 0; i < N; ++i) {
+//		for (int j = 0; j < NU; ++j) acadoVariables.u[ i * NU + j ] = U[ j ];
+//	}
+	for (int i = 0; i < N; ++i) acadoVariables.u[ i ] = U;
+}
+
 void FwNMPC::updateACADO_X0() {
 
 	double X0[NX];
@@ -261,46 +305,37 @@ int FwNMPC::getLoopRate() {
 	return LOOP_RATE;
 }
 
-void FwNMPC::initHorizon() {
+void FwNMPC::reqSubs() { //TODO: extend this and/or change this to all subs/initializations
 
-	// update home wp
-	const double new_home_wp[2] = {subs_.home_wp.latitude, subs_.home_wp.longitude};
-	paths_.setHomeWp( new_home_wp );
-	prev_wp_idx_ = -1;
+	/* initialize home wp and current wp seq structs while waiting for real data */
+	subs_.home_wp.latitude = 0.0;
+	subs_.home_wp.longitude = 0.0;
+	subs_.current_wp.data = 0;
 
-	//TODO: sliding window and/or low pass filter
+  /* pull current waypoint list */
+	ros::ServiceClient wp_pull_client_ = nmpc_.serviceClient<mavros::WaypointPull>("/mission/WaypointPull");
+	mavros::WaypointPull wp_pull_srv;
 
-	/* hold current states constant through horizion */ //TODO: could at least propagate position init with current velocity
-	for (int i = 0; i < N + 1; ++i) {
-		for (int j = 0; j < NX-NX_AUGM; ++j) acadoVariables.x[ i * NX + j ] = acadoVariables.x0[ j ];
+	  if (wp_pull_client_.call(wp_pull_srv))
+	  {
+	    ROS_INFO("fw_nmpc: received %iu waypoints", (uint32_t)wp_pull_srv.response.wp_received);
+	  }
+	  else
+	  {
+	    ROS_ERROR("fw_nmpc: failed to call wp pull service");
+	  }
+
+	/* wait for home waypoint */
+	while ( subs_.home_wp.latitude < 0.1 && subs_.home_wp.longitude < 0.1 ) {
+
+		ros::spinOnce();
+
+		ROS_INFO ("fw_nmpc: waiting for home waypoint");
+
+		sleep(0.5);
 	}
 
-	/* initialize augmented states */
-	for (int i = 0; i < N + 1; ++i) {
-		for (int j = NX_AUGM; j < NX; ++j) acadoVariables.x[ i * NX + j ] = 0.0; //TODO: NOT ALL NECESSARILY ZEROS
-	}
-
-	/* get current controls */
-//	double U[NU] = {0.0};
-	double U = 0.0; // MAGIC NUMBER.. do we actually want to start with the current bank angle?? .. or the command should probably stick to zero at start.
-
-	/* saturate controls */
-//	for (int i = 0; i < NU; ++i) {
-//		if (U[i] < subs_.CTRL_SATURATION[i][0]) U[i] = subs_.CTRL_SATURATION[i][0];
-//		if (U[i] > subs_.CTRL_SATURATION[i][1]) U[i] = subs_.CTRL_SATURATION[i][1];
-//	}
-	if (U < subs_.CTRL_SATURATION[0]) U = subs_.CTRL_SATURATION[0];
-	if (U > subs_.CTRL_SATURATION[1]) U = subs_.CTRL_SATURATION[1];
-
-	/* normalize controls */
-//	for (int i = 0; i < NU; ++i)  U[ i ] = U[ i ] * subs_.CTRL_NORMALIZATION[ i ];
-	U = U * subs_.CTRL_NORMALIZATION;
-
-	/* hold current controls constant through horizon */
-//	for (int i = 0; i < N; ++i) {
-//		for (int j = 0; j < NU; ++j) acadoVariables.u[ i * NU + j ] = U[ j ];
-//	}
-	for (int i = 0; i < N; ++i) acadoVariables.u[ i ] = U;
+	return;
 }
 
 int FwNMPC::nmpcIteration() {
@@ -438,6 +473,11 @@ int main(int argc, char **argv)
 	/* initialize node */
 	ros::init(argc, argv, "fw_nmpc");
 	fw_nmpc::FwNMPC nmpc;
+
+	ros::spinOnce();
+
+	/* wait for required subscriptions */
+	nmpc.reqSubs();
 
 	/* initialize states, params, and solver */
 	int ret = nmpc.initNMPC();

@@ -12,9 +12,6 @@
 #include <std_msgs/Float32.h>
 #include <std_msgs/Float32MultiArray.h>
 
-// INCLUDES for mavros
-#include <mavros/WaypointPush.h>
-
 // INCLUDES for ...
 #include "subs.h"
 #include "path_manager.h"
@@ -70,6 +67,7 @@ public:
 
 	/* gets */
 	int 	getLoopRate();
+	void 	reqSubs();
 
 	/* functions */
 	void 	update();
@@ -112,9 +110,6 @@ private:
 	ros::Publisher intg_e_t_pub_;
 	ros::Publisher intg_e_chi_pub_;
 	ros::Publisher sw_pub_;
-
-	/* services */
-//	ros::ServiceClient wp_pull_serviceClient_ = nmpc_.serviceClient<mavros::WaypointPull>("/mavros/mission/pull");
 
 	/* time keeping */
 	ros::Time	t_lastctrl;
