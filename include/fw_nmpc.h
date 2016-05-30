@@ -75,9 +75,9 @@ public:
 	void 	ll2NE(double &n, double &e, const double lat, const double lon, const double lat0, const double lon0);
 
 	/* publishing encapsulation */
-	void	publishControls(std_msgs::Header header);
-	void	publishAugmStates();
-	void	publishNmpcInfo(ros::Time t_start);
+	void	publishControls(std_msgs::Header header, uint64_t &t_ctrl);
+	void	publishAcadoVars();
+	void	publishNmpcInfo(ros::Time t_start, uint64_t t_ctrl);
 
 	double	LOOP_RATE;
 
@@ -99,17 +99,9 @@ private:
 	ros::Subscriber home_wp_sub_;
 
 	/* publishers */
-	// to pixhawk
 	ros::Publisher att_sp_pub_;
-	// for logging
-	ros::Publisher kkt_pub_;
-	ros::Publisher obj_pub_;
-	ros::Publisher tsolve_pub_;
-	ros::Publisher tctrl_pub_;
-	// augm states
-	ros::Publisher intg_e_t_pub_;
-	ros::Publisher intg_e_chi_pub_;
-	ros::Publisher sw_pub_;
+	ros::Publisher nmpc_info_pub_;
+	ros::Publisher acado_vars_pub_;
 
 	/* time keeping */
 	ros::Time	t_lastctrl;

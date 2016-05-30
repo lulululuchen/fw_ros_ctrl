@@ -6,12 +6,23 @@ set(CMAKE_BUILD_TYPE Release)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -fno-aggressive-loop-optimizations")
 
 find_package(catkin REQUIRED COMPONENTS
-  roscpp std_msgs mavros
+  roscpp std_msgs mavros message_generation
+)
+
+add_message_files(
+  FILES
+  AcadoVars.msg
+  NmpcInfo.msg
+)
+
+generate_messages(
+  DEPENDENCIES
+  std_msgs
 )
 
 catkin_package(
   INCLUDE_DIRS include ${catkin_INCLUDE_DIRS}
-  CATKIN_DEPENDS roscpp std_msgs mavros
+  CATKIN_DEPENDS roscpp std_msgs mavros message_runtime
 )
 
 include_directories(

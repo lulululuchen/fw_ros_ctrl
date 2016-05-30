@@ -1,14 +1,20 @@
 #include <ros/ros.h>
 #include <ros/package.h>
 
-#include <geometry_msgs/TwistStamped.h>
-
 #include <fw_nmpc.h>
+
 #include <math.h>
 #include <string.h>
 
+#include <geometry_msgs/TwistStamped.h>
+#include <std_msgs/UInt8.h>
+
 // INCLUDES for mavros
 #include <mavros/WaypointPull.h>
+
+// INCLUDES for fw_ctrl
+#include <fw_ctrl/AcadoVars.h>
+#include <fw_ctrl/NmpcInfo.h>
 
 using namespace fw_nmpc;
 
@@ -34,17 +40,9 @@ FwNMPC::FwNMPC() :
 	home_wp_sub_			= nmpc_.subscribe("/mavros/mission/home_wp", 1, &FwNMPC::homeWpCb, this);
 
 	/* publishers */
-	// to pixhawk
-	att_sp_pub_				= nmpc_.advertise<geometry_msgs::TwistStamped>("/mavros/setpoint_attitude/cmd_vel", 10, true);
-	// for logging
-	kkt_pub_					= nmpc_.advertise<std_msgs::Float32>("/nmpc/info/kkt",10,true);
-	obj_pub_					= nmpc_.advertise<std_msgs::Float32>("/nmpc/info/obj",10,true);
-	tsolve_pub_				= nmpc_.advertise<std_msgs::UInt64>("/nmpc/info/tsolve",10,true);
-	tctrl_pub_				= nmpc_.advertise<std_msgs::UInt64>("/nmpc/info/tctrl",10,true);
-	// augmented states
-	intg_e_t_pub_			= nmpc_.advertise<std_msgs::Float32>("/nmpc/augm/intg_e_t",10,true);
-	intg_e_chi_pub_		= nmpc_.advertise<std_msgs::Float32>("/nmpc/augm/intg_e_chi",10,true);
-	sw_pub_						= nmpc_.advertise<std_msgs::Float32>("/nmpc/augm/sw",10,true);
+	att_sp_pub_ = nmpc_.advertise<geometry_msgs::TwistStamped>("/mavros/setpoint_attitude/cmd_vel", 10, true);
+	nmpc_info_pub_ = nmpc_.advertise<fw_ctrl::NmpcInfo>("/nmpc/info",10,true);
+	acado_vars_pub_	= nmpc_.advertise<fw_ctrl::AcadoVars>("/nmpc/acado_vars",10,true);
 }
 
 void FwNMPC::aslctrlDataCb(const mavros::AslCtrlData::ConstPtr& msg) {
@@ -132,7 +130,7 @@ void FwNMPC::initACADOVars() {
 	// online data
 	for (int i = 0; i < N + 1; ++i) {
 		for (int j = 0; j < NOD; ++j) {
-			if (j >= NOD-NU) acadoVariables.od[ i * NOD + j ] = prev_ctrl_horiz_[ i * NU + j-(NOD-NU) ];
+			if (j >= NOD-NU) acadoVariables.od[ i * NOD + j ] = 0.0;//prev_ctrl_horiz_[ i * NU + j-(NOD-NU) ];
 			else acadoVariables.od[ i * NOD + j ] = OD[ j ];
 		}
 	}
@@ -318,7 +316,7 @@ void FwNMPC::reqSubs() { //TODO: extend this and/or change this to all subs/init
 
 	  if (wp_pull_client_.call(wp_pull_srv))
 	  {
-	    ROS_INFO("fw_nmpc: received %iu waypoints", (uint32_t)wp_pull_srv.response.wp_received);
+	    ROS_ERROR("fw_nmpc: received %iu waypoints", (uint32_t)wp_pull_srv.response.wp_received);
 	  }
 	  else
 	  {
@@ -391,7 +389,8 @@ int FwNMPC::nmpcIteration() {
 		memcpy(prev_ctrl_horiz_+(N*NU), acadoVariables.u+((N-1)*NU), 8*NU); //NOTE: this assume doubles (8 bytes)
 
 		/* publish control action */
-		publishControls(subs_.aslctrl_data.header);
+		uint64_t t_ctrl;
+		publishControls(subs_.aslctrl_data.header, t_ctrl);
 
 		//TODO: this should be interpolated in the event of Tnmpc ~= Tfcall //TODO: should this be before the feedback step?
 		/* Optional: shift the initialization (look in acado_common.h). */
@@ -402,11 +401,11 @@ int FwNMPC::nmpcIteration() {
 		/* shift augmented states */
 		for (int i = NX_AUGM; i < NX; ++i) acadoVariables.x0[i] = acadoVariables.x[i];
 
-		/* publish augmented states */
-		publishAugmStates();
+		/* publish ACADO variables */
+		publishAcadoVars();
 
 		/* publish nmpc info */
-		publishNmpcInfo(t_start);
+		publishNmpcInfo(t_start, t_ctrl);
 
 	}
 
@@ -414,7 +413,7 @@ int FwNMPC::nmpcIteration() {
 	return (RET[0] != 0 || RET[1] != 0) ? 1 : 0; //perhaps a better reporting method?
 }
 
-void FwNMPC::publishControls(std_msgs::Header header) {
+void FwNMPC::publishControls(std_msgs::Header header, uint64_t &t_ctrl) {
 
 	//TODO: this should be interpolated in the event of Tnmpc ~= Tfcall
 	/* Apply the NEXT control immediately to the process, first NU components. */
@@ -438,28 +437,78 @@ void FwNMPC::publishControls(std_msgs::Header header) {
 
 	/* update last control timestamp / publish elapsed ctrl loop time */
 	ros::Duration t_elapsed = ros::Time::now() - t_lastctrl;
-	uint64_t tctrl = t_elapsed.toNSec()/1000;
-	tctrl_pub_.publish(tctrl);
+	t_ctrl = t_elapsed.toNSec()/1000;
 	t_lastctrl = ros::Time::now();
 }
 
-void FwNMPC::publishAugmStates() {
+void FwNMPC::publishAcadoVars() {
 
-	intg_e_t_pub_.publish( (float)acadoVariables.x0[NX-NX_AUGM] );
-	intg_e_chi_pub_.publish( (float)acadoVariables.x0[NX-NX_AUGM+1] );
-	sw_pub_.publish( (float)acadoVariables.x0[NX-NX_AUGM+2] );
+	fw_ctrl::AcadoVars acado_vars;
+
+	/* states (note: this only records the "measured" state values, not the horizon states) */
+	acado_vars.n = (float)acadoVariables.x0[0];
+	acado_vars.e = (float)acadoVariables.x0[1];
+	acado_vars.xi = (float)acadoVariables.x0[2];
+	acado_vars.intg_e_t = (float)acadoVariables.x0[3];
+	acado_vars.intg_e_chi = (float)acadoVariables.x0[4];
+	acado_vars.sw = (float)acadoVariables.x0[5];
+
+	/* controls */
+	acado_vars.mu_r = (float)acadoVariables.u[0];
+
+	/* online data */
+	acado_vars.V = (float)acadoVariables.od[0];
+	acado_vars.pparam1 = (uint8_t)acadoVariables.od[1];
+	acado_vars.pparam2 = (float)acadoVariables.od[2];
+	acado_vars.pparam3 = (float)acadoVariables.od[3];
+	acado_vars.pparam4 = (float)acadoVariables.od[4];
+	acado_vars.pparam5 = (float)acadoVariables.od[5];
+	acado_vars.pparam6 = (float)acadoVariables.od[6];
+	acado_vars.pparam7 = (float)acadoVariables.od[7];
+	acado_vars.pparam8 = (float)acadoVariables.od[8];
+	acado_vars.pparam9 = (float)acadoVariables.od[9];
+	acado_vars.pparam1_next = (uint8_t)acadoVariables.od[10];
+	acado_vars.pparam2_next = (float)acadoVariables.od[11];
+	acado_vars.pparam3_next = (float)acadoVariables.od[12];
+	acado_vars.pparam4_next = (float)acadoVariables.od[13];
+	acado_vars.pparam5_next = (float)acadoVariables.od[14];
+	acado_vars.pparam6_next = (float)acadoVariables.od[15];
+	acado_vars.pparam7_next = (float)acadoVariables.od[16];
+	acado_vars.pparam8_next = (float)acadoVariables.od[17];
+	acado_vars.pparam9_next = (float)acadoVariables.od[18];
+	acado_vars.wn = (float)acadoVariables.od[19];
+	acado_vars.we = (float)acadoVariables.od[20];
+	acado_vars.k_chi = (float)acadoVariables.od[21];
+	acado_vars.mu_r_prev = (float)acadoVariables.od[22];
+
+	/* references */
+	acado_vars.y_e_t = (float)acadoVariables.y[0];
+	acado_vars.y_e_chi = (float)acadoVariables.y[1];
+	acado_vars.y_intg_e_t = (float)acadoVariables.y[2];
+	acado_vars.y_intg_e_chi = (float)acadoVariables.y[3];
+	acado_vars.y_mu_r = (float)acadoVariables.y[4];
+	acado_vars.y_delta_mu_r = (float)acadoVariables.y[5];
+
+	acado_vars_pub_.publish(acado_vars);
 }
 
-void FwNMPC::publishNmpcInfo(ros::Time t_start) {
+void FwNMPC::publishNmpcInfo(ros::Time t_start, uint64_t t_ctrl) {
+
+	fw_ctrl::NmpcInfo nmpc_info;
 
 	/* solver info */
-	kkt_pub_.publish( (float)getKKT() );
-	obj_pub_.publish( (float)getObjective() );
+	nmpc_info.kkt = (float)getKKT();
+	nmpc_info.obj = (float)getObjective();
 
-	/* record elapsed time in us */
+	/* solve time in us */
 	ros::Duration t_elapsed = ros::Time::now() - t_start;
 	uint64_t t_solve = t_elapsed.toNSec()/1000;
-	tsolve_pub_.publish(t_solve);
+	nmpc_info.t_solve = t_solve;
+
+	/* time elapsed since last control action publication */
+	nmpc_info.t_ctrl = t_ctrl;
+
+	nmpc_info_pub_.publish(nmpc_info);
 }
 
 void FwNMPC::shutdown() {
@@ -492,6 +541,7 @@ int main(int argc, char **argv)
 	 */
 	double loop_rate = nmpc.getLoopRate();
 	ros::Rate nmpc_rate(loop_rate);
+	ROS_ERROR("fw_nmpc: entering NMPC loop");
 	while (ros::ok()) {
 
 		/* empty callback queues */
@@ -509,7 +559,7 @@ int main(int argc, char **argv)
 		nmpc_rate.sleep();
 	}
 
-	ROS_INFO("fw_nmpc: closing...");
+	ROS_ERROR("fw_nmpc: closing...");
 
 	return 0;
 }

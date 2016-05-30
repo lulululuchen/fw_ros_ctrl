@@ -2,9 +2,9 @@
 
   <arg name="file_name" value="/home/techpod/rosbags/nmpc" />
 
-  <arg name="nmpc_topics" value="/nmpc/augm/intg_e_chi /nmpc/augm/intg_e_t /nmpc/augm/sw /nmpc/info/kkt /nmpc/info/obj /nmpc/info/tctrl /nmpc/info/tsolve" />   
+  <arg name="nmpc_topics" value="/nmpc/acado_vars /nmpc/info" />   
 
-  <arg name="mission_items" value="/mavros/waypoints /mavros/current_wp /mavros/home_wp" />
+  <arg name="mission_items" value="/mavros/mission/waypoints /mavros/mission/current_wp /mavros/mission/home_wp" />
 
   <arg name="recorded_topics" value="$(arg nmpc_topics) $(arg mission_items)" />
 
