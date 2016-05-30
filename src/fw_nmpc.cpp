@@ -96,6 +96,7 @@ int FwNMPC::initNMPC() {
 
 	/* Initialize ACADO variables */
 	initACADOVars();
+	ROS_ERROR("initNMPC: ACADO variables initialized");
 
 	/* Initialize the solver. */
 	int RET = initializeSolver();
@@ -144,8 +145,8 @@ void FwNMPC::initACADOVars() {
 
 	// weights -- fill all non-diagonals with zero!
 	for (int i = 0; i < N; ++i) {
-		for (int j = 0; i < NY; ++j) {
-			for (int k = 0; i < NY; ++k) {
+		for (int j = 0; j < NY; ++j) {
+			for (int k = 0; k < NY; ++k) {
 				if ( j == k ) {
 					if ( j<NY-1 ) {
 						acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ];
@@ -299,7 +300,7 @@ void FwNMPC::updateACADO_W() {
 
 	// only update diagonal terms
 	for (int i = 0; i < N; ++i) {
-		for (int j = 0; i < NY; ++j) {
+		for (int j = 0; j < NY; ++j) {
 			if ( j<NY-1 ) {
 				acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ];
 			}
@@ -329,18 +330,16 @@ void FwNMPC::reqSubs() { //TODO: extend this and/or change this to all subs/init
 	subs_.home_wp.longitude = 0.0;
 	subs_.current_wp.data = 0;
 
-  /* pull current waypoint list */
+	/* pull current waypoint list */
 	ros::ServiceClient wp_pull_client_ = nmpc_.serviceClient<mavros::WaypointPull>("/mavros/mission/pull");
 	mavros::WaypointPull wp_pull_srv;
 
-	  if (wp_pull_client_.call(wp_pull_srv))
-	  {
-	    ROS_ERROR("fw_nmpc: received %iu waypoints", (uint32_t)wp_pull_srv.response.wp_received);
-	  }
-	  else
-	  {
-	    ROS_ERROR("fw_nmpc: failed to call wp pull service");
-	  }
+	if (wp_pull_client_.call(wp_pull_srv)) {
+		ROS_ERROR("reqSubs: received %d waypoints", (int)wp_pull_srv.response.wp_received);
+	}
+	else {
+		ROS_ERROR("reqSubs: failed to call wp pull service");
+	}
 
 	/* wait for home waypoint */
 	while ( subs_.home_wp.latitude < 0.1 && subs_.home_wp.longitude < 0.1 ) {
@@ -351,6 +350,8 @@ void FwNMPC::reqSubs() { //TODO: extend this and/or change this to all subs/init
 
 		sleep(0.5);
 	}
+
+	ROS_ERROR("reqSubs: received home waypoint");
 
 	return;
 }
