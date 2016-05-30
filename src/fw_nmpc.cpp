@@ -26,12 +26,12 @@ FwNMPC::FwNMPC() :
 
 	/* subscribers */
 	aslctrl_data_sub_	= nmpc_.subscribe("/mavros/aslctrl/data", 1, &FwNMPC::aslctrlDataCb, this);
-	glob_pos_sub_ 		= nmpc_.subscribe("/mavros/global", 1, &FwNMPC::globPosCb, this);
+	glob_pos_sub_ 		= nmpc_.subscribe("/mavros/global_position/global", 1, &FwNMPC::globPosCb, this);
 	ekf_ext_sub_			= nmpc_.subscribe("/mavros/aslekf_extended", 1, &FwNMPC::ekfExtCb, this);
 	nmpc_params_sub_ 	= nmpc_.subscribe("/mavros/nmpc_params", 1, &FwNMPC::nmpcParamsCb, this);
-	waypoint_list_sub_= nmpc_.subscribe("/mavros/waypoints", 1, &FwNMPC::waypointListCb, this);
-	current_wp_sub_		= nmpc_.subscribe("/mavros/current_wp", 1, &FwNMPC::currentWpCb, this);
-	home_wp_sub_			= nmpc_.subscribe("/mavros/home_wp", 1, &FwNMPC::homeWpCb, this);
+	waypoint_list_sub_= nmpc_.subscribe("/mavros/mission/waypoints", 1, &FwNMPC::waypointListCb, this);
+	current_wp_sub_		= nmpc_.subscribe("/mavros/mission/current_wp", 1, &FwNMPC::currentWpCb, this);
+	home_wp_sub_			= nmpc_.subscribe("/mavros/mission/home_wp", 1, &FwNMPC::homeWpCb, this);
 
 	/* publishers */
 	// to pixhawk
@@ -313,7 +313,7 @@ void FwNMPC::reqSubs() { //TODO: extend this and/or change this to all subs/init
 	subs_.current_wp.data = 0;
 
   /* pull current waypoint list */
-	ros::ServiceClient wp_pull_client_ = nmpc_.serviceClient<mavros::WaypointPull>("/mission/WaypointPull");
+	ros::ServiceClient wp_pull_client_ = nmpc_.serviceClient<mavros::WaypointPull>("/mavros/mission/pull");
 	mavros::WaypointPull wp_pull_srv;
 
 	  if (wp_pull_client_.call(wp_pull_srv))
