@@ -142,24 +142,37 @@ void FwNMPC::initACADOVars() {
 		for (int j = 0; j < NY; ++j) acadoVariables.y[ i * NY + j ] = Y[ j ];
 	}
 
-	// weights
+	// weights -- fill all non-diagonals with zero!
 	for (int i = 0; i < N; ++i) {
-		for (int ii = 0; ii < NY; ++ii) {
-			for (int j = 0; j < NY; ++j) {
-				if ( ii==j ) {
-					acadoVariables.W[ (i + ii) * NY + j ] = ( ii<NY-1 ) ? W[ ii ] : W[ ii ] * (1.0 - (double)i / (double)N) * (1.0 - (double)i / (double)N); //TODO: could include optional power here
+		for (int j = 0; i < NY; ++j) {
+			for (int k = 0; i < NY; ++k) {
+				if ( j == k ) {
+					if ( j<NY-1 ) {
+						acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ];
+					}
+					else {
+						acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ] * (1.0 - i / N) * (1.0 - i / N);
+					}
 				}
-				else acadoVariables.W[ (i + ii) * NY + j ] = 0;
+				else {
+					acadoVariables.W[ NY * NY * i + NY * j + k ] = 0.0;
+				}
 			}
 		}
 	}
-
-	for (int ii = 0; ii < NYN; ++ii) {
+	for (int i = 0; i < NYN; ++i) {
 		for (int j = 0; j < NYN; ++j) {
-			if ( ii==j ) {
-				acadoVariables.WN[ (N + ii) * NYN + j ] = ( ii<NYN-1 ) ? W[ ii ] : 0.0;
+			if ( i == j ) {
+				if ( i<NYN-1 ) {
+					acadoVariables.WN[ i * NYN + i ] =  W[ i ];
+				}
+				else {
+					acadoVariables.WN[ i * NYN + i ] =  0.0;
+				}
 			}
-			else acadoVariables.WN[ (N + ii) * NYN + j ] = 0;
+			else {
+				acadoVariables.WN[ i * NYN + j ] =  0.0;
+			}
 		}
 	}
 }
@@ -284,23 +297,23 @@ void FwNMPC::updateACADO_W() {
 	double W[NY];
 	for (int i = 0; i < NY; i++) W[ i ] = (double)subs_.nmpc_params.Qdiag[ i ];
 
+	// only update diagonal terms
 	for (int i = 0; i < N; ++i) {
-		for (int ii = 0; ii < NY; ++ii) {
-			for (int j = 0; j < NY; ++j) {
-				if ( ii==j ) {
-					acadoVariables.W[ (i + ii) * NY + j ] = ( ii<NY-1 ) ? W[ ii ] : W[ ii ] * (1.0 - (double)i / (double)N) * (1.0 - (double)i / (double)N); //TODO: could include optional power here
-				}
-				else acadoVariables.W[ (i + ii) * NY + j ] = 0;
+		for (int j = 0; i < NY; ++j) {
+			if ( j<NY-1 ) {
+				acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ];
+			}
+			else {
+				acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ] * (1.0 - i / N) * (1.0 - i / N);
 			}
 		}
 	}
-
-	for (int ii = 0; ii < NYN; ++ii) {
-		for (int j = 0; j < NYN; ++j) {
-			if ( ii==j ) {
-				acadoVariables.WN[ (N + ii) * NYN + j ] = ( ii<NYN-1 ) ? W[ ii ] : 0.0;
-			}
-			else acadoVariables.WN[ (N + ii) * NYN + j ] = 0;
+	for (int i = 0; i < NYN; ++i) {
+		if ( i<NYN-1 ) {
+			acadoVariables.WN[ i * NYN + i ] =  W[ i ];
+		}
+		else {
+			acadoVariables.WN[ i * NYN + i ] =  0.0;
 		}
 	}
 }
