@@ -388,7 +388,7 @@ int FwNMPC::nmpcIteration() {
 
 		/* Perform the feedback step. */
 		RET[1] = feedbackStep();
-		if ( RET[1] != 0 ) ROS_ERROR("nmpcIteration: preparation step error, code %d", RET[1]);
+		if ( RET[1] != 0 ) ROS_ERROR("nmpcIteration: feedback step error, code %d", RET[1]);
 
 		/* store ctrl horizon before shift */
 		memcpy(prev_ctrl_horiz_, acadoVariables.u, sizeof(acadoVariables.u)); //NOTE: only copies N sets of ctrls
