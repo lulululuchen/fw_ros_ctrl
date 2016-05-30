@@ -102,7 +102,6 @@ private:
 	ros::Publisher att_sp_pub_;
 	ros::Publisher nmpc_info_pub_;
 	ros::Publisher acado_vars_pub_;
-	ros::Publisher acado_vars_debug_pub_;
 
 	/* time keeping */
 	ros::Time	t_lastctrl;
