@@ -49,7 +49,9 @@ void FwNMPC::aslctrlDataCb(const mavros::AslCtrlData::ConstPtr& msg) {
 
 	subs_.aslctrl_data.header 				= msg->header;
 	subs_.aslctrl_data.aslctrl_mode 	= msg->aslctrl_mode;
+	subs_.aslctrl_data.RollAngle			= msg->RollAngle * 0.017453292519943f;
 	subs_.aslctrl_data.YawAngle 			= msg->YawAngle * 0.017453292519943f;
+	subs_.aslctrl_data.p							= msg->p;
 	subs_.aslctrl_data.AirspeedRef		= msg->AirspeedRef;
 
 }
@@ -110,11 +112,11 @@ void FwNMPC::initACADOVars() {
 	//TODO: maybe actually wait for all subscriptions to be filled here before initializing?
 
 	/* put something reasonable here.. NOT all zeros, solver is initialized from here */
-	double X[NX] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+	double X[NX] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 	double U[NU] = {0.0};
 	double OD[NOD] = {15.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-	double Y[NY] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
-	double W[NY] = {0.0, 10.0, 0.0, 0.0, 10.0, 100.0};
+	double Y[NY] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+	double W[NY] = {0.1, 10.0, 0.0, 0.0, 0.1, 0.01, 10.0, 100.0};
 
 	/* these set a constant value for each variable through the horizon */
 
@@ -226,10 +228,12 @@ void FwNMPC::updateACADO_X0() {
 
 	double X0[NX];
 	paths_.ll2NE(X0[0], X0[1], (double)subs_.glob_pos.latitude, (double)subs_.glob_pos.longitude); // n, e
-	X0[2]		= (double)subs_.aslctrl_data.YawAngle;						// xi
-	X0[3]		= acadoVariables.x0[3];														// intg_e_t
-	X0[4]		= acadoVariables.x0[4];														// intg_e_chi
-	X0[5]		= acadoVariables.x0[5];														// sw
+	X0[2]		= (double)subs_.aslctrl_data.RollAngle;						// mu
+	X0[3]		= (double)subs_.aslctrl_data.YawAngle;						// xi
+	X0[4]		= (double)subs_.aslctrl_data.p;										// mu_dot
+	X0[5]		= acadoVariables.x0[5];														// intg_e_t
+	X0[6]		= acadoVariables.x0[6];														// intg_e_chi
+	X0[7]		= acadoVariables.x0[7];														// sw
 
 	for (int i = 0; i < NX; ++i) acadoVariables.x0[ i ] = X0[ i ];
 }
@@ -282,8 +286,10 @@ void FwNMPC::updateACADO_Y() {
 	Y[1] 	= 0.0;	// e_chi
 	Y[2] 	= 0.0;	// intg_e_t
 	Y[3] 	= 0.0;	// intg_e_chi
-	Y[4] 	= 0.0; 	// mu_r
-	Y[5] 	= 0.0;	// delta_mu_r_k
+	Y[4] 	= 0.0; 	// mu
+	Y[5] 	= 0.0;	// mu_dot
+	Y[6] 	= 0.0; 	// mu_r
+	Y[7] 	= 0.0;	// delta_mu_r_k
 
 	for (int i = 0; i < N + 1; ++i) {
 		for (int j = 0; j < NY; ++j) acadoVariables.y[ i * NY + j ] = Y[ j ];
@@ -469,10 +475,12 @@ void FwNMPC::publishAcadoVars() {
 	for (int i=0; i<N+1; i++) {
 		acado_vars.n[i] = (float)acadoVariables.x[NX * i];
 		acado_vars.e[i] = (float)acadoVariables.x[NX * i + 1];
-		acado_vars.xi[i] = (float)acadoVariables.x[NX * i + 2];
-		acado_vars.intg_e_t[i] = (float)acadoVariables.x[NX * i + 3];
-		acado_vars.intg_e_chi[i] = (float)acadoVariables.x[NX * i + 4];
-		acado_vars.sw[i] = (float)acadoVariables.x[NX * i + 5];
+		acado_vars.mu[i] = (float)acadoVariables.x[NX * i + 2];
+		acado_vars.xi[i] = (float)acadoVariables.x[NX * i + 3];
+		acado_vars.mu_dot[i] = (float)acadoVariables.x[NX * i + 4];
+		acado_vars.intg_e_t[i] = (float)acadoVariables.x[NX * i + 5];
+		acado_vars.intg_e_chi[i] = (float)acadoVariables.x[NX * i + 6];
+		acado_vars.sw[i] = (float)acadoVariables.x[NX * i + 7];
 	}
 
 	/* controls */
@@ -508,8 +516,10 @@ void FwNMPC::publishAcadoVars() {
 	acado_vars.y_e_chi = (float)acadoVariables.y[1];
 	acado_vars.y_intg_e_t = (float)acadoVariables.y[2];
 	acado_vars.y_intg_e_chi = (float)acadoVariables.y[3];
-	acado_vars.y_mu_r = (float)acadoVariables.y[4];
-	acado_vars.y_delta_mu_r = (float)acadoVariables.y[5];
+	acado_vars.y_mu = (float)acadoVariables.y[4];
+	acado_vars.y_mu_dot = (float)acadoVariables.y[5];
+	acado_vars.y_mu_r = (float)acadoVariables.y[6];
+	acado_vars.y_delta_mu_r = (float)acadoVariables.y[7];
 
 	acado_vars_pub_.publish(acado_vars);
 }

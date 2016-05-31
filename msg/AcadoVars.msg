@@ -4,7 +4,9 @@
 # states (note: this only records the "measured" state values, not the horizon states)
 float32[31] n			# northing [m]
 float32[31] e			# easting [m]
+float32[31] mu			# bank angle [rad]
 float32[31] xi			# heading angle [rad]
+float32[31] mu_dot		# bank angle rate [rad]
 float32[31] intg_e_t	# integral of track position error [m-s]
 float32[31] intg_e_chi	# integral of course angle error [rad-s]
 float32[31] sw			# track switching state [~]
@@ -42,5 +44,7 @@ float32 y_e_t
 float32 y_e_chi
 float32 y_intg_e_t
 float32 y_intg_e_chi
+float32 y_mu
+float32 y_mu_dot
 float32 y_mu_r
 float32 y_delta_mu_r
