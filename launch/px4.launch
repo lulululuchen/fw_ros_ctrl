@@ -9,7 +9,7 @@
 
 	<include file="$(find mavros)/launch/node.launch">
 		<arg name="pluginlists_yaml" value="$(find mavros)/launch/px4_pluginlists.yaml" />
-		<arg name="config_yaml" value="$(find mavros)/launch/px4_config.yaml" />
+		<arg name="config_yaml" value="$(find fw_ctrl)/launch/px4_config.yaml" />
 
 		<arg name="fcu_url" value="$(arg fcu_url)" />
 		<arg name="gcs_url" value="$(arg gcs_url)" />
