@@ -25,7 +25,9 @@ FwNMPC::FwNMPC() :
 		last_ctrl_mode(0),
 		prev_ctrl_horiz_({0}),
 		prev_wp_idx_(-1),
-		last_wp_idx_(-1)
+		last_wp_idx_(-1),
+		bYawReceived(false),
+		last_yaw_msg_(0.0f)
 {
 
 	ROS_INFO("Instance of NMPC created");
@@ -50,10 +52,25 @@ void FwNMPC::aslctrlDataCb(const mavros::AslCtrlData::ConstPtr& msg) {
 	subs_.aslctrl_data.header 				= msg->header;
 	subs_.aslctrl_data.aslctrl_mode 	= msg->aslctrl_mode;
 	subs_.aslctrl_data.RollAngle			= msg->RollAngle * 0.017453292519943f;
-	subs_.aslctrl_data.YawAngle 			= msg->YawAngle * 0.017453292519943f;
 	subs_.aslctrl_data.p							= msg->p;
 	subs_.aslctrl_data.AirspeedRef		= msg->AirspeedRef;
 
+	float tmp_yaw = msg->YawAngle * 0.017453292519943f;
+
+	if (!bYawReceived) {
+		subs_.aslctrl_data.YawAngle = tmp_yaw;
+		last_yaw_msg_ = tmp_yaw;
+		bYawReceived = true;
+		return;
+	}
+
+	float delta_yaw = tmp_yaw - last_yaw_msg_;
+	if ( delta_yaw < -3.141592653589793 ) delta_yaw = delta_yaw + 6.283185307179586;
+	if ( delta_yaw > 3.141592653589793 ) delta_yaw = delta_yaw - 6.283185307179586;
+
+	subs_.aslctrl_data.YawAngle = subs_.aslctrl_data.YawAngle + delta_yaw;
+
+	last_yaw_msg_ = tmp_yaw;
 }
 
 void FwNMPC::globPosCb(const sensor_msgs::NavSatFix::ConstPtr& msg) {

@@ -118,6 +118,10 @@ private:
 	int last_wp_idx_;
 	PathManager paths_;
 
+	/* continuity */
+	bool bYawReceived;
+	float last_yaw_msg_;
+
 	/* node functions */
 	void 	shutdown();
 
