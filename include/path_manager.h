@@ -238,9 +238,13 @@ void PathManager::updatePaths( const mavros::WaypointList wp_list, int cur_idx, 
 		// all other cases
 		else {
 
+			if ( wp_list.waypoints[ prev_idx ].command != 177 ) {
+				prev_idx = cur_idx - 1;
+			}
+
 			// curve segment
 			if ( wp_list.waypoints[ cur_idx ].command == 17 ||
-					( wp_list.waypoints[ cur_idx ].command == 16 && wp_list.waypoints[ cur_idx+1 ].command == 17 && wp_list.waypoints[ prev_idx ].command == 17 ) ) { // catches corner case
+					( wp_list.waypoints[ cur_idx ].command == 16 && wp_list.waypoints[ cur_idx+1 ].command == 17 && wp_list.waypoints[ prev_idx ].command == 17 ) ) { // catches corner case (assumes NO DO JUMP)
 
 				if ( wp_list.waypoints[ cur_idx ].command == 16 && wp_list.waypoints[ cur_idx+1 ].command == 17 && wp_list.waypoints[ prev_idx ].command == 17 ) {
 					prev_idx = cur_idx;
@@ -332,7 +336,7 @@ void PathManager::updatePaths( const mavros::WaypointList wp_list, int cur_idx, 
 					wp_a[0] = wp_c[0] + wp_list.waypoints[ next_idx ].param3;
 					wp_a[1] = wp_c[1];
 
-					path_next.setCurve( wp_a, wp_a, wp_c, wp_list.waypoints[ next_idx+1 ].param3 );
+					path_next.setCurve( wp_a, wp_a, wp_c, wp_list.waypoints[ next_idx ].param3 );
 				}
 				// return home
 				else {
