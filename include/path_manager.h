@@ -75,7 +75,7 @@ void DubinsSegment::setCurve( const double wp_a[2], const double wp_b[2], const 
   } else if (pparam6 < 0.0 && xiend > pparam8) {
       delta_xi = delta_xi - 6.28318530718;
   }
-	pparam9 = delta_xi;
+	pparam9 = fabs(delta_xi);
 }
 
 /*
