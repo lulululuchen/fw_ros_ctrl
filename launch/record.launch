@@ -1,12 +1,14 @@
 <launch>
 
-  <arg name="file_name" value="/home/techpod/rosbags/nmpc" />
+  <arg name="file_name" value="/home/thomas/Documents/rosbags/nmpc" />
+
+  <arg name="general_topics" value="/mavros/global_position/global /mavros/aslctrl/data" />
 
   <arg name="nmpc_topics" value="/nmpc/acado_vars /nmpc/info" />   
 
   <arg name="mission_items" value="/mavros/mission/waypoints /mavros/mission/current_wp /mavros/mission/home_wp" />
 
-  <arg name="recorded_topics" value="$(arg nmpc_topics) $(arg mission_items)" />
+  <arg name="recorded_topics" value="$(arg general_topics) $(arg nmpc_topics) $(arg mission_items)" />
 
   <node pkg="rosbag" type="record" name="record" args="-o $(arg file_name) $(arg recorded_topics)" />
 </launch>
