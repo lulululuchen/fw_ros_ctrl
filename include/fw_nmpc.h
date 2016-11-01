@@ -27,7 +27,7 @@
 #define NY 	ACADO_NY 	/* Number of measurements/references on nodes 0..N - 1. */
 #define NYN	ACADO_NYN	/* Number of measurements/references on node N. */
 #define N		ACADO_N		/* Number of intervals in the horizon. */
-#define NX_AUGM 3			/* Number of augmented differential state variables. */
+#define NX_AUGM 2			/* Number of augmented differential state variables. */
 
 /* global variables used by the solver. */
 ACADOvariables acadoVariables;
@@ -48,6 +48,7 @@ public:
 	/* callbacks */
 	void 	aslctrlDataCb(const mavros::AslCtrlData::ConstPtr& msg);
 	void 	globPosCb(const sensor_msgs::NavSatFix::ConstPtr& msg);
+	void 	globVelCb(const geometry_msgs::Vector3Stamped::ConstPtr& msg);
 	void 	ekfExtCb(const mavros::AslEkfExt::ConstPtr& msg);
 	void 	nmpcParamsCb(const mavros::AslNmpcParams::ConstPtr& msg);
 	void 	waypointListCb(const mavros::WaypointList::ConstPtr& msg);
@@ -75,7 +76,7 @@ public:
 	void 	ll2NE(double &n, double &e, const double lat, const double lon, const double lat0, const double lon0);
 
 	/* publishing encapsulation */
-	void	publishControls(std_msgs::Header header, uint64_t &t_ctrl);
+	void	publishControls(std_msgs::Header header, uint64_t &t_ctrl, ros::Time t_start, int obctrl_status);
 	void	publishAcadoVars();
 	void	publishNmpcInfo(ros::Time t_start, uint64_t t_ctrl);
 
@@ -92,6 +93,7 @@ private:
 	/* subscribers */
 	ros::Subscriber aslctrl_data_sub_;
 	ros::Subscriber glob_pos_sub_;
+	ros::Subscriber glob_vel_sub_;
 	ros::Subscriber ekf_ext_sub_;
 	ros::Subscriber nmpc_params_sub_;
 	ros::Subscriber waypoint_list_sub_;
@@ -99,7 +101,7 @@ private:
 	ros::Subscriber home_wp_sub_;
 
 	/* publishers */
-	ros::Publisher att_sp_pub_;
+	ros::Publisher obctrl_pub_;
 	ros::Publisher nmpc_info_pub_;
 	ros::Publisher acado_vars_pub_;
 
@@ -110,8 +112,8 @@ private:
 	bool	bModeChanged;
 	int		last_ctrl_mode;
 
-	/* control horizon */ //NOTE: the generated ctrl horizon is actually on length=N, but the online data struct needs N+1 values
-	double prev_ctrl_horiz_[ NU * (N + 1) ];
+	/* control horizon */
+	double prev_ctrl_horiz_[ NU * N ];
 
 	/* path definitions */
 	int prev_wp_idx_;

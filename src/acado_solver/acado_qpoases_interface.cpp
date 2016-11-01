@@ -30,7 +30,7 @@ extern "C"
 #include "acado_common.h"
 }
 
-#include "qpoases/INCLUDE/QProblem.hpp"
+#include "qpoases/INCLUDE/QProblemB.hpp"
 
 #if ACADO_COMPUTE_COVARIANCE_MATRIX == 1
 #include "INCLUDE/EXTRAS/SolutionAnalysis.hpp"
@@ -48,9 +48,9 @@ int solve( void )
 {
 	nWSR = QPOASES_NWSRMAX;
 
-	QProblem qp(30, 60);
+	QProblemB qp( 120 );
 	
-	returnValue retVal = qp.init(acadoWorkspace.H, acadoWorkspace.g, acadoWorkspace.A, acadoWorkspace.lb, acadoWorkspace.ub, acadoWorkspace.lbA, acadoWorkspace.ubA, nWSR, acadoWorkspace.y);
+	returnValue retVal = qp.init(acadoWorkspace.H, acadoWorkspace.g, acadoWorkspace.lb, acadoWorkspace.ub, nWSR, acadoWorkspace.y);
 
 	qp.getPrimalSolution( acadoWorkspace.x );
 	qp.getDualSolution( acadoWorkspace.y );
