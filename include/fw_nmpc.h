@@ -69,11 +69,11 @@ public:
 	/* gets */
 	int 	getLoopRate();
 	void 	reqSubs();
+	void 	calculateTrackError(double &e_t_ne, double &e_t_d, const real_t *in_x, const real_t *in_od);
 
 	/* functions */
 	void 	update();
 	int 	nmpcIteration();
-	void 	ll2NE(double &n, double &e, const double lat, const double lon, const double lat0, const double lon0);
 
 	/* publishing encapsulation */
 	void	publishControls(std_msgs::Header header, uint64_t &t_ctrl, ros::Time t_start, int obctrl_status);
