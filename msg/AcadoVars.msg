@@ -1,7 +1,10 @@
 # ROS message containing ACADO variables
 # Thomas Stastny | thomas.stastny@mavt.ethz.ch
 
-# states (note: this only records the "measured" state values, not the horizon states)
+# measurements
+float32[13] x0			# measurement vector
+
+# state horizons
 float32[41] n			# northing [m]
 float32[41] e			# easting [m]
 float32[41] d			# down [m]
@@ -22,15 +25,15 @@ float32[40] phi_ref		# roll angle reference
 float32[40] theta_ref	# pitch angle reference
 
 # online data
-uint8 pparam1   	# type(=0)	type(=1)
-float32 pparam2     # aa_n    	cc_n
-float32 pparam3     # aa_e    	cc_e
-float32 pparam4     # aa_d    	cc_d
-float32 pparam5     # bb_n    	R
-float32 pparam6     # bb_e    	dir
-float32 pparam7     # bb_d    	gam
-float32 pparam8     # --      	xi0
-float32 pparam9     # --      	dxi
+uint8 pparam1   		# type(=0)	type(=1)
+float32 pparam2     	# aa_n    	cc_n
+float32 pparam3     	# aa_e    	cc_e
+float32 pparam4     	# aa_d    	cc_d
+float32 pparam5     	# bb_n    	R
+float32 pparam6     	# bb_e    	dir
+float32 pparam7     	# bb_d    	gam
+float32 pparam8     	# --      	xi0
+float32 pparam9     	# --      	dxi
 uint8 pparam1_next  
 float32 pparam2_next 
 float32 pparam3_next 
@@ -40,12 +43,12 @@ float32 pparam6_next
 float32 pparam7_next
 float32 pparam8_next
 float32 pparam9_next
-float32 R_acpt
-float32 ceta_acpt
+float32 R_acpt			# track switch acceptance radius (proximity condition)
+float32 ceta_acpt		# cosine of track switch acceptance angular error (bearing condition)
 
-float32 wn
-float32 we
-float32 wd
+float32 wn				# north wind component
+float32 we				# east wind component
+float32 wd				# down wind component
 
 float32 k_t_d 			# longitudinal logistic gain
 float32 e_d_co     		# longitudinal logistic cutoff [m]

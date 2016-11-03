@@ -103,6 +103,7 @@ public:
 	DubinsSegment path_next;
 
 	void setHomeWp( const double new_home_wp[3] );
+	double getHomeAlt() { return home_wp[2]; };
 	void copyNext2Current();
 	void updatePaths( const mavros::WaypointList wp_list, int cur_idx, int prev_idx );
 	void ll2NE( double &n, double &e, const double lat, const double lon);
@@ -277,10 +278,10 @@ void PathManager::updatePaths( const mavros::WaypointList wp_list, int cur_idx, 
 				wp_a[2] = -(double)wp_list.waypoints[ prev_idx ].z_alt;
 
 				ll2NE(wp_b[0], wp_b[1], wp_list.waypoints[ cur_idx+1 ].x_lat, wp_list.waypoints[ cur_idx+1 ].y_long ); // NOTE: assumes there must be a NAV wp before and after every loiter point
-				wp_b[2] = -(double)wp_list.waypoints[ cur_idx ].z_alt;
+				wp_b[2] = -(double)wp_list.waypoints[ cur_idx+1 ].z_alt;
 
 				ll2NE(wp_c[0], wp_c[1], wp_list.waypoints[ cur_idx ].x_lat, wp_list.waypoints[ cur_idx ].y_long );
-				wp_c[2] = -(double)wp_list.waypoints[ prev_idx ].z_alt; // use wp_a for center point
+				wp_c[2] = -(double)wp_list.waypoints[ cur_idx ].z_alt;
 
 				path_current.setCurve( wp_a, wp_b, wp_c, wp_list.waypoints[ cur_idx ].param3, wp_list.waypoints[ cur_idx ].param2 );
 

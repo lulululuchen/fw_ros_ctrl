@@ -67,7 +67,8 @@ public:
 	void	updateACADO_W();
 
 	/* gets */
-	int 	getLoopRate();
+	double getLoopRate();
+	double getTimeStep();
 	void 	reqSubs();
 	void 	calculateTrackError(double &e_t_ne, double &e_t_d, const real_t *in_x, const real_t *in_od);
 
@@ -81,6 +82,7 @@ public:
 	void	publishNmpcInfo(ros::Time t_start, uint64_t t_ctrl);
 
 	double	LOOP_RATE;
+	double 	TSTEP;
 
 private:
 

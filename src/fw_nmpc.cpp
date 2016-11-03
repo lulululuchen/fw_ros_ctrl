@@ -20,6 +20,7 @@ using namespace fw_nmpc;
 
 FwNMPC::FwNMPC() :
 		LOOP_RATE(20.0), //MAGIC NUMBER
+		TSTEP(0.1), //MAGIC NUMBER
 		t_lastctrl{0},
 		bModeChanged(false),
 		last_ctrl_mode(0),
@@ -43,7 +44,7 @@ FwNMPC::FwNMPC() :
 	home_wp_sub_			= nmpc_.subscribe("/mavros/mission/home_wp", 1, &FwNMPC::homeWpCb, this);
 
 	/* publishers */
-	obctrl_pub_ = nmpc_.advertise<mavros::AslObCtrl>("asl_obctrl", 10, true);
+	obctrl_pub_ = nmpc_.advertise<mavros::AslObCtrl>("/nmpc/asl_obctrl", 10, true);
 	nmpc_info_pub_ = nmpc_.advertise<fw_ctrl::NmpcInfo>("/nmpc/info",10,true);
 	acado_vars_pub_	= nmpc_.advertise<fw_ctrl::AcadoVars>("/nmpc/acado_vars",10,true);
 }
@@ -81,6 +82,7 @@ void FwNMPC::globPosCb(const sensor_msgs::NavSatFix::ConstPtr& msg) {
 
 	subs_.glob_pos.latitude = msg->latitude;
 	subs_.glob_pos.longitude = msg->longitude;
+	subs_.glob_pos.altitude = msg->altitude;
 }
 
 void FwNMPC::globVelCb(const geometry_msgs::Vector3Stamped::ConstPtr& msg) {
@@ -95,6 +97,7 @@ void FwNMPC::ekfExtCb(const mavros::AslEkfExt::ConstPtr& msg) {
 	subs_.ekf_ext.airspeed 			= msg->airspeed;
 	subs_.ekf_ext.windSpeed 		= msg->windSpeed;
 	subs_.ekf_ext.windDirection = msg->windDirection;
+	subs_.ekf_ext.windZ					= msg->windZ;
 }
 
 void FwNMPC::nmpcParamsCb(const mavros::AslNmpcParams::ConstPtr& msg) {
@@ -141,6 +144,9 @@ int FwNMPC::initNMPC() {
 	/* get loop rate */
 	nmpc_.getParam("/nmpc/loop_rate", LOOP_RATE);
 
+	/* get model discretization step */
+	nmpc_.getParam("/nmpc/time_step", TSTEP);
+
 	return RET;
 }
 
@@ -153,7 +159,7 @@ void FwNMPC::initACADOVars() {
 	double U[NU] = {0.3, 0.0, 0.0};
 	double OD[NOD] = {0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 30.0, 0.8, 0.0, 0.0, 0.0, 0.4, 30.0, 0.4, 60.0, 0.5, 0.1396, -0.0524, 0.0349};
 	double Y[NY] = {0.0, 0.0, 0.0, 0.0, 0.0, 13.5, 0.0, 0.0, 0.0, 0.0, 0.3, 0.0, 0.0, 0.3, 0.0, 0.0};
-	double W[NY] = {50.0, 200.0, 20.0, 20.0, 5.0, 10.0, 36.47, 36.47, 3.647, 1.0, 0.0, 0.0, 0.0, 10.0, 182.3, 145.9};
+	double W[NY] = {50.0, 200.0, 20.0, 20.0, 5.0, 10.0, 36.47, 36.47, 3.647, 1.0, 0.1, 3.6476, 1.459, 10.0, 182.3, 145.9};
 
 	/* these set a constant value for each variable through the horizon */
 
@@ -182,12 +188,12 @@ void FwNMPC::initACADOVars() {
 		for (int j = 0; j < NY; ++j) {
 			for (int k = 0; k < NY; ++k) {
 				if ( j == k ) {
-					if ( j<NY-NU+1 ) { //NOTE: includes constant weight through horizon for previous throttle
+//					if ( j<NY-NU+1 ) { //NOTE: includes constant weight through horizon for previous throttle
 						acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ];
-					}
-					else {
-						acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ] * (1.0 - i / N) * (1.0 - i / N); //NOTE: for phi_ref and theta_ref, reduce weight on previous value through horizon
-					}
+//					}
+//					else {
+//						acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ] * (1.0 - i / N) * (1.0 - i / N); //NOTE: for phi_ref and theta_ref, reduce weight on previous value through horizon
+//					}
 				}
 				else {
 					acadoVariables.W[ NY * NY * i + NY * j + k ] = 0.0;
@@ -198,12 +204,12 @@ void FwNMPC::initACADOVars() {
 	for (int i = 0; i < NYN; ++i) {
 		for (int j = 0; j < NYN; ++j) {
 			if ( i == j ) {
-				if ( i<NYN-1 ) {
+//				if ( i<NYN-1 ) {
 					acadoVariables.WN[ i * NYN + i ] =  W[ i ];
-				}
-				else {
-					acadoVariables.WN[ i * NYN + i ] =  0.0;
-				}
+//				}
+//				else {
+//					acadoVariables.WN[ i * NYN + i ] =  0.0;
+//				}
 			}
 			else {
 				acadoVariables.WN[ i * NYN + j ] =  0.0;
@@ -216,25 +222,47 @@ void FwNMPC::initHorizon() {
 
 	ROS_ERROR("initHorizon: hold states constant through horizon (first time in loop)");
 
-	// update home wp
-	const double new_home_wp[3] = {subs_.home_wp.latitude, subs_.home_wp.longitude, subs_.home_wp.altitude};
-	paths_.setHomeWp( new_home_wp );
-	prev_wp_idx_ = -1;
-
 	//TODO: sliding window and/or low pass filter
 
-	/* hold current states constant through horizion */ //TODO: could at least propagate position init with current velocity
-	for (int i = 0; i < N + 1; ++i) {
-		for (int j = 0; j < NX-NX_AUGM; ++j) acadoVariables.x[ i * NX + j ] = acadoVariables.x0[ j ];
-	}
+	double X0[NX];
+	paths_.ll2NE(X0[0], X0[1], (double)subs_.glob_pos.latitude, (double)subs_.glob_pos.longitude); // n, e
+	X0[2]		= -((double)subs_.glob_pos.altitude - paths_.getHomeAlt()); // d
+	X0[3]		= (double)subs_.ekf_ext.airspeed; // V
+	X0[4]		= (double)( (subs_.glob_vel.vector.z - subs_.ekf_ext.windZ) / subs_.ekf_ext.airspeed ); // gamma
+	X0[5]		= (double)subs_.aslctrl_data.YawAngle; // xi
+	X0[6]		= (double)subs_.aslctrl_data.RollAngle; // phi
+	X0[7]		= (double)subs_.aslctrl_data.PitchAngle; // theta
+	X0[8]		= (double)subs_.aslctrl_data.p; // p
+	X0[9]		= (double)subs_.aslctrl_data.q; // q
+	X0[10]	= (double)subs_.aslctrl_data.r; // r
+	X0[11]	= (double)subs_.aslctrl_data.uThrot; // throt
+	X0[12]	= 0.0; // xsw
 
-	/* initialize augmented states */
+	for (int i = 0; i < NX; ++i) acadoVariables.x0[ i ] = X0[ i ];
+
+	/* hold current states constant through horizion */
 	for (int i = 0; i < N + 1; ++i) {
-		for (int j = NX_AUGM; j < NX; ++j) acadoVariables.x[ i * NX + j ] = 0.0; //TODO: NOT ALL NECESSARILY ZEROS
+		for (int j = 0; j < NX-NX_AUGM; ++j) {
+			if (j==0) {
+				acadoVariables.x[ i * NX + j ] = X0[0] + subs_.glob_vel.vector.x * getTimeStep() * (double)i; // linear propagation
+			}
+			else if (j==1) {
+				acadoVariables.x[ i * NX + j ] = X0[1] + subs_.glob_vel.vector.y * getTimeStep() * (double)i; // linear propagation
+			}
+			else if (j==2) {
+				acadoVariables.x[ i * NX + j ] = X0[2] + subs_.glob_vel.vector.z * getTimeStep() * (double)i; // linear propagation
+			}
+			else if (j==8 || j==9 || j==10) {
+				acadoVariables.x[ i * NX + j ] = 0.0; //zero out rates in horizon to avoid blow-up initializations
+			}
+			else {
+				acadoVariables.x[ i * NX + j ] = acadoVariables.x0[ j ];
+			}
+		}
 	}
 
 	/* get current controls */
-	double U[NU] = {double(subs_.aslctrl_data.uThrot),0.0,0.0}; // could potentially pull all current refs.
+	double U[NU] = {(double)subs_.aslctrl_data.uThrot,0.0,0.0}; // could potentially pull all current refs.
 
 	/* offset controls */
 	for (int i = 0; i < NU; ++i)  U[ i ] = U[ i ] - subs_.CTRL_OFFSET[ i ];
@@ -261,7 +289,7 @@ void FwNMPC::updateACADO_X0() {
 
 	double X0[NX];
 	paths_.ll2NE(X0[0], X0[1], (double)subs_.glob_pos.latitude, (double)subs_.glob_pos.longitude); // n, e
-	X0[2]		= -(double)subs_.glob_pos.latitude; // d
+	X0[2]		= -((double)subs_.glob_pos.altitude - paths_.getHomeAlt()); // d
 	X0[3]		= (double)subs_.ekf_ext.airspeed; // V
 	X0[4]		= (double)( (subs_.glob_vel.vector.z - subs_.ekf_ext.windZ) / subs_.ekf_ext.airspeed ); // gamma
 	X0[5]		= (double)subs_.aslctrl_data.YawAngle; // xi
@@ -270,8 +298,8 @@ void FwNMPC::updateACADO_X0() {
 	X0[8]		= (double)subs_.aslctrl_data.p; // p
 	X0[9]		= (double)subs_.aslctrl_data.q; // q
 	X0[10]	= (double)subs_.aslctrl_data.r; // r
-	X0[11]	= acadoVariables.x0[11]; // throt
-	X0[12]	= acadoVariables.x0[12]; // xsw
+	X0[11]	= acadoVariables.x[11]; // throt
+	X0[12]	= acadoVariables.x[12]; // xsw
 
 	for (int i = 0; i < NX; ++i) acadoVariables.x0[ i ] = X0[ i ];
 }
@@ -311,6 +339,12 @@ void FwNMPC::updateACADO_OD() {
 	OD[28] = (double)subs_.nmpc_params.alpha_p_co;
 	OD[29] = (double)subs_.nmpc_params.alpha_m_co;
 	OD[30] = (double)subs_.nmpc_params.alpha_delta_co;
+
+	for (int i = 0; i < N+1; ++i) {
+			for (int j = 0; j < NOD; ++j) {
+					acadoVariables.od[ i * NOD + j ] = OD[ j ];
+			}
+	}
 }
 
 void FwNMPC::updateACADO_Y() {
@@ -361,8 +395,12 @@ void FwNMPC::updateACADO_W() {
 	for (int i = 0; i < NYN; ++i) acadoVariables.WN[ i * NYN + i ] =  W[ i ];
 }
 
-int FwNMPC::getLoopRate() {
+double FwNMPC::getLoopRate() {
 	return LOOP_RATE;
+}
+
+double FwNMPC::getTimeStep() {
+	return TSTEP;
 }
 
 void FwNMPC::reqSubs() { //TODO: extend this and/or change this to all subs/initializations
@@ -579,8 +617,8 @@ int FwNMPC::nmpcIteration() {
 
 	int RET[2] = {0, 0};
 
-	/* check mode */ //TODO: should include some checking to make sure not on ground/ other singularity ridden cases
-	bModeChanged = (subs_.aslctrl_data.aslctrl_mode - last_ctrl_mode) > 0 ? true : false;
+	/* check mode */ //TODO: should include some checking to make sure not on ground/ other singularity ridden cases //TODO: this does not cover RC loss..
+	if (last_ctrl_mode != 5) bModeChanged = true;
 	last_ctrl_mode = subs_.aslctrl_data.aslctrl_mode;
 	if (subs_.aslctrl_data.aslctrl_mode == 5) {
 
@@ -591,14 +629,28 @@ int FwNMPC::nmpcIteration() {
 
 		if (bModeChanged) {
 			/* first time in loop */
+
+			// update home wp
+			// -->initHorizon needs up to date wp info for ned calculation
+			const double new_home_wp[3] = {subs_.home_wp.latitude, subs_.home_wp.longitude, subs_.home_wp.altitude};
+			paths_.setHomeWp( new_home_wp );
+			prev_wp_idx_ = -1;
+
+			// initHorizon BEFORE Y, this is to make sure controls and prev_horiz are reinitialized before reaching Y update.
 			initHorizon();
+			updateACADO_Y();
+			updateACADO_W();
+
 			bModeChanged = false;
 		}
+		else {
+			//regular update
 
-		/* update ACADO states/references/weights */
-		updateACADO_X0();
-		updateACADO_Y();
-		updateACADO_W();
+			/* update ACADO states/references/weights */
+			updateACADO_X0();
+			updateACADO_Y();
+			updateACADO_W();
+		}
 
 		/* check current waypoint */
 		if ( subs_.current_wp.data != prev_wp_idx_ ) {
@@ -650,12 +702,27 @@ int FwNMPC::nmpcIteration() {
 		/* shift (or just hold over) augmented states */
 		for (int i = NX_AUGM; i < NX; ++i) acadoVariables.x0[i] = acadoVariables.x[i];
 
-		/* publish ACADO variables */
+		/* publish ACADO variables */ // should this go outside?
 		publishAcadoVars();
 
 		/* publish nmpc info */
 		publishNmpcInfo(t_start, t_ctrl);
 
+	}
+	else {
+		// send "alive" status
+
+		/* publish obctrl msg */
+		mavros::AslObCtrl obctrl_msg;
+		obctrl_msg.timestamp = 0;
+		obctrl_msg.uThrot = 0.0f;
+		obctrl_msg.uThrot2 = 0.0f; // for monitoring on QGC
+		obctrl_msg.uAilR = 0.0f;
+		obctrl_msg.uAilL = 0.0f; // for monitoring on QGC
+		obctrl_msg.uElev = 0.0f;
+		obctrl_msg.obctrl_status = 0;
+
+		obctrl_pub_.publish(obctrl_msg);
 	}
 
 	/* return status */
@@ -700,6 +767,7 @@ void FwNMPC::publishControls(std_msgs::Header header, uint64_t &t_ctrl, ros::Tim
 	obctrl_msg.uAilL = (float)e_t_ne; // for monitoring on QGC
 	obctrl_msg.uElev = (float)ctrl[2];
 	obctrl_msg.obctrl_status = (uint8_t)obctrl_status;
+
 	obctrl_pub_.publish(obctrl_msg);
 
 	/* update last control timestamp / publish elapsed ctrl loop time */
@@ -712,7 +780,12 @@ void FwNMPC::publishAcadoVars() {
 
 	fw_ctrl::AcadoVars acado_vars;
 
-	/* states (note: this only records the "measured" state values, not the horizon states) */
+	/* measurements */
+	for (int i=0; i<NX+1; i++) {
+		acado_vars.x0[i] = (float)acadoVariables.x0[i];
+	}
+
+	/* state horizons */
 	for (int i=0; i<N+1; i++) {
 		acado_vars.n[i] = (float)acadoVariables.x[NX * i];
 		acado_vars.e[i] = (float)acadoVariables.x[NX * i + 1];
@@ -729,7 +802,7 @@ void FwNMPC::publishAcadoVars() {
 		acado_vars.xsw[i] = (float)acadoVariables.x[NX * i + 12];
 	}
 
-	/* controls */
+	/* control horizons */
 	for (int i=0; i<N; i++) {
 		acado_vars.uT[i] = (float)acadoVariables.u[NU * i];
 		acado_vars.phi_ref[i] = (float)acadoVariables.u[NU * i + 1];
