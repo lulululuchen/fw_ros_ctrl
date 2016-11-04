@@ -761,12 +761,12 @@ void FwNMPC::publishControls(std_msgs::Header header, uint64_t &t_ctrl, ros::Tim
 	/* publish obctrl msg */
 	mavros::AslObCtrl obctrl_msg;
 	obctrl_msg.timestamp = t_solve_approx; //this is actually calculated again after some more calculations.. but nice to get an idea on the ground station
-	obctrl_msg.uThrot = (float)ctrl[0];
+	obctrl_msg.uThrot = ( isnan((float)ctrl[0]) ) ? 0.0f : (float)ctrl[0];
 	obctrl_msg.uThrot2 = (float)e_t_d; // for monitoring on QGC
-	obctrl_msg.uAilR = (float)ctrl[1];
+	obctrl_msg.uAilR = ( isnan((float)ctrl[1]) ) ? 0.0f : (float)ctrl[1];
 	obctrl_msg.uAilL = (float)e_t_ne; // for monitoring on QGC
-	obctrl_msg.uElev = (float)ctrl[2];
-	obctrl_msg.obctrl_status = (uint8_t)obctrl_status;
+	obctrl_msg.uElev = ( isnan((float)ctrl[2]) ) ? 0.0f : (float)ctrl[2];
+	obctrl_msg.obctrl_status = ( isnan((float)ctrl[0]) || isnan((float)ctrl[1]) || isnan((float)ctrl[2]) ) ? 11 : (uint8_t)obctrl_status; // status=11 for nan detection
 
 	obctrl_pub_.publish(obctrl_msg);
 
