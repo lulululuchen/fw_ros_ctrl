@@ -61,6 +61,7 @@ float32 alpha_delta_co  # angle of attack cutoff transition length [rad]
 
 # references
 float32 y_V
+float32 y_uT
 float32 y_uT0
 float32 y_phi_ref0
 float32 y_theta_ref0

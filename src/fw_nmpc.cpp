@@ -59,6 +59,7 @@ void FwNMPC::aslctrlDataCb(const mavros::AslCtrlData::ConstPtr& msg) {
 	subs_.aslctrl_data.q							= msg->q;
 	subs_.aslctrl_data.r							= msg->r;
 	subs_.aslctrl_data.AirspeedRef		= msg->AirspeedRef;
+	subs_.aslctrl_data.uThrot		= msg->uThrot;
 
 	float tmp_yaw = msg->YawAngle * 0.017453292519943f;
 
@@ -223,6 +224,29 @@ void FwNMPC::initHorizon() {
 	ROS_ERROR("initHorizon: hold states constant through horizon (first time in loop)");
 
 	//TODO: sliding window and/or low pass filter
+	
+	/* get current controls */
+	double U[NU] = {(double)subs_.aslctrl_data.uThrot,0.0,0.0}; // could potentially pull all current refs.
+
+	/* offset controls */
+	for (int i = 0; i < NU; ++i)  U[ i ] = U[ i ] - subs_.CTRL_OFFSET[ i ];
+
+	/* saturate controls */
+	for (int i = 0; i < NU; ++i) {
+		if (U[i] < subs_.CTRL_SATURATION[i][0]) U[i] = subs_.CTRL_SATURATION[i][0];
+		if (U[i] > subs_.CTRL_SATURATION[i][1]) U[i] = subs_.CTRL_SATURATION[i][1];
+	}
+
+	/* normalize controls */
+	for (int i = 0; i < NU; ++i)  U[ i ] = U[ i ] * subs_.CTRL_NORMALIZATION[ i ];
+
+	/* hold current controls constant through horizon */
+	for (int i = 0; i < N; ++i) {
+		for (int j = 0; j < NU; ++j) acadoVariables.u[ i * NU + j ] = U[ j ];
+	}
+
+	/* store control horizon */
+	memcpy(prev_ctrl_horiz_, acadoVariables.u, sizeof(acadoVariables.u));
 
 	double X0[NX];
 	paths_.ll2NE(X0[0], X0[1], (double)subs_.glob_pos.latitude, (double)subs_.glob_pos.longitude); // n, e
@@ -235,7 +259,7 @@ void FwNMPC::initHorizon() {
 	X0[8]		= (double)subs_.aslctrl_data.p; // p
 	X0[9]		= (double)subs_.aslctrl_data.q; // q
 	X0[10]	= (double)subs_.aslctrl_data.r; // r
-	X0[11]	= (double)subs_.aslctrl_data.uThrot; // throt
+	X0[11]	= U[0]; // throt
 	X0[12]	= 0.0; // xsw
 
 	for (int i = 0; i < NX; ++i) acadoVariables.x0[ i ] = X0[ i ];
@@ -260,6 +284,10 @@ void FwNMPC::initHorizon() {
 			}
 		}
 	}
+}
+
+void FwNMPC::updateACADO_X0() {
+
 
 	/* get current controls */
 	double U[NU] = {(double)subs_.aslctrl_data.uThrot,0.0,0.0}; // could potentially pull all current refs.
@@ -276,16 +304,8 @@ void FwNMPC::initHorizon() {
 	/* normalize controls */
 	for (int i = 0; i < NU; ++i)  U[ i ] = U[ i ] * subs_.CTRL_NORMALIZATION[ i ];
 
-	/* hold current controls constant through horizon */
-	for (int i = 0; i < N; ++i) {
-		for (int j = 0; j < NU; ++j) acadoVariables.u[ i * NU + j ] = U[ j ];
-	}
-
 	/* store control horizon */
 	memcpy(prev_ctrl_horiz_, acadoVariables.u, sizeof(acadoVariables.u));
-}
-
-void FwNMPC::updateACADO_X0() {
 
 	double X0[NX];
 	paths_.ll2NE(X0[0], X0[1], (double)subs_.glob_pos.latitude, (double)subs_.glob_pos.longitude); // n, e
@@ -298,7 +318,7 @@ void FwNMPC::updateACADO_X0() {
 	X0[8]		= (double)subs_.aslctrl_data.p; // p
 	X0[9]		= (double)subs_.aslctrl_data.q; // q
 	X0[10]	= (double)subs_.aslctrl_data.r; // r
-	X0[11]	= acadoVariables.x[11]; // throt
+	X0[11]	= U[0]; // throt
 	X0[12]	= acadoVariables.x[12]; // xsw
 
 	for (int i = 0; i < NX; ++i) acadoVariables.x0[ i ] = X0[ i ];
@@ -361,7 +381,7 @@ void FwNMPC::updateACADO_Y() {
 	Y[7] 	= 0.0;	// q_ref
 	Y[8] 	= 0.0;	// r_ref
 	Y[7] 	= 0.0;	// alpha_soft _ref
-	Y[9] 	= 0.0;	// uthrot _ref
+	Y[9] 	= 0.3;	// uthrot _ref
 	Y[10] = 0.0;	// phi_ref _ref
 	Y[11] = 0.0;	// theta_ref _ref
 
@@ -853,7 +873,7 @@ void FwNMPC::publishAcadoVars() {
 //	acado_vars.y_q = (float)acadoVariables.y[7];
 //	acado_vars.y_r = (float)acadoVariables.y[8];
 //	acado_vars.y_asoft = (float)acadoVariables.y[9];
-//	acado_vars.y_uT = (float)acadoVariables.y[10];
+	acado_vars.y_uT = (float)acadoVariables.y[10];
 //	acado_vars.y_phi_ref = (float)acadoVariables.y[11];
 //	acado_vars.y_theta_ref = (float)acadoVariables.y[12];
 	acado_vars.y_uT0 = (float)acadoVariables.y[13];
