@@ -184,7 +184,7 @@ void FwNMPC::initACADOVars() {
 		for (int j = 0; j < NY; ++j) acadoVariables.y[ i * NY + j ] = Y[ j ];
 	}
 
-	// weights -- fill all non-diagonals with zero!
+	// weights -- fill all non-diagonals with zero! //TODO: this can be done muuuuch quicker with W[~]={ 0 }; for initializing all to zeros. then just fill diagonals..
 	for (int i = 0; i < N; ++i) {
 		for (int j = 0; j < NY; ++j) {
 			for (int k = 0; k < NY; ++k) {
@@ -231,14 +231,14 @@ void FwNMPC::initHorizon() {
 	/* offset controls */
 	for (int i = 0; i < NU; ++i)  U[ i ] = U[ i ] - subs_.CTRL_OFFSET[ i ];
 
+	/* normalize controls */ //TODO: need to think about this order of operations...
+	for (int i = 0; i < NU; ++i)  U[ i ] = U[ i ] * subs_.CTRL_NORMALIZATION[ i ];
+
 	/* saturate controls */
 	for (int i = 0; i < NU; ++i) {
 		if (U[i] < subs_.CTRL_SATURATION[i][0]) U[i] = subs_.CTRL_SATURATION[i][0];
 		if (U[i] > subs_.CTRL_SATURATION[i][1]) U[i] = subs_.CTRL_SATURATION[i][1];
 	}
-
-	/* normalize controls */
-	for (int i = 0; i < NU; ++i)  U[ i ] = U[ i ] * subs_.CTRL_NORMALIZATION[ i ];
 
 	/* hold current controls constant through horizon */
 	for (int i = 0; i < N; ++i) {
@@ -288,25 +288,6 @@ void FwNMPC::initHorizon() {
 
 void FwNMPC::updateACADO_X0() {
 
-
-	/* get current controls */
-	double U[NU] = {(double)subs_.aslctrl_data.uThrot,0.0,0.0}; // could potentially pull all current refs.
-
-	/* offset controls */
-	for (int i = 0; i < NU; ++i)  U[ i ] = U[ i ] - subs_.CTRL_OFFSET[ i ];
-
-	/* saturate controls */
-	for (int i = 0; i < NU; ++i) {
-		if (U[i] < subs_.CTRL_SATURATION[i][0]) U[i] = subs_.CTRL_SATURATION[i][0];
-		if (U[i] > subs_.CTRL_SATURATION[i][1]) U[i] = subs_.CTRL_SATURATION[i][1];
-	}
-
-	/* normalize controls */
-	for (int i = 0; i < NU; ++i)  U[ i ] = U[ i ] * subs_.CTRL_NORMALIZATION[ i ];
-
-	/* store control horizon */
-	memcpy(prev_ctrl_horiz_, acadoVariables.u, sizeof(acadoVariables.u));
-
 	double X0[NX];
 	paths_.ll2NE(X0[0], X0[1], (double)subs_.glob_pos.latitude, (double)subs_.glob_pos.longitude); // n, e
 	X0[2]		= -((double)subs_.glob_pos.altitude - paths_.getHomeAlt()); // d
@@ -318,8 +299,8 @@ void FwNMPC::updateACADO_X0() {
 	X0[8]		= (double)subs_.aslctrl_data.p; // p
 	X0[9]		= (double)subs_.aslctrl_data.q; // q
 	X0[10]	= (double)subs_.aslctrl_data.r; // r
-	X0[11]	= U[0]; // throt
-	X0[12]	= acadoVariables.x[12]; // xsw
+	X0[11]	= acadoVariables.x[NX+11]; // NEXT throt state in horizon. NOTE: yes.. this is shifting the state. Only for these internal variables, however.
+	X0[12]	= acadoVariables.x[NX+12]; // NEXT xsw state in horizon.
 
 	for (int i = 0; i < NX; ++i) acadoVariables.x0[ i ] = X0[ i ];
 }
@@ -677,7 +658,7 @@ int FwNMPC::nmpcIteration() {
 		if ( subs_.current_wp.data != prev_wp_idx_ ) {
 			// reset switch state, sw, horizon //TODO: encapsulate
 			for (int i = 1; i < N + 2; ++i) acadoVariables.x[ i * NX - 1 ] = 0.0;
-			acadoVariables.x0[ NX ] = 0.0;
+			acadoVariables.x0[ 12 ] = 0.0;
 		}
 
 		/* update path */
@@ -707,8 +688,8 @@ int FwNMPC::nmpcIteration() {
 		/* store ctrl horizon before shift */
 		memcpy(prev_ctrl_horiz_, acadoVariables.u, sizeof(acadoVariables.u));
 
-		/* take applied control only for previous throttle horizon */
-		for (int i = 0; i < N * NU; i+=3)  prev_ctrl_horiz_[ i ] = acadoVariables.u[ NU ];
+//		/* take applied control only for previous throttle horizon */ //shouldnt be needed anymore..handled in update_Y
+//		for (int i = 0; i < N * NU; i+=3)  prev_ctrl_horiz_[ i ] = acadoVariables.u[ NU ];
 
 		/* publish control action */
 		uint64_t t_ctrl;
@@ -756,13 +737,16 @@ void FwNMPC::publishControls(std_msgs::Header header, uint64_t &t_ctrl, ros::Tim
 	/* Apply the NEXT control immediately to the process, first NU components. */
 
 	double ctrl[NU];
-	for (int i = 0; i < NU; ++i)  ctrl[ i ] = acadoVariables.u[ NU + i ] / subs_.CTRL_NORMALIZATION[ i ];
+	for (int i = 0; i < NU; ++i)  ctrl[ i ] = acadoVariables.u[ NU + i ];
 
-	/* saturate controls */
+	/* saturate controls */ //make sure it's within the bounds of the internal control signal's range
 	for (int i = 0; i < NU; ++i) {
 		if (ctrl[ i ] < subs_.CTRL_SATURATION[ i ][ 0 ]) ctrl[ i ] = subs_.CTRL_SATURATION[ i ][ 0 ];
 		if (ctrl[ i ] > subs_.CTRL_SATURATION[ i ][ 1 ]) ctrl[ i ] = subs_.CTRL_SATURATION[ i ][ 1 ];
 	}
+
+	/* un-normalize */ //TODO: better word for this? //AGAIN: think about this order of operations...
+	for (int i = 0; i < NU; ++i)  ctrl[ i ] = ctrl[ i ] / subs_.CTRL_NORMALIZATION[ i ];
 
 	/* re-introduce offset */
 	for (int i = 0; i < NU; ++i)  ctrl[ i ] = ctrl[ i ] + subs_.CTRL_OFFSET[ i ];
