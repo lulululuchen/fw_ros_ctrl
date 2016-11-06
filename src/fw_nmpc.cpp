@@ -380,18 +380,19 @@ void FwNMPC::updateACADO_Y() {
 	Y[6] 	= 0.0; 	// p_ref
 	Y[7] 	= 0.0;	// q_ref
 	Y[8] 	= 0.0;	// r_ref
-	Y[7] 	= 0.0;	// alpha_soft _ref
-	Y[9] 	= 0.3;	// uthrot _ref
-	Y[10] = 0.0;	// phi_ref _ref
-	Y[11] = 0.0;	// theta_ref _ref
+	Y[9] 	= 0.0;	// alpha_soft _ref
+	Y[10] = 0.3;	// uthrot _ref
+	Y[11] = 0.0;	// phi_ref _ref
+	Y[12] = 0.0;	// theta_ref _ref
 
 	for (int i = 0; i < N; ++i) {
-	    for (int j = 0; j < NY-NU; ++j) {
-	        acadoVariables.y[ i * NY + j ] = Y[ j ];
-	    }
-	    for (int j = 0; j < NU; ++j) {
-	        acadoVariables.y[ i * NY + (NY-NU) + j ] = prev_ctrl_horiz_[ i * NU + j ];
-	    }
+		for (int j = 0; j < NY-NU; ++j) {
+			acadoVariables.y[ i * NY + j ] = Y[ j ];
+		}
+		for (int j = 0; j < NU; ++j) {
+			if (j==0) acadoVariables.y[ i * NY + (NY-NU) + j ] = prev_ctrl_horiz_[ NU ]; //hold NEXT throttle input (the one applied) through reference horizon -- this is needed to avoid bang-bang in throttle
+			else acadoVariables.y[ i * NY + (NY-NU) + j ] = prev_ctrl_horiz_[ i * NU + j ]; //set previous control horizon throughout reference horizon for all other controls
+		}
 	}
 }
 
