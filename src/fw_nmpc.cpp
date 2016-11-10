@@ -371,7 +371,7 @@ void FwNMPC::updateACADO_Y() {
 			acadoVariables.y[ i * NY + j ] = Y[ j ];
 		}
 		for (int j = 0; j < NU; ++j) {
-			if (j==0) acadoVariables.y[ i * NY + (NY-NU) + j ] = prev_ctrl_horiz_[ NU ]; //hold NEXT throttle input (the one applied) through reference horizon -- this is needed to avoid bang-bang in throttle
+			if (j==0) acadoVariables.y[ i * NY + (NY-NU) + j ] = prev_ctrl_horiz_[ 0 ]; //hold throttle input (the last one applied) through reference horizon -- this is needed to avoid bang-bang in throttle
 			else acadoVariables.y[ i * NY + (NY-NU) + j ] = prev_ctrl_horiz_[ i * NU + j ]; //set previous control horizon throughout reference horizon for all other controls
 		}
 	}
@@ -734,10 +734,10 @@ int FwNMPC::nmpcIteration() {
 void FwNMPC::publishControls(std_msgs::Header header, uint64_t &t_ctrl, ros::Time t_start, int obctrl_status) {
 
 	//TODO: this should be interpolated in the event of Tnmpc ~= Tfcall
-	/* Apply the NEXT control immediately to the process, first NU components. */
+	/* Apply the control immediately to the process, first NU components. */
 
 	double ctrl[NU];
-	for (int i = 0; i < NU; ++i)  ctrl[ i ] = acadoVariables.u[ NU + i ];
+	for (int i = 0; i < NU; ++i)  ctrl[ i ] = acadoVariables.u[ i ];
 
 	/* saturate controls */ //make sure it's within the bounds of the internal control signal's range
 	for (int i = 0; i < NU; ++i) {
