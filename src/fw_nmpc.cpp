@@ -28,7 +28,10 @@ FwNMPC::FwNMPC() :
 		prev_wp_idx_(-1),
 		last_wp_idx_(-1),
 		bYawReceived(false),
-		last_yaw_msg_(0.0f)
+		last_yaw_msg_(0.0f),
+		track_error_ne_(0.0f),
+		track_error_d_(0.0f),
+		W_scale_{0}
 {
 
 	ROS_INFO("Instance of NMPC created");
@@ -113,6 +116,7 @@ void FwNMPC::nmpcParamsCb(const mavros::AslNmpcParams::ConstPtr& msg) {
 	subs_.nmpc_params.alpha_p_co = msg->alpha_p_co;
 	subs_.nmpc_params.alpha_m_co = msg->alpha_m_co;
 	subs_.nmpc_params.alpha_delta_co = msg->alpha_delta_co;
+	subs_.nmpc_params.i_e_t_co = msg->i_e_t_co;
 	subs_.nmpc_params.Qdiag = msg->Qdiag;
 }
 
@@ -156,11 +160,36 @@ void FwNMPC::initACADOVars() {
 	//TODO: maybe actually wait for all subscriptions to be filled here before initializing?
 
 	/* put something reasonable here.. NOT all zeros, solver is initialized from here */
-	double X[NX] = {0.0, 0.0, 0.0, 13.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.0};
+	double X[NX] = {0.0, 0.0, 0.0, 13.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.0, 0.0};
 	double U[NU] = {0.3, 0.0, 0.0};
-	double OD[NOD] = {0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 30.0, 0.8, 0.0, 0.0, 0.0, 0.4, 30.0, 0.4, 60.0, 0.5, 0.1396, -0.0524, 0.0349};
-	double Y[NY] = {0.0, 0.0, 0.0, 0.0, 0.0, 13.5, 0.0, 0.0, 0.0, 0.0, 0.3, 0.0, 0.0, 0.3, 0.0, 0.0};
-	double W[NY] = {50.0, 200.0, 20.0, 20.0, 5.0, 10.0, 36.47, 36.47, 3.647, 1.0, 0.1, 3.6476, 1.459, 10.0, 182.3, 145.9};
+	double OD[NOD] = {0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 30.0, 0.8, 0.0, 0.0, 0.0, 0.4, 30.0, 0.4, 60.0, 0.5, 0.1396, -0.0524, 0.0349, 7.0};
+
+	double y_uT_ref;
+	nmpc_.getParam("/nmpc/y_ref/uT", y_uT_ref);
+	double y_theta_ref;
+	nmpc_.getParam("/nmpc/y_ref/theta_ref", y_theta_ref);
+
+	double Y[NY] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 13.5, 0.0, 0.0, 0.0, 0.0, 0.0, y_uT_ref, 0.0, y_theta_ref, y_uT_ref, 0.0, y_theta_ref};
+	double W[NY] = {70.0, 150.0, 3.0, 10.0, 10.0, 5.0, 5.0, 30.0, 30.0, 5.0, 10.0, 100.0, 15.0, 5.0, 20.0, 0.0, 20.0, 30.0};
+
+	nmpc_.getParam("nmpc/w_scale/q1", W_scale_[0]);
+	nmpc_.getParam("nmpc/w_scale/q2", W_scale_[1]);
+	nmpc_.getParam("nmpc/w_scale/q3", W_scale_[2]);
+	nmpc_.getParam("nmpc/w_scale/q4", W_scale_[3]);
+	nmpc_.getParam("nmpc/w_scale/q5", W_scale_[4]);
+	nmpc_.getParam("nmpc/w_scale/q6", W_scale_[5]);
+	nmpc_.getParam("nmpc/w_scale/q7", W_scale_[6]);
+	nmpc_.getParam("nmpc/w_scale/q8", W_scale_[7]);
+	nmpc_.getParam("nmpc/w_scale/q9", W_scale_[8]);
+	nmpc_.getParam("nmpc/w_scale/q10", W_scale_[9]);
+	nmpc_.getParam("nmpc/w_scale/q11", W_scale_[10]);
+	nmpc_.getParam("nmpc/w_scale/q12", W_scale_[11]);
+	nmpc_.getParam("nmpc/w_scale/q13", W_scale_[12]);
+	nmpc_.getParam("nmpc/w_scale/q14", W_scale_[13]);
+	nmpc_.getParam("nmpc/w_scale/q15", W_scale_[14]);
+	nmpc_.getParam("nmpc/w_scale/q16", W_scale_[15]);
+	nmpc_.getParam("nmpc/w_scale/q17", W_scale_[16]);
+	nmpc_.getParam("nmpc/w_scale/q18", W_scale_[17]);
 
 	/* these set a constant value for each variable through the horizon */
 
@@ -184,38 +213,16 @@ void FwNMPC::initACADOVars() {
 		for (int j = 0; j < NY; ++j) acadoVariables.y[ i * NY + j ] = Y[ j ];
 	}
 
-	// weights -- fill all non-diagonals with zero! //TODO: this can be done muuuuch quicker with W[~]={ 0 }; for initializing all to zeros. then just fill diagonals..
+	// weights
+	memset(acadoVariables.W, 0, sizeof(acadoVariables.W)); // fill all with zero
 	for (int i = 0; i < N; ++i) {
 		for (int j = 0; j < NY; ++j) {
-			for (int k = 0; k < NY; ++k) {
-				if ( j == k ) {
-//					if ( j<NY-NU+1 ) { //NOTE: includes constant weight through horizon for previous throttle
-						acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ];
-//					}
-//					else {
-//						acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ] * (1.0 - i / N) * (1.0 - i / N); //NOTE: for phi_ref and theta_ref, reduce weight on previous value through horizon
-//					}
-				}
-				else {
-					acadoVariables.W[ NY * NY * i + NY * j + k ] = 0.0;
-				}
-			}
+			acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ]  / W_scale_[ j ]; // fill diagonals
 		}
 	}
+	memset(acadoVariables.WN, 0, sizeof(acadoVariables.WN)); // fill all with zero
 	for (int i = 0; i < NYN; ++i) {
-		for (int j = 0; j < NYN; ++j) {
-			if ( i == j ) {
-//				if ( i<NYN-1 ) {
-					acadoVariables.WN[ i * NYN + i ] =  W[ i ];
-//				}
-//				else {
-//					acadoVariables.WN[ i * NYN + i ] =  0.0;
-//				}
-			}
-			else {
-				acadoVariables.WN[ i * NYN + j ] =  0.0;
-			}
-		}
+		acadoVariables.WN[ i * NYN + i ] =  W[ i ] / W_scale_[ i ]; // fill diagonals
 	}
 }
 
@@ -226,7 +233,7 @@ void FwNMPC::initHorizon() {
 	//TODO: sliding window and/or low pass filter
 	
 	/* get current controls */
-	double U[NU] = {(double)subs_.aslctrl_data.uThrot,0.0,0.0}; // could potentially pull all current refs.
+	double U[NU] = {(double)subs_.aslctrl_data.uThrot,0.0,0.0}; // TODO: could potentially pull all current refs.
 
 	/* offset controls */
 	for (int i = 0; i < NU; ++i)  U[ i ] = U[ i ] - subs_.CTRL_OFFSET[ i ];
@@ -260,7 +267,8 @@ void FwNMPC::initHorizon() {
 	X0[9]		= (double)subs_.aslctrl_data.q; // q
 	X0[10]	= (double)subs_.aslctrl_data.r; // r
 	X0[11]	= U[0]; // throt
-	X0[12]	= 0.0; // xsw
+	X0[12]	= 0.0; // integral of e_t
+	X0[13]	= 0.0; // xsw
 
 	for (int i = 0; i < NX; ++i) acadoVariables.x0[ i ] = X0[ i ];
 
@@ -299,10 +307,15 @@ void FwNMPC::updateACADO_X0() {
 	X0[8]		= (double)subs_.aslctrl_data.p; // p
 	X0[9]		= (double)subs_.aslctrl_data.q; // q
 	X0[10]	= (double)subs_.aslctrl_data.r; // r
-	X0[11]	= acadoVariables.x[NX+11]; // NEXT throt state in horizon. NOTE: yes.. this is shifting the state. Only for these internal variables, however.
-	X0[12]	= acadoVariables.x[NX+12]; // NEXT xsw state in horizon.
+	// NOTE: yes.. this is shifting the state. Only for these internal variables, however.--linear interpolation
+	X0[11]	= acadoVariables.x[11]+(acadoVariables.x[NX+11]-acadoVariables.x[11])/getLoopRate()/getTimeStep(); // NEXT throt state in horizon.
+	X0[12]	= acadoVariables.x[12]+(acadoVariables.x[NX+12]-acadoVariables.x[12])/getLoopRate()/getTimeStep(); // NEXT i_e_t state in horizon.
+	X0[13]	= acadoVariables.x[13]+(acadoVariables.x[NX+13]-acadoVariables.x[13])/getLoopRate()/getTimeStep(); // NEXT xsw state in horizon.
 
 	for (int i = 0; i < NX; ++i) acadoVariables.x0[ i ] = X0[ i ];
+
+	/* calculate track error for monitoring on QGC AND calculation of integral multiplier */
+	calculateTrackError(acadoVariables.x0, acadoVariables.od);
 }
 
 void FwNMPC::updateACADO_OD() {
@@ -340,6 +353,7 @@ void FwNMPC::updateACADO_OD() {
 	OD[28] = (double)subs_.nmpc_params.alpha_p_co;
 	OD[29] = (double)subs_.nmpc_params.alpha_m_co;
 	OD[30] = (double)subs_.nmpc_params.alpha_delta_co;
+	OD[31] = (double)subs_.nmpc_params.i_e_t_co;
 
 	for (int i = 0; i < N+1; ++i) {
 			for (int j = 0; j < NOD; ++j) {
@@ -350,29 +364,35 @@ void FwNMPC::updateACADO_OD() {
 
 void FwNMPC::updateACADO_Y() {
 
+	double y_uT_ref;
+	nmpc_.getParam("/nmpc/y_ref/uT", y_uT_ref);
+	double y_theta_ref;
+	nmpc_.getParam("/nmpc/y_ref/theta_ref", y_theta_ref);
+
 	/* update references */
 	double Y[NY];
 	Y[0] 	= 0.0;	// e_t_ne _ref
 	Y[1] 	= 0.0;	// e_t_d _ref
-	Y[2] 	= 0.0;	// e_v_n _ref
-	Y[3] 	= 0.0;	// e_v_e _ref
-	Y[4] 	= 0.0; 	// e_v_d _ref
-	Y[5] 	= subs_.aslctrl_data.AirspeedRef;	// V_ref
-	Y[6] 	= 0.0; 	// p_ref
-	Y[7] 	= 0.0;	// q_ref
-	Y[8] 	= 0.0;	// r_ref
-	Y[9] 	= 0.0;	// alpha_soft _ref
-	Y[10] = 0.3;	// uthrot _ref
-	Y[11] = 0.0;	// phi_ref _ref
-	Y[12] = 0.0;	// theta_ref _ref
+	Y[2] 	= 0.0;	// i_e_t _ref
+	Y[3] 	= 0.0;	// e_v_n _ref
+	Y[4] 	= 0.0;	// e_v_e _ref
+	Y[5] 	= 0.0; 	// e_v_d _ref
+	Y[6] 	= subs_.aslctrl_data.AirspeedRef;	// V_ref
+	Y[7] 	= 0.0; 	// p_ref
+	Y[8] 	= 0.0;	// q_ref
+	Y[9] 	= 0.0;	// r_ref
+	Y[10] = 0.0;	// alpha_soft _ref
+	Y[11] = 0.0;  // delta_T_dot _ref
+	Y[12] = y_uT_ref;	// uthrot _ref
+	Y[13] = 0.0;	// phi_ref _ref
+	Y[14] = y_theta_ref;	// theta_ref _ref
 
 	for (int i = 0; i < N; ++i) {
 		for (int j = 0; j < NY-NU; ++j) {
 			acadoVariables.y[ i * NY + j ] = Y[ j ];
 		}
 		for (int j = 0; j < NU; ++j) {
-			if (j==0) acadoVariables.y[ i * NY + (NY-NU) + j ] = prev_ctrl_horiz_[ 0 ]; //hold throttle input (the last one applied) through reference horizon -- this is needed to avoid bang-bang in throttle
-			else acadoVariables.y[ i * NY + (NY-NU) + j ] = prev_ctrl_horiz_[ i * NU + j ]; //set previous control horizon throughout reference horizon for all other controls
+			acadoVariables.y[ i * NY + (NY-NU) + j ] = prev_ctrl_horiz_[ i * NU + j ]; //set previous control horizon throughout reference horizon for all other controls
 		}
 	}
 }
@@ -383,18 +403,19 @@ void FwNMPC::updateACADO_W() {
 	double W[NY];
 	for (int i = 0; i < NY; i++) W[ i ] = (double)subs_.nmpc_params.Qdiag[ i ];
 
+	const double i_W_mult = getIntegralCostMultiplier();
+
 	// only update diagonal terms
 	for (int i = 0; i < N; ++i) {
 		for (int j = 0; j < NY; ++j) {
-//			if ( j<NY-2 ) { // only last 2 have weight decay
-				acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ];
-//			}
-//			else { INTEGERDIVISON!!!! DOESNTWORK..
-//				acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ] * (1.0 - i / N) * (1.0 - i / N);
-//			}
+			if (j==2) acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ] * i_W_mult  / W_scale_[ j ];
+			else acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ]  / W_scale_[ j ];
 		}
 	}
-	for (int i = 0; i < NYN; ++i) acadoVariables.WN[ i * NYN + i ] =  W[ i ];
+	for (int i = 0; i < NYN; ++i) {
+		if (i==2) acadoVariables.WN[ i * NYN + i ] = W[ i ] * i_W_mult  / W_scale_[ i ];
+		else acadoVariables.WN[ i * NYN + i ] =  W[ i ]  / W_scale_[ i ];
+	}
 }
 
 double FwNMPC::getLoopRate() {
@@ -403,6 +424,16 @@ double FwNMPC::getLoopRate() {
 
 double FwNMPC::getTimeStep() {
 	return TSTEP;
+}
+
+double FwNMPC::getIntegralCostMultiplier() {
+
+	float i_W_mult = 0.0f;
+	const float e_t = sqrt(track_error_ne_*track_error_ne_ + track_error_d_*track_error_d_);
+	if (e_t < subs_.nmpc_params.i_e_t_co * 0.8f) i_W_mult = 1.0f;
+	else if (e_t < subs_.nmpc_params.i_e_t_co) i_W_mult = cosf((e_t/subs_.nmpc_params.i_e_t_co - 0.8)/0.2 * 3.141592653589793) * 0.5 + 0.5;
+
+	return (double)i_W_mult;
 }
 
 void FwNMPC::reqSubs() { //TODO: extend this and/or change this to all subs/initializations
@@ -439,7 +470,9 @@ void FwNMPC::reqSubs() { //TODO: extend this and/or change this to all subs/init
 	return;
 }
 
-void FwNMPC::calculateTrackError(double &e_t_ne, double &e_t_d, const real_t *in_x, const real_t *in_od) {
+void FwNMPC::calculateTrackError(const real_t *in_x, const real_t *in_od) {
+
+	/* for manual input indexing ... */
 
 	const int minus_NU = 0;
 
@@ -447,40 +480,16 @@ void FwNMPC::calculateTrackError(double &e_t_ne, double &e_t_d, const real_t *in
 
 	const double t2 = cos(in_x[4]);
 
-//	const double alpha = -in[4]+in[7];
-//
-//	const double t3 = alpha-in[44]+in[46];
-//	const double t4 = 1.0/(in[46]*in[46]);
-//	const double t5 = -alpha+in[45]+in[46];
+	const double alpha = -in_x[4]+in_x[7];
 
 	double Vsafe = in_x[3];
 	if (Vsafe<1.0) Vsafe = 1.0;
 
-	const double n_dot = in_od[36-ACADO_NU-ACADO_NX]+Vsafe*t2*cos(in_x[5]);
-	const double e_dot = in_od[37-ACADO_NU-ACADO_NX]+Vsafe*t2*sin(in_x[5]);
-	const double d_dot = in_od[38-ACADO_NU-ACADO_NX]-Vsafe*sin(in_x[4]);
+	const double n_dot = in_od[37-ACADO_NU-ACADO_NX]+Vsafe*t2*cos(in_x[5]);
+	const double e_dot = in_od[38-ACADO_NU-ACADO_NX]+Vsafe*t2*sin(in_x[5]);
+	const double d_dot = in_od[39-ACADO_NU-ACADO_NX]-Vsafe*sin(in_x[4]);
 
 	/* begin manual input !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
-
-	// CHECK SEGMENT SWITCHING CONDITIONS //TODO: put this in a function!
-	const int idx_OD_0 = ACADO_NX+ACADO_NU-minus_NU;
-//	bool b_switch_segment = false;
-	int pparam_sel = 0;
-//	double sw_dot = 0.0;
-//	if ( in[12] < 0.05 ) { // check x_sw
-//	    const double vel[3] = {n_dot,e_dot,d_dot};
-//	    if ( in[idx_OD_0] < 0.5 ) { // path type
-//	        b_switch_segment = check_line_seg( &in[0], &vel[0], &in[idx_OD_0+1] );
-//	    } else if (in[ACADO_NX+ACADO_NU-minus_NU] < 1.5 ) {
-//	        b_switch_segment = check_curve_seg( &in[0], &vel[0], &in[idx_OD_0+1] );
-//	    }
-//	} else {
-//	    b_switch_segment = true;
-//	}
-//	if (b_switch_segment) {
-//	    pparam_sel = 9;
-//	    sw_dot = 1.0;
-//	}
 
 	double d_n = 0.0;
 	double d_e = 0.0;
@@ -489,18 +498,18 @@ void FwNMPC::calculateTrackError(double &e_t_ne, double &e_t_d, const real_t *in
 	double Td_e = 0.0;
 	double Td_d = 0.0;
 
-	const double pparam_type = in_od[pparam_sel];
+	const double pparam_type = in_od[0];
 
 	// LINE SEGMENT
 	if ( pparam_type < 0.5 ) {
 
 	    // variable definitions
-	    const double pparam_aa_n = in_od[pparam_sel+1];
-	    const double pparam_aa_e = in_od[pparam_sel+2];
-	    const double pparam_aa_d = in_od[pparam_sel+3];
-	    const double pparam_bb_n = in_od[pparam_sel+4];
-	    const double pparam_bb_e = in_od[pparam_sel+5];
-	    const double pparam_bb_d = in_od[pparam_sel+6];
+	    const double pparam_aa_n = in_od[1];
+	    const double pparam_aa_e = in_od[2];
+	    const double pparam_aa_d = in_od[3];
+	    const double pparam_bb_n = in_od[4];
+	    const double pparam_bb_e = in_od[5];
+	    const double pparam_bb_d = in_od[6];
 
 	    // calculate vector from waypoint a to b
 	    const double abn = pparam_bb_n - pparam_aa_n;
@@ -527,21 +536,29 @@ void FwNMPC::calculateTrackError(double &e_t_ne, double &e_t_d, const real_t *in
 	} else if ( pparam_type < 1.5 ) {
 
 	    // variable definitions
-	    const double pparam_cc_n = in_od[pparam_sel+1];
-	    const double pparam_cc_e = in_od[pparam_sel+2];
-	    const double pparam_cc_d = in_od[pparam_sel+3];
-	    const double pparam_R = in_od[pparam_sel+4];
-	    const double pparam_ldir = in_od[pparam_sel+5];
-	    const double pparam_gam_sp = in_od[pparam_sel+6];
-	    const double pparam_xi0 = in_od[pparam_sel+7];
-	    const double pparam_dxi = in_od[pparam_sel+8];
+	    const double pparam_cc_n = in_od[1];
+	    const double pparam_cc_e = in_od[2];
+	    const double pparam_cc_d = in_od[3];
+	    const double pparam_R = in_od[4];
+	    const double pparam_ldir = in_od[5];
+	    const double pparam_gam_sp = in_od[6];
+	    const double pparam_xi0 = in_od[7];
+	    const double pparam_dxi = in_od[8];
 
 	    // calculate closest point on loiter circle
 	    const double cp_n = in_x[0] - pparam_cc_n;
 	    const double cp_e = in_x[1] - pparam_cc_e;
 	    const double norm_cp = sqrt( cp_n*cp_n + cp_e*cp_e );
-	    const double cp_n_unit = (norm_cp>0.1) ? cp_n / norm_cp : 0.0;
-	    const double cp_e_unit = (norm_cp>0.1) ? cp_e / norm_cp : 0.0;
+	    double cp_n_unit;
+	    double cp_e_unit;
+	    if (norm_cp>0.1) {
+	        cp_n_unit = cp_n / norm_cp;
+	        cp_e_unit = cp_e / norm_cp;
+	    }
+	    else {
+	        cp_n_unit = 0.0;
+	        cp_e_unit = 0.0;
+	    }
 	    d_n = pparam_R * cp_n_unit + pparam_cc_n;
 	    d_e = pparam_R * cp_e_unit + pparam_cc_e;
 
@@ -607,12 +624,32 @@ void FwNMPC::calculateTrackError(double &e_t_ne, double &e_t_d, const real_t *in
 
 	/* end manual input !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
 
+	/* tracked expressions */
+
 	const double pd_n = d_n-in_x[0];
 	const double pd_e = d_e-in_x[1];
 	const double pd_d = d_d-in_x[2];
+	const double e_t_ne = -Td_e*pd_n+Td_n*pd_e;
+	const double e_t_d = pd_d;
 
-	e_t_ne = -Td_e*pd_n+Td_n*pd_e;
-	e_t_d = pd_d;
+	// negative unit normal vector
+	double Tpd_n;
+	double Tpd_e;
+	double Tpd_d;
+	const double norm_pd = sqrt(e_t_ne * e_t_ne + e_t_d * e_t_d);
+	if (norm_pd<1.0) {
+	    Tpd_n = 0.0;
+	    Tpd_e = 0.0;
+	    Tpd_d = 0.0;
+	}
+	else {
+	    Tpd_n = pd_n/norm_pd;
+	    Tpd_e = pd_e/norm_pd;
+	    Tpd_d = pd_d/norm_pd;
+	}
+
+	track_error_ne_ = -Td_e*pd_n+Td_n*pd_e;
+	track_error_d_ = pd_d;
 }
 
 int FwNMPC::nmpcIteration() {
@@ -649,16 +686,19 @@ int FwNMPC::nmpcIteration() {
 			//regular update
 
 			/* update ACADO states/references/weights */
-			updateACADO_X0();
+			updateACADO_X0(); // note this shifts augmented states
 			updateACADO_Y();
 			updateACADO_W();
 		}
 
 		/* check current waypoint */
 		if ( subs_.current_wp.data != prev_wp_idx_ ) {
+			// reset integral of track error, e_t, horizon //TODO: encapsulate
+			for (int i = 1; i < N + 2; ++i) acadoVariables.x[ i * NX - 2 ] = 0.0;
+			acadoVariables.x0[ 12 ] = 0.0;
 			// reset switch state, sw, horizon //TODO: encapsulate
 			for (int i = 1; i < N + 2; ++i) acadoVariables.x[ i * NX - 1 ] = 0.0;
-			acadoVariables.x0[ 12 ] = 0.0;
+			acadoVariables.x0[ 13 ] = 0.0;
 		}
 
 		/* update path */
@@ -699,10 +739,6 @@ int FwNMPC::nmpcIteration() {
 		/* Optional: shift the initialization (look in acado_common.h). */
 //		shiftStates(1, 0, 0);
 //		shiftControls( 0 );
-
-		//TODO: this should be interpolated in the event of Tnmpc ~= Tfcall
-		/* shift (or just hold over) augmented states */
-		for (int i = NX_AUGM; i < NX; ++i) acadoVariables.x0[i] = acadoVariables.x[i];
 
 		/* publish ACADO variables */ // should this go outside?
 		publishAcadoVars();
@@ -758,18 +794,13 @@ void FwNMPC::publishControls(std_msgs::Header header, uint64_t &t_ctrl, ros::Tim
 	ros::Duration t_elapsed = ros::Time::now() - t_start;
 	uint64_t t_solve_approx = t_elapsed.toNSec()/1000;
 
-	/* calculate track error for monitoring on QGC */
-	double e_t_ne=0.0;
-	double e_t_d=0.0;
-	calculateTrackError(e_t_ne, e_t_d, acadoVariables.x, acadoVariables.od);
-
 	/* publish obctrl msg */
 	mavros::AslObCtrl obctrl_msg;
 	obctrl_msg.timestamp = t_solve_approx; //this is actually calculated again after some more calculations.. but nice to get an idea on the ground station
 	obctrl_msg.uThrot = ( isnan((float)ctrl[0]) ) ? 0.0f : (float)ctrl[0];
-	obctrl_msg.uThrot2 = (float)e_t_d; // for monitoring on QGC
+	obctrl_msg.uThrot2 = (float)track_error_d_; // for monitoring on QGC
 	obctrl_msg.uAilR = ( isnan((float)ctrl[1]) ) ? 0.0f : (float)ctrl[1];
-	obctrl_msg.uAilL = (float)e_t_ne; // for monitoring on QGC
+	obctrl_msg.uAilL = (float)track_error_ne_; // for monitoring on QGC
 	obctrl_msg.uElev = ( isnan((float)ctrl[2]) ) ? 0.0f : (float)ctrl[2];
 	obctrl_msg.obctrl_status = ( isnan((float)ctrl[0]) || isnan((float)ctrl[1]) || isnan((float)ctrl[2]) ) ? 11 : (uint8_t)obctrl_status; // status=11 for nan detection
 
@@ -804,7 +835,8 @@ void FwNMPC::publishAcadoVars() {
 		acado_vars.q[i] = (float)acadoVariables.x[NX * i + 9];
 		acado_vars.r[i] = (float)acadoVariables.x[NX * i + 10];
 		acado_vars.throt[i] = (float)acadoVariables.x[NX * i + 11];
-		acado_vars.xsw[i] = (float)acadoVariables.x[NX * i + 12];
+		acado_vars.i_e_t[i] = (float)acadoVariables.x[NX * i + 12];
+		acado_vars.xsw[i] = (float)acadoVariables.x[NX * i + 13];
 	}
 
 	/* control horizons */
@@ -846,24 +878,26 @@ void FwNMPC::publishAcadoVars() {
 	acado_vars.alpha_p_co = (float)acadoVariables.od[28];
 	acado_vars.alpha_m_co = (float)acadoVariables.od[29];
 	acado_vars.alpha_delta_co = (float)acadoVariables.od[30];
+	acado_vars.i_e_t_co = (float)acadoVariables.od[31];
 
 	/* references */ //NOTE: only recording non-zero references
 //	acado_vars.y_e_t_ne = (float)acadoVariables.y[0];
 //	acado_vars.y_e_t_d = (float)acadoVariables.y[1];
-//	acado_vars.y_e_v_n = (float)acadoVariables.y[2];
-//	acado_vars.y_e_v_e = (float)acadoVariables.y[3];
-//	acado_vars.y_e_v_d = (float)acadoVariables.y[4];
-	acado_vars.y_V = (float)acadoVariables.y[5];
-//	acado_vars.y_p = (float)acadoVariables.y[6];
-//	acado_vars.y_q = (float)acadoVariables.y[7];
-//	acado_vars.y_r = (float)acadoVariables.y[8];
-//	acado_vars.y_asoft = (float)acadoVariables.y[9];
-	acado_vars.y_uT = (float)acadoVariables.y[10];
-//	acado_vars.y_phi_ref = (float)acadoVariables.y[11];
-//	acado_vars.y_theta_ref = (float)acadoVariables.y[12];
-	acado_vars.y_uT0 = (float)acadoVariables.y[13];
-	acado_vars.y_phi_ref0 = (float)acadoVariables.y[14];
-	acado_vars.y_theta_ref0 = (float)acadoVariables.y[15];
+//	acado_vars.y_i_e_t = (float)acadoVariables.y[2];
+//	acado_vars.y_e_v_n = (float)acadoVariables.y[3];
+//	acado_vars.y_e_v_e = (float)acadoVariables.y[4];
+//	acado_vars.y_e_v_d = (float)acadoVariables.y[5];
+	acado_vars.y_V = (float)acadoVariables.y[6];
+//	acado_vars.y_p = (float)acadoVariables.y[7];
+//	acado_vars.y_q = (float)acadoVariables.y[8];
+//	acado_vars.y_r = (float)acadoVariables.y[9];
+//	acado_vars.y_asoft = (float)acadoVariables.y[10];
+	acado_vars.y_uT = (float)acadoVariables.y[11];
+//	acado_vars.y_phi_ref = (float)acadoVariables.y[12];
+	acado_vars.y_theta_ref = (float)acadoVariables.y[13];
+	acado_vars.y_uT0 = (float)acadoVariables.y[14];
+	acado_vars.y_phi_ref0 = (float)acadoVariables.y[15];
+	acado_vars.y_theta_ref0 = (float)acadoVariables.y[16];
 
 	acado_vars_pub_.publish(acado_vars);
 }

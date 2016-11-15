@@ -17,6 +17,7 @@ float32[41] p			# roll rate [rad/s]
 float32[41] q			# pitch rate [rad/s]
 float32[41] r			# yaw rate [rad/s]
 float32[41] throt		# throttle setting [%]
+float32[41] i_e_t		# integral of track error [m-s]
 float32[41] xsw			# switching state [~]
 
 # controls
@@ -58,10 +59,12 @@ float32 eps_v       	# unit ground speed threshold [~]
 float32 alpha_p_co    	# angle of attack upper cutoff [rad]
 float32 alpha_m_co    	# angle of attack lower cutoff [rad]
 float32 alpha_delta_co  # angle of attack cutoff transition length [rad]
+float32 i_e_t_co  		# track error integral cutoff [m]
 
 # references
 float32 y_V
 float32 y_uT
+float32 y_theta_ref
 float32 y_uT0
 float32 y_phi_ref0
 float32 y_theta_ref0

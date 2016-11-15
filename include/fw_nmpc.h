@@ -27,7 +27,7 @@
 #define NY 	ACADO_NY 	/* Number of measurements/references on nodes 0..N - 1. */
 #define NYN	ACADO_NYN	/* Number of measurements/references on node N. */
 #define N		ACADO_N		/* Number of intervals in the horizon. */
-#define NX_AUGM 2			/* Number of augmented differential state variables. */
+#define NX_AUGM 3			/* Number of augmented differential state variables. */
 
 /* global variables used by the solver. */
 ACADOvariables acadoVariables;
@@ -69,8 +69,9 @@ public:
 	/* gets */
 	double getLoopRate();
 	double getTimeStep();
+	double getIntegralCostMultiplier();
 	void 	reqSubs();
-	void 	calculateTrackError(double &e_t_ne, double &e_t_d, const real_t *in_x, const real_t *in_od);
+	void 	calculateTrackError(const real_t *in_x, const real_t *in_od);
 
 	/* functions */
 	void 	update();
@@ -125,6 +126,13 @@ private:
 	/* continuity */
 	bool bYawReceived;
 	float last_yaw_msg_;
+
+	/* track error */
+	float track_error_ne_;
+	float track_error_d_;
+
+	/* weight scalers */
+	float W_scale_[NY];
 
 	/* node functions */
 	void 	shutdown();

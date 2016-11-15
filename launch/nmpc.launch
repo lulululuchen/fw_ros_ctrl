@@ -2,4 +2,26 @@
   <node name="nmpc" pkg="fw_ctrl" type="fw_nmpc"/>
   <param name="/nmpc/loop_rate" type="double" value="20.0" />
   <param name="/nmpc/time_step" type="double" value="0.1" />
+  
+  <param name="/nmpc/y_ref/uT" type="double" value="0.3" />
+  <param name="/nmpc/y_ref/theta_ref" type="double" value="0.0297" />
+  
+  <param name="/nmpc/w_scale/q1" type="double" value="1.0" />
+  <param name="/nmpc/w_scale/q2" type="double" value="1.0" />
+  <param name="/nmpc/w_scale/q3" type="double" value="1.0" />
+  <param name="/nmpc/w_scale/q4" type="double" value="1.0" />
+  <param name="/nmpc/w_scale/q5" type="double" value="1.0" />
+  <param name="/nmpc/w_scale/q6" type="double" value="1.0" />
+  <param name="/nmpc/w_scale/q7" type="double" value="1.0" />
+  <param name="/nmpc/w_scale/q8" type="double" value="0.7615" />
+  <param name="/nmpc/w_scale/q9" type="double" value="0.7615" />
+  <param name="/nmpc/w_scale/q10" type="double" value="0.7615" />
+  <param name="/nmpc/w_scale/q11" type="double" value="1.0" />
+  <param name="/nmpc/w_scale/q12" type="double" value="1.0" />
+  <param name="/nmpc/w_scale/q13" type="double" value="1.0" />
+  <param name="/nmpc/w_scale/q14" type="double" value="0.2742" />
+  <param name="/nmpc/w_scale/q15" type="double" value="0.0685" />
+  <param name="/nmpc/w_scale/q16" type="double" value="1.0" />
+  <param name="/nmpc/w_scale/q17" type="double" value="0.0076" />
+  <param name="/nmpc/w_scale/q18" type="double" value="0.0076" />
 </launch>
