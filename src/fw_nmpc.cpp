@@ -235,16 +235,20 @@ void FwNMPC::initHorizon() {
 	/* get current controls */
 	double U[NU] = {(double)subs_.aslctrl_data.uThrot,0.0,0.0}; // TODO: could potentially pull all current refs.
 
-	/* offset controls */
-	for (int i = 0; i < NU; ++i)  U[ i ] = U[ i ] - subs_.CTRL_OFFSET[ i ];
+	/* apply dead-zone */
+	for (int i = 0; i < NU; ++i)  {
+		if (fabs(U[ i ]) < CTRL_DEADZONE[ i ]) U[ i ] = 0.0; // in dead-zone : set to zero
+		else if (U[ i ] < 0.0) U[ i ] = U[ i ] + CTRL_DEADZONE[ i ]; // negative control value : add dead-zone threshold
+		else U[ i ] = U[ i ] - CTRL_DEADZONE[ i ]; // positive control value : subtract dead-zone threshold
+	}
 
-	/* normalize controls */ //TODO: need to think about this order of operations...
-	for (int i = 0; i < NU; ++i)  U[ i ] = U[ i ] * subs_.CTRL_NORMALIZATION[ i ];
+	/* normalize for internal model */
+	for (int i = 0; i < NU; ++i)  U[ i ] = U[ i ] / CTRL_NORMALIZATION[ i ];
 
-	/* saturate controls */
+	/* saturate controls for internal model constraints */
 	for (int i = 0; i < NU; ++i) {
-		if (U[i] < subs_.CTRL_SATURATION[i][0]) U[i] = subs_.CTRL_SATURATION[i][0];
-		if (U[i] > subs_.CTRL_SATURATION[i][1]) U[i] = subs_.CTRL_SATURATION[i][1];
+		if (U[i] < CTRL_SATURATION[i][0]) U[i] = CTRL_SATURATION[i][0];
+		if (U[i] > CTRL_SATURATION[i][1]) U[i] = CTRL_SATURATION[i][1];
 	}
 
 	/* hold current controls constant through horizon */
@@ -775,20 +779,21 @@ void FwNMPC::publishControls(std_msgs::Header header, uint64_t &t_ctrl, ros::Tim
 	double ctrl[NU];
 	for (int i = 0; i < NU; ++i)  ctrl[ i ] = acadoVariables.u[ i ];
 
-	/* saturate controls */ //make sure it's within the bounds of the internal control signal's range
+	/* saturate controls for internal model constraints */
 	for (int i = 0; i < NU; ++i) {
-		if (ctrl[ i ] < subs_.CTRL_SATURATION[ i ][ 0 ]) ctrl[ i ] = subs_.CTRL_SATURATION[ i ][ 0 ];
-		if (ctrl[ i ] > subs_.CTRL_SATURATION[ i ][ 1 ]) ctrl[ i ] = subs_.CTRL_SATURATION[ i ][ 1 ];
+		if (ctrl[i] < CTRL_SATURATION[i][0]) ctrl[i] = CTRL_SATURATION[i][0];
+		if (ctrl[i] > CTRL_SATURATION[i][1]) ctrl[i] = CTRL_SATURATION[i][1];
 	}
 
-	/* un-normalize */ //TODO: better word for this? //AGAIN: think about this order of operations...
-	for (int i = 0; i < NU; ++i)  ctrl[ i ] = ctrl[ i ] / subs_.CTRL_NORMALIZATION[ i ];
+	/* de-normalize */
+	for (int i = 0; i < NU; ++i)  ctrl[ i ] = ctrl[ i ] * CTRL_NORMALIZATION[ i ];
 
-	/* re-introduce offset */
-	for (int i = 0; i < NU; ++i)  ctrl[ i ] = ctrl[ i ] + subs_.CTRL_OFFSET[ i ];
-
-	/* dead-zone throttle cut */
-	if (ctrl[0]<0.16) ctrl[0] = 0.0; //TODO: maybe a better way to do this.. a bit hacky.
+	/* re-apply dead-zone offset */
+	for (int i = 0; i < NU; ++i)  {
+		if (fabs(ctrl[ i ]) < 0.02 * CTRL_NORMALIZATION[ i ]) ctrl[ i ] = 0.0;
+		else if (ctrl[ i ] < 0.0) ctrl[ i ] = ctrl[ i ] - CTRL_DEADZONE[ i ];
+		else ctrl[ i ] = ctrl[ i ] + CTRL_DEADZONE[ i ];
+	}
 
 	/* solve time in us */
 	ros::Duration t_elapsed = ros::Time::now() - t_start;
