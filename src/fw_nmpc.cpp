@@ -897,12 +897,13 @@ void FwNMPC::publishAcadoVars() {
 //	acado_vars.y_q = (float)acadoVariables.y[8];
 //	acado_vars.y_r = (float)acadoVariables.y[9];
 //	acado_vars.y_asoft = (float)acadoVariables.y[10];
-	acado_vars.y_uT = (float)acadoVariables.y[11];
-//	acado_vars.y_phi_ref = (float)acadoVariables.y[12];
-	acado_vars.y_theta_ref = (float)acadoVariables.y[13];
-	acado_vars.y_uT0 = (float)acadoVariables.y[14];
-	acado_vars.y_phi_ref0 = (float)acadoVariables.y[15];
-	acado_vars.y_theta_ref0 = (float)acadoVariables.y[16];
+//	acado_vars.y_uTdot = (float)acadoVariables.y[11];
+	acado_vars.y_uT = (float)acadoVariables.y[12];
+//	acado_vars.y_phi_ref = (float)acadoVariables.y[13];
+	acado_vars.y_theta_ref = (float)acadoVariables.y[14];
+	acado_vars.y_uT0 = (float)acadoVariables.y[15];
+	acado_vars.y_phi_ref0 = (float)acadoVariables.y[16];
+	acado_vars.y_theta_ref0 = (float)acadoVariables.y[17];
 
 	acado_vars_pub_.publish(acado_vars);
 }
