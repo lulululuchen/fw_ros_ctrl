@@ -22,6 +22,7 @@ const double t3 = alpha-in[45]+in[47];
 const double t4 = 1.0/(in[47]*in[47]);
 const double t5 = -alpha+in[46]+in[47];
 const double t6 = sin(in[4]);
+const double t7 = in[11]*in[11];
 
 double Vsafe = in[3];
 if (Vsafe<1.0) Vsafe = 1.0;
@@ -185,24 +186,25 @@ if ( pparam_type < 0.5 ) {
 
 /* end manual input !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
 
-const double t7 = in[11]*in[11];
 const double t8 = 1.0/Vsafe;
 const double t9 = Vsafe*Vsafe;
 const double t10 = alpha*alpha;
-const double t11 = in[11]*4.65309685298437E1;
-const double t12 = t7*1.33121145483364E2;
-const double t13 = in[11]*t7*1.94400407803984E2;
-const double t14 = t11+t12+t13;
-const double t15 = alpha*6.8709446964706;
-const double t16 = t10*(-2.11069893359182E1)+t15+4.70333508888944E-1;
-const double t17 = t9*t16*2.38875E-1;
-const double t18 = cos(alpha);
-const double t19 = 1.0/t18;
-const double t20 = sin(alpha);
-const double t21 = t8*t14*t19*t20;
-const double t22 = t17+t21;
+const double t11 = in[11]*8.14515E1;
+const double t12 = in[11]*t7*2.485871E2;
+const double t20 = t7*4.13847E1;
+const double t13 = t11+t12-t20;
+const double t14 = alpha*5.7233;
+const double t15 = t10*(-6.9474)+t14+5.1987E-1;
+const double t16 = t9*t15*2.38875E-1;
+const double t17 = cos(alpha);
+const double t18 = 1.0/t17;
+const double t19 = sin(alpha);
+const double t21 = t8*t13*t18*t19;
+const double t22 = t16+t21;
 const double t23 = cos(in[6]);
 const double t24 = sin(in[6]);
+
+/* tracked expressions */
 
 const double pd_n = d_n-in[0];
 const double pd_e = d_e-in[1];
@@ -219,15 +221,15 @@ if (e_t < in[48]) i_e_t_dot = e_t/in[48];
 out[0] = n_dot;
 out[1] = e_dot;
 out[2] = d_dot;
-out[3] = t6*(-9.81E2/1.0E2)+t8*t14*(2.0E1/5.3E1)-t9*(alpha*3.78620335309777E-1+t10*1.62033558854341+6.23204432055247E-2)*9.014150943396226E-2;
+out[3] = t6*(-9.81E2/1.0E2)+t8*t13*(2.0E1/5.3E1)-t9*(alpha*3.6331E-1+t10*9.592E-1+6.281E-2)*9.014150943396226E-2;
 out[4] = -t8*(t2*(9.81E2/1.0E2)-t22*t23*(2.0E1/5.3E1));
 out[5] = (t8*t22*t24*(2.0E1/5.3E1))/t2;
 out[6] = in[8];
 out[7] = in[9]*t23-in[10]*t24;
-out[8] = in[6]*(-1.11467593207791E1)-in[8]*6.7357877396904+in[10]*8.78182329679164E-1+in[15]*1.11467593207791E1;
-out[9] = -t9*(alpha*1.64663711873934E-1+in[7]*1.58960374141736E-1+in[9]*4.10704191099466E-2-in[16]*1.58960374141736E-1-8.48173994434413E-4);
-out[10] = in[6]*5.98887765504684-in[10]*9.76492309398636+in[15]*1.58960918118893;
-out[11] = in[11]*(-5.583695191098388)+in[14]*5.583695191098388;
+out[8] = in[6]*(-1.24716E1)-in[8]*7.4252+in[10]*1.0069+in[15]*1.24716E1;
+out[9] = -t9*(alpha*1.9303E-1+in[7]*1.8359E-1+in[9]*4.6239E-2-in[16]*1.8359E-1-9.4955E-4);
+out[10] = in[6]*5.7996-in[10]*9.5153+in[15]*1.5967;
+out[11] = in[11]*(-5.089058524173028)+in[14]*5.089058524173028;
 out[12] = i_e_t_dot;
 out[13] = sw_dot;
 
@@ -249,6 +251,7 @@ const double t3 = alpha-in[45]+in[47];
 const double t4 = 1.0/(in[47]*in[47]);
 const double t5 = -alpha+in[46]+in[47];
 const double t6 = sin(in[4]);
+const double t7 = in[11]*in[11];
 
 double Vsafe = in[3];
 if (Vsafe<1.0) Vsafe = 1.0;
@@ -412,24 +415,25 @@ if ( pparam_type < 0.5 ) {
 
 /* end manual input !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
 
-const double t7 = in[11]*in[11];
 const double t8 = 1.0/Vsafe;
 const double t9 = Vsafe*Vsafe;
 const double t10 = alpha*alpha;
-const double t11 = in[11]*4.65309685298437E1;
-const double t12 = t7*1.33121145483364E2;
-const double t13 = in[11]*t7*1.94400407803984E2;
-const double t14 = t11+t12+t13;
-const double t15 = alpha*6.8709446964706;
-const double t16 = t10*(-2.11069893359182E1)+t15+4.70333508888944E-1;
-const double t17 = t9*t16*2.38875E-1;
-const double t18 = cos(alpha);
-const double t19 = 1.0/t18;
-const double t20 = sin(alpha);
-const double t21 = t8*t14*t19*t20;
-const double t22 = t17+t21;
+const double t11 = in[11]*8.14515E1;
+const double t12 = in[11]*t7*2.485871E2;
+const double t20 = t7*4.13847E1;
+const double t13 = t11+t12-t20;
+const double t14 = alpha*5.7233;
+const double t15 = t10*(-6.9474)+t14+5.1987E-1;
+const double t16 = t9*t15*2.38875E-1;
+const double t17 = cos(alpha);
+const double t18 = 1.0/t17;
+const double t19 = sin(alpha);
+const double t21 = t8*t13*t18*t19;
+const double t22 = t16+t21;
 const double t23 = cos(in[6]);
 const double t24 = sin(in[6]);
+
+/* tracked expressions */
 
 const double pd_n = d_n-in[0];
 const double pd_e = d_e-in[1];
@@ -446,15 +450,15 @@ if (e_t < in[48]) i_e_t_dot = e_t/in[48];
 out[0] = n_dot;
 out[1] = e_dot;
 out[2] = d_dot;
-out[3] = t6*(-9.81E2/1.0E2)+t8*t14*(2.0E1/5.3E1)-t9*(alpha*3.78620335309777E-1+t10*1.62033558854341+6.23204432055247E-2)*9.014150943396226E-2;
+out[3] = t6*(-9.81E2/1.0E2)+t8*t13*(2.0E1/5.3E1)-t9*(alpha*3.6331E-1+t10*9.592E-1+6.281E-2)*9.014150943396226E-2;
 out[4] = -t8*(t2*(9.81E2/1.0E2)-t22*t23*(2.0E1/5.3E1));
 out[5] = (t8*t22*t24*(2.0E1/5.3E1))/t2;
 out[6] = in[8];
 out[7] = in[9]*t23-in[10]*t24;
-out[8] = in[6]*(-1.11467593207791E1)-in[8]*6.7357877396904+in[10]*8.78182329679164E-1+in[15]*1.11467593207791E1;
-out[9] = -t9*(alpha*1.64663711873934E-1+in[7]*1.58960374141736E-1+in[9]*4.10704191099466E-2-in[16]*1.58960374141736E-1-8.48173994434413E-4);
-out[10] = in[6]*5.98887765504684-in[10]*9.76492309398636+in[15]*1.58960918118893;
-out[11] = in[11]*(-5.583695191098388)+in[14]*5.583695191098388;
+out[8] = in[6]*(-1.24716E1)-in[8]*7.4252+in[10]*1.0069+in[15]*1.24716E1;
+out[9] = -t9*(alpha*1.9303E-1+in[7]*1.8359E-1+in[9]*4.6239E-2-in[16]*1.8359E-1-9.4955E-4);
+out[10] = in[6]*5.7996-in[10]*9.5153+in[15]*1.5967;
+out[11] = in[11]*(-5.089058524173028)+in[14]*5.089058524173028;
 out[12] = i_e_t_dot;
 out[13] = sw_dot;
 
@@ -500,6 +504,10 @@ const int minus_NU = 0;
 const double t2 = cos(in[4]);
 
 const double alpha = -in[4]+in[7];
+
+const double t3 = alpha-in[45]+in[47];
+const double t4 = 1.0/(in[47]*in[47]);
+const double t5 = -alpha+in[46]+in[47];
 
 double Vsafe = in[3];
 if (Vsafe<1.0) Vsafe = 1.0;
@@ -663,14 +671,37 @@ if ( pparam_type < 0.5 ) {
 
 /* end manual input !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
 
-/* tracked expressions */
-
 const double pd_n = d_n-in[0];
 const double pd_e = d_e-in[1];
 const double pd_d = d_d-in[2];
 const double e_t_ne = -Td_e*pd_n+Td_n*pd_e;
 const double e_t_d = pd_d;
 
+const double t6 = e_t_ne+in[43];
+const double t7 = in[42]*t6;
+const double t8 = exp(t7);
+const double t9 = t8+1.0;
+const double t10 = 1.0/t9;
+const double t11 = e_t_ne-in[43];
+const double t15 = in[42]*t11;
+const double t12 = exp(-t15);
+const double t13 = t12+1.0;
+const double t14 = 1.0/t13;
+const double t16 = t10+t14-1.0;
+const double t17 = t10+t14;
+const double t18 = e_t_d+in[41];
+const double t19 = in[40]*t18;
+const double t20 = exp(t19);
+const double t21 = t20+1.0;
+const double t22 = 1.0/t21;
+const double t23 = e_t_d-in[41];
+const double t24 = exp(-in[40]*t23);
+const double t25 = t24+1.0;
+const double t26 = 1.0/t25;
+
+/* tracked expressions */
+
+// shaped track error cost
 double e_t_1_ne;
 if (e_t_ne>in[43]) {
     e_t_1_ne = 1.0;
@@ -681,7 +712,6 @@ else if (e_t_ne>-in[43]) {
 else {
     e_t_1_ne = -1.0;
 }
-
 double e_t_1_d;
 if (e_t_d>in[41]) {
     e_t_1_d = 1.0;
@@ -730,31 +760,6 @@ else {
     vbar_d=d_dot/norm_v;
 }
 
-const double t3 = alpha-in[45]+in[47];
-const double t4 = 1.0/(in[47]*in[47]);
-const double t5 = -alpha+in[46]+in[47];
-const double t6 = e_t_ne+in[43];
-const double t7 = in[42]*t6;
-const double t8 = exp(t7);
-const double t9 = t8+1.0;
-const double t10 = 1.0/t9;
-const double t11 = e_t_ne-in[43];
-const double t15 = in[42]*t11;
-const double t12 = exp(-t15);
-const double t13 = t12+1.0;
-const double t14 = 1.0/t13;
-const double t16 = t10+t14-1.0;
-const double t17 = t10+t14;
-const double t18 = e_t_d+in[41];
-const double t19 = in[40]*t18;
-const double t20 = exp(t19);
-const double t21 = t20+1.0;
-const double t22 = 1.0/t21;
-const double t23 = e_t_d-in[41];
-const double t24 = exp(-in[40]*t23);
-const double t25 = t24+1.0;
-const double t26 = 1.0/t25;
-
 // soft constraints
 double a_soft;
 if (alpha>(in[45]-in[47])) {
@@ -780,7 +785,7 @@ out[7] = in[8];
 out[8] = in[9];
 out[9] = in[10];
 out[10] = a_soft;
-out[11] = in[11]*(-5.583695191098388)+in[14]*5.583695191098388;
+out[11] = in[11]*(-5.089058524173028)+in[14]*5.089058524173028;
 out[12] = in[14];
 out[13] = in[15];
 out[14] = in[16];
@@ -846,6 +851,10 @@ const int minus_NU = ACADO_NU;
 const double t2 = cos(in[4]);
 
 const double alpha = -in[4]+in[7];
+
+const double t3 = alpha-in[42]+in[44];
+const double t4 = 1.0/(in[44]*in[44]);
+const double t5 = -alpha+in[43]+in[44];
 
 double Vsafe = in[3];
 if (Vsafe<1.0) Vsafe = 1.0;
@@ -1009,14 +1018,37 @@ if ( pparam_type < 0.5 ) {
 
 /* end manual input !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
 
-/* tracked expressions */
-
 const double pd_n = d_n-in[0];
 const double pd_e = d_e-in[1];
 const double pd_d = d_d-in[2];
 const double e_t_ne = -Td_e*pd_n+Td_n*pd_e;
 const double e_t_d = pd_d;
 
+const double t6 = e_t_ne+in[40];
+const double t7 = in[39]*t6;
+const double t8 = exp(t7);
+const double t9 = t8+1.0;
+const double t10 = 1.0/t9;
+const double t11 = e_t_ne-in[40];
+const double t15 = in[39]*t11;
+const double t12 = exp(-t15);
+const double t13 = t12+1.0;
+const double t14 = 1.0/t13;
+const double t16 = t10+t14-1.0;
+const double t17 = t10+t14;
+const double t18 = e_t_d+in[38];
+const double t19 = in[37]*t18;
+const double t20 = exp(t19);
+const double t21 = t20+1.0;
+const double t22 = 1.0/t21;
+const double t23 = e_t_d-in[38];
+const double t24 = exp(-in[37]*t23);
+const double t25 = t24+1.0;
+const double t26 = 1.0/t25;
+
+/* tracked expressions */
+
+// shaped track error cost
 double e_t_1_ne;
 if (e_t_ne>in[40]) {
     e_t_1_ne = 1.0;
@@ -1027,7 +1059,6 @@ else if (e_t_ne>-in[40]) {
 else {
     e_t_1_ne = -1.0;
 }
-
 double e_t_1_d;
 if (e_t_d>in[38]) {
     e_t_1_d = 1.0;
@@ -1075,31 +1106,6 @@ else {
     vbar_e=e_dot/norm_v;
     vbar_d=d_dot/norm_v;
 }
-
-const double t3 = alpha-in[42]+in[44];
-const double t4 = 1.0/(in[44]*in[44]);
-const double t5 = -alpha+in[43]+in[44];
-const double t6 = e_t_ne+in[40];
-const double t7 = in[39]*t6;
-const double t8 = exp(t7);
-const double t9 = t8+1.0;
-const double t10 = 1.0/t9;
-const double t11 = e_t_ne-in[40];
-const double t15 = in[39]*t11;
-const double t12 = exp(-t15);
-const double t13 = t12+1.0;
-const double t14 = 1.0/t13;
-const double t16 = t10+t14-1.0;
-const double t17 = t10+t14;
-const double t18 = e_t_d+in[38];
-const double t19 = in[37]*t18;
-const double t20 = exp(t19);
-const double t21 = t20+1.0;
-const double t22 = 1.0/t21;
-const double t23 = e_t_d-in[38];
-const double t24 = exp(-in[37]*t23);
-const double t25 = t24+1.0;
-const double t26 = 1.0/t25;
 
 // soft constraints
 double a_soft;
