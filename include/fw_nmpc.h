@@ -54,6 +54,7 @@ public:
 	void 	waypointListCb(const mavros::WaypointList::ConstPtr& msg);
 	void 	currentWpCb(const std_msgs::Int32::ConstPtr& msg);
 	void 	homeWpCb(const geographic_msgs::GeoPoint::ConstPtr& msg);
+	void 	aslctrlDebugCb(const mavros::AslCtrlDebug::ConstPtr& msg);
 
 	/* initializations */
 	int 	initNMPC();
@@ -65,6 +66,7 @@ public:
 	void	updateACADO_OD();
 	void	updateACADO_Y();
 	void	updateACADO_W();
+	void	resetIntegrator();
 
 	/* gets */
 	double getLoopRate();
@@ -102,6 +104,7 @@ private:
 	ros::Subscriber waypoint_list_sub_;
 	ros::Subscriber current_wp_sub_;
 	ros::Subscriber home_wp_sub_;
+	ros::Subscriber aslctrl_debug_sub_;
 
 	/* publishers */
 	ros::Publisher obctrl_pub_;
@@ -114,6 +117,7 @@ private:
 	/* controller switch */
 	bool	bModeChanged;
 	int		last_ctrl_mode;
+	int 	obctrl_en_;
 
 	/* control horizon */
 	double prev_ctrl_horiz_[ NU * N ];

@@ -24,6 +24,7 @@ FwNMPC::FwNMPC() :
 		t_lastctrl{0},
 		bModeChanged(false),
 		last_ctrl_mode(0),
+		obctrl_en_(0),
 		prev_ctrl_horiz_{0},
 		prev_wp_idx_(-1),
 		last_wp_idx_(-1),
@@ -45,6 +46,7 @@ FwNMPC::FwNMPC() :
 	waypoint_list_sub_= nmpc_.subscribe("/mavros/mission/waypoints", 1, &FwNMPC::waypointListCb, this);
 	current_wp_sub_		= nmpc_.subscribe("/mavros/mission/current_wp", 1, &FwNMPC::currentWpCb, this);
 	home_wp_sub_			= nmpc_.subscribe("/mavros/mission/home_wp", 1, &FwNMPC::homeWpCb, this);
+	aslctrl_debug_sub_			= nmpc_.subscribe("/mavros/aslctrl/debug", 1, &FwNMPC::aslctrlDebugCb, this);
 
 	/* publishers */
 	obctrl_pub_ = nmpc_.advertise<mavros::AslObCtrl>("/nmpc/asl_obctrl", 10, true);
@@ -137,6 +139,11 @@ void FwNMPC::homeWpCb(const geographic_msgs::GeoPoint::ConstPtr& msg) {
 	subs_.home_wp.altitude = msg->altitude;
 }
 
+void FwNMPC::aslctrlDebugCb(const mavros::AslCtrlDebug::ConstPtr& msg) {
+
+	obctrl_en_ = msg->i8_1;
+}
+
 int FwNMPC::initNMPC() {
 
 	/* Initialize ACADO variables */
@@ -170,7 +177,7 @@ void FwNMPC::initACADOVars() {
 	nmpc_.getParam("/nmpc/y_ref/theta_ref", y_theta_ref);
 
 	double Y[NY] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 13.5, 0.0, 0.0, 0.0, 0.0, 0.0, y_uT_ref, 0.0, y_theta_ref, y_uT_ref, 0.0, y_theta_ref};
-	double W[NY] = {70.0, 150.0, 3.0, 10.0, 10.0, 5.0, 5.0, 30.0, 30.0, 5.0, 10.0, 100.0, 15.0, 5.0, 20.0, 0.0, 20.0, 30.0};
+	double W[NY] = {70.0, 150.0, 0.0, 10.0, 10.0, 5.0, 5.0, 30.0, 30.0, 5.0, 10.0, 100.0, 15.0, 5.0, 20.0, 0.0, 20.0, 30.0};
 
 	nmpc_.getParam("nmpc/w_scale/q1", W_scale_[0]);
 	nmpc_.getParam("nmpc/w_scale/q2", W_scale_[1]);
@@ -422,6 +429,12 @@ void FwNMPC::updateACADO_W() {
 	}
 }
 
+void FwNMPC::resetIntegrator() {
+
+	for (int i = 1; i < N + 2; ++i) acadoVariables.x[ i * NX - 2 ] = 0.0;
+	acadoVariables.x0[ 12 ] = 0.0;
+}
+
 double FwNMPC::getLoopRate() {
 	return LOOP_RATE;
 }
@@ -433,9 +446,11 @@ double FwNMPC::getTimeStep() {
 double FwNMPC::getIntegralCostMultiplier() {
 
 	float i_W_mult = 0.0f;
-	const float e_t = sqrt(track_error_ne_*track_error_ne_ + track_error_d_*track_error_d_);
-	if (e_t < subs_.nmpc_params.i_e_t_co * 0.8f) i_W_mult = 1.0f;
-	else if (e_t < subs_.nmpc_params.i_e_t_co) i_W_mult = cosf((e_t/subs_.nmpc_params.i_e_t_co - 0.8)/0.2 * 3.141592653589793) * 0.5 + 0.5;
+	if (obctrl_en_==1) { // only integrate when actively using off-board controls
+		const float e_t = sqrt(track_error_ne_*track_error_ne_ + track_error_d_*track_error_d_);
+		if (e_t < subs_.nmpc_params.i_e_t_co * 0.8f) i_W_mult = 1.0f;
+		else if (e_t < subs_.nmpc_params.i_e_t_co) i_W_mult = cosf((e_t/subs_.nmpc_params.i_e_t_co - 0.8)/0.2 * 3.141592653589793) * 0.5 + 0.5;
+	}
 
 	return (double)i_W_mult;
 }
@@ -684,6 +699,8 @@ int FwNMPC::nmpcIteration() {
 			updateACADO_Y();
 			updateACADO_W();
 
+			resetIntegrator(); // start fresh integrator on first time in loop
+
 			bModeChanged = false;
 		}
 		else {
@@ -693,13 +710,16 @@ int FwNMPC::nmpcIteration() {
 			updateACADO_X0(); // note this shifts augmented states
 			updateACADO_Y();
 			updateACADO_W();
+
+			if (obctrl_en_==0) resetIntegrator(); // do not integrate unless off-board controls are actively being used
 		}
 
 		/* check current waypoint */
 		if ( subs_.current_wp.data != prev_wp_idx_ ) {
-			// reset integral of track error, e_t, horizon //TODO: encapsulate
-			for (int i = 1; i < N + 2; ++i) acadoVariables.x[ i * NX - 2 ] = 0.0;
-			acadoVariables.x0[ 12 ] = 0.0;
+
+			// reset integral of track error, e_t, horizon
+			resetIntegrator();
+
 			// reset switch state, sw, horizon //TODO: encapsulate
 			for (int i = 1; i < N + 2; ++i) acadoVariables.x[ i * NX - 1 ] = 0.0;
 			acadoVariables.x0[ 13 ] = 0.0;
