@@ -142,8 +142,8 @@ private:
 	// uT, phi_ref, theta_ref
 	const double CTRL_DEADZONE[3] = {0.2, 0.0, 0.0}; // zero-based deadzone TODO: non-zero-based? asymmetric?
 //	const double CTRL_OFFSET[3] = {0.0, 0.0, 0.0}; // constant offset TODO: how to use?
-	const double CTRL_NORMALIZATION[3] = {1.0, 1.0, 1.0}; // normlization !!must not be zero!!
-	const double CTRL_SATURATION[3][2] = { {0.0, 0.1}, {-0.5236, 0.5236}, {-0.2618, 0.2618} }; // these are saturations for the internal model ATM* TODO: probably should incorporate some saturation for the incoming controls as well
+	const double CTRL_NORMALIZATION[3] = {0.8, 1.0, 1.0}; // normlization !!must not be zero!!
+	const double CTRL_SATURATION[3][2] = { {0.0, 1.0}, {-0.5236, 0.5236}, {-0.2618, 0.2618} }; // these are saturations for the internal model ATM* TODO: probably should incorporate some saturation for the incoming controls as well
 
 	/* node functions */
 	void 	shutdown();

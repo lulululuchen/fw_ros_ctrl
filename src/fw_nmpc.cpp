@@ -810,9 +810,9 @@ void FwNMPC::publishControls(std_msgs::Header header, uint64_t &t_ctrl, ros::Tim
 
 	/* re-apply dead-zone offset */
 	for (int i = 0; i < NU; ++i)  {
-		if (fabs(ctrl[ i ]) < 0.02 * CTRL_NORMALIZATION[ i ]) ctrl[ i ] = 0.0;
-		else if (ctrl[ i ] < 0.0) ctrl[ i ] = ctrl[ i ] - CTRL_DEADZONE[ i ];
-		else ctrl[ i ] = ctrl[ i ] + CTRL_DEADZONE[ i ];
+		if (ctrl[ i ] < 0.02 * CTRL_NORMALIZATION[ i ] * CTRL_SATURATION[i][0]) ctrl[ i ] = ctrl[ i ] - CTRL_DEADZONE[ i ];
+		else if (ctrl[ i ] > 0.02 * CTRL_NORMALIZATION[ i ] * CTRL_SATURATION[i][1]) ctrl[ i ] = ctrl[ i ] + CTRL_DEADZONE[ i ];
+		else ctrl[ i ] = 0.0;
 	}
 
 	/* solve time in us */

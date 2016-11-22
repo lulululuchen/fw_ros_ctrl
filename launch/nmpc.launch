@@ -3,7 +3,7 @@
   <param name="/nmpc/loop_rate" type="double" value="20.0" />
   <param name="/nmpc/time_step" type="double" value="0.1" />
   
-  <param name="/nmpc/y_ref/uT" type="double" value="0.3" />
+  <param name="/nmpc/y_ref/uT" type="double" value="0.375" />
   <param name="/nmpc/y_ref/theta_ref" type="double" value="0.0297" />
   
   <param name="/nmpc/w_scale/q1" type="double" value="1.0" />
