@@ -2,7 +2,7 @@
 # Thomas Stastny | thomas.stastny@mavt.ethz.ch
 
 # measurements
-float32[13] x0			# measurement vector
+float32[15] x0			# measurement vector
 
 # state horizons
 float32[41] n			# northing [m]
@@ -17,7 +17,8 @@ float32[41] p			# roll rate [rad/s]
 float32[41] q			# pitch rate [rad/s]
 float32[41] r			# yaw rate [rad/s]
 float32[41] throt		# throttle setting [%]
-float32[41] i_e_t		# integral of track error [m-s]
+float32[41] i_e_t_ne	# integral of lateral-directional track error [m-s]
+float32[41] i_e_t_d		# integral of longitudinal track error [m-s]
 float32[41] xsw			# switching state [~]
 
 # controls
@@ -35,15 +36,15 @@ float32 pparam6     	# bb_e    	dir
 float32 pparam7     	# bb_d    	gam
 float32 pparam8     	# --      	xi0
 float32 pparam9     	# --      	dxi
-uint8 pparam1_next  
-float32 pparam2_next 
-float32 pparam3_next 
-float32 pparam4_next
-float32 pparam5_next
-float32 pparam6_next
-float32 pparam7_next
-float32 pparam8_next
-float32 pparam9_next
+uint8 pparam1_next  	# type(=0)	type(=1)
+float32 pparam2_next 	# aa_n    	cc_n
+float32 pparam3_next 	# aa_e    	cc_e
+float32 pparam4_next	# aa_d    	cc_d
+float32 pparam5_next	# bb_n    	R
+float32 pparam6_next	# bb_e    	dir
+float32 pparam7_next	# bb_d    	gam
+float32 pparam8_next	# --      	xi0
+float32 pparam9_next	# --      	dxi
 float32 R_acpt			# track switch acceptance radius (proximity condition)
 float32 ceta_acpt		# cosine of track switch acceptance angular error (bearing condition)
 
@@ -51,15 +52,16 @@ float32 wn				# north wind component
 float32 we				# east wind component
 float32 wd				# down wind component
 
+float32 k_t_ne      	# lateral-directional logistic gain
+float32 e_ne_co     	# lateral-directional logistic cutoff [m]
 float32 k_t_d 			# longitudinal logistic gain
 float32 e_d_co     		# longitudinal logistic cutoff [m]
-float32 k_t_ne      	# lateral logistic gain
-float32 e_ne_co     	# lateral logistic cutoff [m]
 float32 eps_v       	# unit ground speed threshold [~]
 float32 alpha_p_co    	# angle of attack upper cutoff [rad]
 float32 alpha_m_co    	# angle of attack lower cutoff [rad]
 float32 alpha_delta_co  # angle of attack cutoff transition length [rad]
-float32 i_e_t_co  		# track error integral cutoff [m]
+float32 i_e_t_ne_co  	# lateral-directional track error integral cutoff [m]
+float32 i_e_t_d_co  	# longitudinal track error integral cutoff [m]
 
 # references
 float32 y_V

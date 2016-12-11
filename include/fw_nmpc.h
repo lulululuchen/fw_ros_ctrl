@@ -27,7 +27,7 @@
 #define NY 	ACADO_NY 	/* Number of measurements/references on nodes 0..N - 1. */
 #define NYN	ACADO_NYN	/* Number of measurements/references on node N. */
 #define N		ACADO_N		/* Number of intervals in the horizon. */
-#define NX_AUGM 3			/* Number of augmented differential state variables. */
+#define NX_AUGM 4			/* Number of augmented differential state variables. */
 
 /* global variables used by the solver. */
 ACADOvariables acadoVariables;
@@ -71,18 +71,18 @@ public:
 	/* gets */
 	double getLoopRate();
 	double getTimeStep();
-	double getIntegralCostMultiplier();
+	void 	getIntegralCostMultiplier(double *i_W_mult);
 	void 	reqSubs();
-	void 	calculateTrackError(const real_t *in_x, const real_t *in_od);
+	void 	calculateTrackError(const real_t *in);
 
 	/* functions */
 	void 	update();
 	int 	nmpcIteration();
 
 	/* publishing encapsulation */
-	void	publishControls(std_msgs::Header header, uint64_t &t_ctrl, ros::Time t_start, int obctrl_status);
+	void	publishControls(uint64_t &t_ctrl, uint64_t t_iter_approx, int obctrl_status);
 	void	publishAcadoVars();
-	void	publishNmpcInfo(ros::Time t_start, uint64_t t_ctrl);
+	void	publishNmpcInfo(ros::Time t_iter_start, uint64_t t_ctrl, uint64_t t_solve, uint64_t t_update, uint64_t t_wp_man);
 
 	double	LOOP_RATE;
 	double 	TSTEP;
