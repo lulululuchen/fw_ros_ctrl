@@ -727,6 +727,7 @@ int FwNMPC::nmpcIteration() {
 			const double new_home_wp[3] = {subs_.home_wp.latitude, subs_.home_wp.longitude, subs_.home_wp.altitude};
 			paths_.setHomeWp( new_home_wp );
 			prev_wp_idx_ = -1;
+			last_wp_idx_ = -1;
 
 			// initHorizon BEFORE Y, this is to make sure controls and prev_horiz are reinitialized before reaching Y update.
 			initHorizon();
@@ -745,7 +746,9 @@ int FwNMPC::nmpcIteration() {
 			updateACADO_Y();
 			updateACADO_W();
 
-			if (obctrl_en_==0) resetIntegrator(); // do not integrate unless off-board controls are actively being used
+			if (obctrl_en_==0) {
+				resetIntegrator(); // do not integrate unless off-board controls are actively being used
+			}
 		}
 
 		/* update time in us <-- */
@@ -756,7 +759,7 @@ int FwNMPC::nmpcIteration() {
 		ros::Time t_wp_man_start = ros::Time::now();
 
 		/* check current waypoint */
-		if ( subs_.current_wp.data != prev_wp_idx_ ) {
+		if ( subs_.current_wp.data != last_wp_idx_ ) {
 
 			// reset integral of track error, e_t, horizon
 			resetIntegrator();
@@ -764,14 +767,14 @@ int FwNMPC::nmpcIteration() {
 			// reset switch state, sw, horizon //TODO: encapsulate
 			for (int i = 1; i < N + 2; ++i) acadoVariables.x[ i * NX - 1 ] = 0.0;
 			acadoVariables.x0[ 14 ] = 0.0;
+
+			// set previous wp list item to last wp id
+			prev_wp_idx_ = (last_wp_idx_==-1) ? subs_.current_wp.data : last_wp_idx_; // if first time through loop, previous wp will be set to current wp
 		}
+		last_wp_idx_ = subs_.current_wp.data;
 
 		/* update path */
-		if ( subs_.current_wp.data != last_wp_idx_ ) {
-			prev_wp_idx_ = last_wp_idx_;
-		}
 		paths_.updatePaths(subs_.waypoint_list, subs_.current_wp.data, prev_wp_idx_);
-		last_wp_idx_ = subs_.current_wp.data;
 
 		/* update ACADO online data */
 		updateACADO_OD();
