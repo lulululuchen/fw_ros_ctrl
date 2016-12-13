@@ -10,11 +10,11 @@
 
 // INCLUDES for mavros
 #include <mavros/WaypointPull.h>
+#include <mavros/AslObCtrl.h>
 
 // INCLUDES for fw_ctrl
 #include <fw_ctrl/AcadoVars.h>
 #include <fw_ctrl/NmpcInfo.h>
-#include <mavros/AslObCtrl.h>
 
 using namespace fw_nmpc;
 
@@ -45,7 +45,7 @@ FwNMPC::FwNMPC() :
 	nmpc_params_sub_ 	= nmpc_.subscribe("/mavros/nmpc_params", 1, &FwNMPC::nmpcParamsCb, this);
 	waypoint_list_sub_= nmpc_.subscribe("/mavros/mission/waypoints", 1, &FwNMPC::waypointListCb, this);
 	current_wp_sub_		= nmpc_.subscribe("/mavros/mission/current_wp", 1, &FwNMPC::currentWpCb, this);
-	home_wp_sub_			= nmpc_.subscribe("/mavros/mission/home_wp", 1, &FwNMPC::homeWpCb, this);
+	home_wp_sub_			= nmpc_.subscribe("/mavros/home_position", 1, &FwNMPC::homeWpCb, this);
 	aslctrl_debug_sub_			= nmpc_.subscribe("/mavros/aslctrl/debug", 1, &FwNMPC::aslctrlDebugCb, this);
 
 	/* publishers */
@@ -133,11 +133,11 @@ void FwNMPC::currentWpCb(const std_msgs::Int32::ConstPtr& msg) {
 	subs_.current_wp.data = msg->data;
 }
 
-void FwNMPC::homeWpCb(const geographic_msgs::GeoPoint::ConstPtr& msg) {
+void FwNMPC::homeWpCb(const mavros::HomePosition::ConstPtr& msg) {
 
-	subs_.home_wp.latitude = msg->latitude;
-	subs_.home_wp.longitude = msg->longitude;
-	subs_.home_wp.altitude = msg->altitude;
+	subs_.home_wp.latitude = (double)msg->latitude * 1e-7;
+	subs_.home_wp.longitude = (double)msg->longitude * 1e-7;
+	subs_.home_wp.altitude = (double)msg->altitude * 1e-3;
 }
 
 void FwNMPC::aslctrlDebugCb(const mavros::AslCtrlDebug::ConstPtr& msg) {

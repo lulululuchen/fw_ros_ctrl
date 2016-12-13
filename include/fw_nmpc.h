@@ -53,7 +53,7 @@ public:
 	void 	nmpcParamsCb(const mavros::AslNmpcParams::ConstPtr& msg);
 	void 	waypointListCb(const mavros::WaypointList::ConstPtr& msg);
 	void 	currentWpCb(const std_msgs::Int32::ConstPtr& msg);
-	void 	homeWpCb(const geographic_msgs::GeoPoint::ConstPtr& msg);
+	void 	homeWpCb(const mavros::HomePosition::ConstPtr& msg);
 	void 	aslctrlDebugCb(const mavros::AslCtrlDebug::ConstPtr& msg);
 
 	/* initializations */

@@ -15,6 +15,7 @@
 #include <geographic_msgs/GeoPoint.h>
 #include <geometry_msgs/Vector3Stamped.h>
 #include <mavros/AslCtrlDebug.h>
+#include <mavros/HomePosition.h>
 
 /*
  * class definition for subscription data //TODO: put callbacks here? maybe an init() function for subs? maybe even pubs??
