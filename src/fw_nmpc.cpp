@@ -9,8 +9,8 @@
 #include <std_msgs/UInt8.h>
 
 // INCLUDES for mavros
-#include <mavros/WaypointPull.h>
-#include <mavros/AslObCtrl.h>
+#include <mavros_msgs/WaypointPull.h>
+#include <mavros_msgs/AslObCtrl.h>
 
 // INCLUDES for fw_ctrl
 #include <fw_ctrl/AcadoVars.h>
@@ -25,13 +25,12 @@ FwNMPC::FwNMPC() :
 		bModeChanged(false),
 		last_ctrl_mode(0),
 		obctrl_en_(0),
-		prev_ctrl_horiz_{0},
 		prev_wp_idx_(-1),
 		last_wp_idx_(-1),
 		bYawReceived(false),
 		last_yaw_msg_(0.0f),
-		track_error_ne_(0.0f),
-		track_error_d_(0.0f),
+		track_error_lat_(0.0f),
+		track_error_lon_(0.0f),
 		W_scale_{0}
 {
 
@@ -40,36 +39,36 @@ FwNMPC::FwNMPC() :
 	/* subscribers */
 	aslctrl_data_sub_	= nmpc_.subscribe("/mavros/aslctrl/data", 1, &FwNMPC::aslctrlDataCb, this);
 	glob_pos_sub_ 		= nmpc_.subscribe("/mavros/global_position/global", 1, &FwNMPC::globPosCb, this);
-	glob_vel_sub_ 		= nmpc_.subscribe("/mavros/global_position/gp_vel", 1, &FwNMPC::globVelCb, this);
-	ekf_ext_sub_			= nmpc_.subscribe("/mavros/aslekf_extended", 1, &FwNMPC::ekfExtCb, this);
+	glob_vel_sub_		= nmpc_.subscribe("/mavros/global_position/gp_vel", 1, &FwNMPC::globVelCb, this);
+	ekf_ext_sub_		= nmpc_.subscribe("/mavros/aslekf_extended", 1, &FwNMPC::ekfExtCb, this);
 	nmpc_params_sub_ 	= nmpc_.subscribe("/mavros/nmpc_params", 1, &FwNMPC::nmpcParamsCb, this);
-	waypoint_list_sub_= nmpc_.subscribe("/mavros/mission/waypoints", 1, &FwNMPC::waypointListCb, this);
+	waypoint_list_sub_	= nmpc_.subscribe("/mavros/mission/waypoints", 1, &FwNMPC::waypointListCb, this);
 	current_wp_sub_		= nmpc_.subscribe("/mavros/mission/current_wp", 1, &FwNMPC::currentWpCb, this);
-	home_wp_sub_			= nmpc_.subscribe("/mavros/home_position", 1, &FwNMPC::homeWpCb, this);
-	aslctrl_debug_sub_			= nmpc_.subscribe("/mavros/aslctrl/debug", 1, &FwNMPC::aslctrlDebugCb, this);
+	home_wp_sub_		= nmpc_.subscribe("/mavros/home_position", 1, &FwNMPC::homeWpCb, this);
+	aslctrl_debug_sub_	= nmpc_.subscribe("/mavros/aslctrl/debug", 1, &FwNMPC::aslctrlDebugCb, this);
 
 	/* publishers */
-	obctrl_pub_ = nmpc_.advertise<mavros::AslObCtrl>("/nmpc/asl_obctrl", 10, true);
+	obctrl_pub_ = nmpc_.advertise<mavros_msgs::AslObCtrl>("/nmpc/asl_obctrl", 10, true);
 	nmpc_info_pub_ = nmpc_.advertise<fw_ctrl::NmpcInfo>("/nmpc/info",10,true);
 	acado_vars_pub_	= nmpc_.advertise<fw_ctrl::AcadoVars>("/nmpc/acado_vars",10,true);
 }
 
-void FwNMPC::aslctrlDataCb(const mavros::AslCtrlData::ConstPtr& msg) {
+void FwNMPC::aslctrlDataCb(const mavros_msgs::AslCtrlData::ConstPtr& msg) {
 
-	subs_.aslctrl_data.header 				= msg->header;
-	subs_.aslctrl_data.aslctrl_mode 	= msg->aslctrl_mode;
-	subs_.aslctrl_data.RollAngle			= msg->RollAngle * 0.017453292519943f;
-	subs_.aslctrl_data.PitchAngle			= msg->PitchAngle * 0.017453292519943f;
-	subs_.aslctrl_data.p							= msg->p;
-	subs_.aslctrl_data.q							= msg->q;
-	subs_.aslctrl_data.r							= msg->r;
-	subs_.aslctrl_data.AirspeedRef		= msg->AirspeedRef;
+	subs_.aslctrl_data.header		= msg->header;
+	subs_.aslctrl_data.aslctrl_mode	= msg->aslctrl_mode;
+	subs_.aslctrl_data.rollAngle	= msg->rollAngle * 0.017453292519943f;
+	subs_.aslctrl_data.pitchAngle	= msg->pitchAngle * 0.017453292519943f;
+	subs_.aslctrl_data.p 			= msg->p;
+	subs_.aslctrl_data.q 			= msg->q;
+	subs_.aslctrl_data.r 			= msg->r;
+	subs_.aslctrl_data.airspeedRef	= msg->airspeedRef;
 	subs_.aslctrl_data.uThrot		= msg->uThrot;
 
-	float tmp_yaw = msg->YawAngle * 0.017453292519943f;
+	float tmp_yaw = msg->yawAngle * 0.017453292519943f;
 
 	if (!bYawReceived) {
-		subs_.aslctrl_data.YawAngle = tmp_yaw;
+		subs_.aslctrl_data.yawAngle = tmp_yaw;
 		last_yaw_msg_ = tmp_yaw;
 		bYawReceived = true;
 		return;
@@ -79,7 +78,7 @@ void FwNMPC::aslctrlDataCb(const mavros::AslCtrlData::ConstPtr& msg) {
 	if ( delta_yaw < -3.141592653589793 ) delta_yaw = delta_yaw + 6.283185307179586;
 	if ( delta_yaw > 3.141592653589793 ) delta_yaw = delta_yaw - 6.283185307179586;
 
-	subs_.aslctrl_data.YawAngle = subs_.aslctrl_data.YawAngle + delta_yaw;
+	subs_.aslctrl_data.yawAngle = subs_.aslctrl_data.yawAngle + delta_yaw;
 
 	last_yaw_msg_ = tmp_yaw;
 }
@@ -98,32 +97,27 @@ void FwNMPC::globVelCb(const geometry_msgs::Vector3Stamped::ConstPtr& msg) {
 	subs_.glob_vel.vector.z = msg->vector.z; //vd
 }
 
-void FwNMPC::ekfExtCb(const mavros::AslEkfExt::ConstPtr& msg) {
+void FwNMPC::ekfExtCb(const mavros_msgs::AslEkfExt::ConstPtr& msg) {
 
-	subs_.ekf_ext.airspeed 			= msg->airspeed;
-	subs_.ekf_ext.windSpeed 		= msg->windSpeed;
+	subs_.ekf_ext.airspeed 		= msg->airspeed;
+	subs_.ekf_ext.windSpeed		= msg->windSpeed;
 	subs_.ekf_ext.windDirection = msg->windDirection;
-	subs_.ekf_ext.windZ					= msg->windZ;
+	subs_.ekf_ext.windZ			= msg->windZ;
 }
 
-void FwNMPC::nmpcParamsCb(const mavros::AslNmpcParams::ConstPtr& msg) {
+void FwNMPC::nmpcParamsCb(const mavros_msgs::AslNmpcParams::ConstPtr& msg) {
 
-	subs_.nmpc_params.R_acpt = msg->R_acpt;
-	subs_.nmpc_params.ceta_acpt = msg->ceta_acpt;
-	subs_.nmpc_params.k_t_ne = msg->k_t_ne;
-	subs_.nmpc_params.e_ne_co = msg->e_ne_co;
-	subs_.nmpc_params.k_t_d = msg->k_t_d;
-	subs_.nmpc_params.e_d_co = msg->e_d_co;
-	subs_.nmpc_params.eps_v = msg->eps_v;
-	subs_.nmpc_params.alpha_p_co = msg->alpha_p_co;
-	subs_.nmpc_params.alpha_m_co = msg->alpha_m_co;
-	subs_.nmpc_params.alpha_delta_co = msg->alpha_delta_co;
-	subs_.nmpc_params.i_e_t_ne_co = msg->i_e_t_ne_co;
-	subs_.nmpc_params.i_e_t_d_co = msg->i_e_t_d_co;
-	subs_.nmpc_params.Qdiag = msg->Qdiag;
+	subs_.nmpc_params.R_acpt 			= msg->R_acpt;
+	subs_.nmpc_params.ceta_acpt 		= msg->ceta_acpt;
+	subs_.nmpc_params.alpha_p_co 		= msg->alpha_p_co;
+	subs_.nmpc_params.alpha_m_co 		= msg->alpha_m_co;
+	subs_.nmpc_params.alpha_delta_co 	= msg->alpha_delta_co;
+	subs_.nmpc_params.T_b_lat 			= msg->T_b_lat;
+	subs_.nmpc_params.T_b_lon 			= msg->T_b_lon;
+	subs_.nmpc_params.Qdiag 			= msg->Qdiag;
 }
 
-void FwNMPC::waypointListCb(const mavros::WaypointList::ConstPtr& msg) {
+void FwNMPC::waypointListCb(const mavros_msgs::WaypointList::ConstPtr& msg) {
 
 	subs_.waypoint_list.waypoints = msg->waypoints;
 }
@@ -133,14 +127,14 @@ void FwNMPC::currentWpCb(const std_msgs::Int32::ConstPtr& msg) {
 	subs_.current_wp.data = msg->data;
 }
 
-void FwNMPC::homeWpCb(const mavros::HomePosition::ConstPtr& msg) {
+void FwNMPC::homeWpCb(const mavros_msgs::HomePosition::ConstPtr& msg) {
 
-	subs_.home_wp.latitude = (double)msg->latitude * 1e-7;
-	subs_.home_wp.longitude = (double)msg->longitude * 1e-7;
-	subs_.home_wp.altitude = (double)msg->altitude * 1e-3;
+	subs_.home_wp.latitude 	= (double)msg->latitude;
+	subs_.home_wp.longitude = (double)msg->longitude;
+	subs_.home_wp.altitude 	= (double)msg->altitude;
 }
 
-void FwNMPC::aslctrlDebugCb(const mavros::AslCtrlDebug::ConstPtr& msg) {
+void FwNMPC::aslctrlDebugCb(const mavros_msgs::AslCtrlDebug::ConstPtr& msg) {
 
 	obctrl_en_ = msg->i8_1;
 }
@@ -168,17 +162,17 @@ void FwNMPC::initACADOVars() {
 	//TODO: maybe actually wait for all subscriptions to be filled here before initializing?
 
 	/* put something reasonable here.. NOT all zeros, solver is initialized from here */
-	double X[NX] = {0.0, 0.0, 0.0, 13.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.0, 0.0, 0.0};
-	double U[NU] = {0.3, 0.0, 0.0};
-	double OD[NOD] = {0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 30.0, 0.8, 0.0, 0.0, 0.0, 0.4, 60.0, 0.4, 30.0, 1.0, 0.1396, -0.0524, 0.0349, 10.0, 10.0};
+	double X[NX] 	= {0.0, 0.0, 0.0, 13.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.0};
+	double U[NU] 	= {0.3, 0.0, 0.0};
+	double OD[NOD]	= {0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 30.0, 0.8, 0.0, 0.0, 0.0, 0.1396, -0.0524, 0.0349, 1.0, 2.0};
 
 	double y_uT_ref;
 	nmpc_.getParam("/nmpc/y_ref/uT", y_uT_ref);
 	double y_theta_ref;
 	nmpc_.getParam("/nmpc/y_ref/theta_ref", y_theta_ref);
 
-	double Y[NY] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 13.5, 0.0, 0.0, 0.0, 0.0, 0.0, y_uT_ref, 0.0, y_theta_ref, y_uT_ref, 0.0, y_theta_ref};
-	double W[NY] = {100.0, 200.0, 0.0, 0.0, 10.0, 10.0, 1.0, 5.0, 20.0, 20.0, 5.0, 1.0, 1.0, 0.1, 0.1, 0.1, 10.0, 10.0, 10.0};
+	double Y[NY] = {0.0, 0.0, 13.5, 0.0, 0.0, 0.0, 0.0, 0.0, y_uT_ref, 0.0, y_theta_ref};
+	double W[NY] = {200.0, 200.0, 10.0, 20.0, 20.0, 5.0, 100.0, 40.0, 30.0, 50.0, 50.0};
 
 	nmpc_.getParam("nmpc/w_scale/q1", W_scale_[0]);
 	nmpc_.getParam("nmpc/w_scale/q2", W_scale_[1]);
@@ -191,14 +185,6 @@ void FwNMPC::initACADOVars() {
 	nmpc_.getParam("nmpc/w_scale/q9", W_scale_[8]);
 	nmpc_.getParam("nmpc/w_scale/q10", W_scale_[9]);
 	nmpc_.getParam("nmpc/w_scale/q11", W_scale_[10]);
-	nmpc_.getParam("nmpc/w_scale/q12", W_scale_[11]);
-	nmpc_.getParam("nmpc/w_scale/q13", W_scale_[12]);
-	nmpc_.getParam("nmpc/w_scale/q14", W_scale_[13]);
-	nmpc_.getParam("nmpc/w_scale/q15", W_scale_[14]);
-	nmpc_.getParam("nmpc/w_scale/q16", W_scale_[15]);
-	nmpc_.getParam("nmpc/w_scale/q17", W_scale_[16]);
-	nmpc_.getParam("nmpc/w_scale/q18", W_scale_[17]);
-	nmpc_.getParam("nmpc/w_scale/q19", W_scale_[18]);
 
 	/* these set a constant value for each variable through the horizon */
 
@@ -268,24 +254,19 @@ void FwNMPC::initHorizon() {
 		for (int j = 0; j < NU; ++j) acadoVariables.u[ i * NU + j ] = U[ j ];
 	}
 
-	/* store control horizon */
-	memcpy(prev_ctrl_horiz_, acadoVariables.u, sizeof(acadoVariables.u));
-
 	double X0[NX];
 	paths_.ll2NE(X0[0], X0[1], (double)subs_.glob_pos.latitude, (double)subs_.glob_pos.longitude); // n, e
-	X0[2]		= -((double)subs_.glob_pos.altitude - paths_.getHomeAlt()); // d
-	X0[3]		= (double)subs_.ekf_ext.airspeed; // V
-	X0[4]		= (double)( (subs_.glob_vel.vector.z - subs_.ekf_ext.windZ) / subs_.ekf_ext.airspeed ); // gamma
-	X0[5]		= (double)subs_.aslctrl_data.YawAngle; // xi
-	X0[6]		= (double)subs_.aslctrl_data.RollAngle; // phi
-	X0[7]		= (double)subs_.aslctrl_data.PitchAngle; // theta
-	X0[8]		= (double)subs_.aslctrl_data.p; // p
-	X0[9]		= (double)subs_.aslctrl_data.q; // q
+	X0[2]	= -((double)subs_.glob_pos.altitude - paths_.getHomeAlt()); // d
+	X0[3]	= (double)subs_.ekf_ext.airspeed; // V
+	X0[4]	= -asin((double)((subs_.glob_vel.vector.z - subs_.ekf_ext.windZ) / subs_.ekf_ext.airspeed)); // gamma
+	X0[5]	= (double)subs_.aslctrl_data.yawAngle; // xi
+	X0[6]	= (double)subs_.aslctrl_data.rollAngle; // phi
+	X0[7]	= (double)subs_.aslctrl_data.pitchAngle; // theta
+	X0[8]	= (double)subs_.aslctrl_data.p; // p
+	X0[9]	= (double)subs_.aslctrl_data.q; // q
 	X0[10]	= (double)subs_.aslctrl_data.r; // r
 	X0[11]	= U[0]; // throt
-	X0[12]	= 0.0; // integral of e_t_ne
-	X0[13]	= 0.0; // integral of e_t_d
-	X0[14]	= 0.0; // xsw
+	X0[12]	= 0.0; // xsw
 
 	for (int i = 0; i < NX; ++i) acadoVariables.x0[ i ] = X0[ i ];
 
@@ -314,25 +295,23 @@ void FwNMPC::initHorizon() {
 void FwNMPC::updateACADO_X0() {
 
 	double X0[NX];
-	paths_.ll2NE(X0[0], X0[1], (double)subs_.glob_pos.latitude, (double)subs_.glob_pos.longitude); // n, e
-	X0[2]		= -((double)subs_.glob_pos.altitude - paths_.getHomeAlt()); // d
-	X0[3]		= (double)subs_.ekf_ext.airspeed; // V
-	X0[4]		= (double)( (subs_.glob_vel.vector.z - subs_.ekf_ext.windZ) / subs_.ekf_ext.airspeed ); // gamma
-	X0[5]		= (double)subs_.aslctrl_data.YawAngle; // xi
-	X0[6]		= (double)subs_.aslctrl_data.RollAngle; // phi
-	X0[7]		= (double)subs_.aslctrl_data.PitchAngle; // theta
-	X0[8]		= (double)subs_.aslctrl_data.p; // p
-	X0[9]		= (double)subs_.aslctrl_data.q; // q
-	X0[10]	= (double)subs_.aslctrl_data.r; // r
+	paths_.ll2NE(X0[0], X0[1], (double)subs_.glob_pos.latitude, (double)subs_.glob_pos.longitude); 				// n, e
+	X0[2]	= -((double)subs_.glob_pos.altitude - paths_.getHomeAlt()); 										// d
+	X0[3]	= (double)subs_.ekf_ext.airspeed; 																	// V
+	X0[4]	= -asin((double)((subs_.glob_vel.vector.z - subs_.ekf_ext.windZ) / subs_.ekf_ext.airspeed)); 		// gamma
+	X0[5]	= (double)subs_.aslctrl_data.yawAngle; 																// xi
+	X0[6]	= (double)subs_.aslctrl_data.rollAngle; 															// phi
+	X0[7]	= (double)subs_.aslctrl_data.pitchAngle; 															// theta
+	X0[8]	= (double)subs_.aslctrl_data.p; 																	// p
+	X0[9]	= (double)subs_.aslctrl_data.q; 																	// q
+	X0[10]	= (double)subs_.aslctrl_data.r; 																	// r
 	// NOTE: yes.. this is shifting the state. Only for these internal variables, however.--linear interpolation
-	X0[11]	= acadoVariables.x[11]+(acadoVariables.x[NX+11]-acadoVariables.x[11])/getLoopRate()/getTimeStep(); // NEXT throt state in horizon.
-	X0[12]	= acadoVariables.x[12]+(acadoVariables.x[NX+12]-acadoVariables.x[12])/getLoopRate()/getTimeStep(); // NEXT i_e_t_ne state in horizon.
-	X0[13]	= acadoVariables.x[13]+(acadoVariables.x[NX+13]-acadoVariables.x[13])/getLoopRate()/getTimeStep(); // NEXT i_e_t_d state in horizon.
-	X0[14]	= acadoVariables.x[14]+(acadoVariables.x[NX+14]-acadoVariables.x[14])/getLoopRate()/getTimeStep(); // NEXT xsw state in horizon.
+	X0[11]	= acadoVariables.x[11]+(acadoVariables.x[NX+11]-acadoVariables.x[11])/getLoopRate()/getTimeStep(); 	// NEXT throt state in horizon.
+	X0[12]	= acadoVariables.x[12]+(acadoVariables.x[NX+12]-acadoVariables.x[12])/getLoopRate()/getTimeStep(); 	// NEXT xsw state in horizon.
 
 	for (int i = 0; i < NX; ++i) acadoVariables.x0[ i ] = X0[ i ];
 
-	/* calculate track error for monitoring on QGC AND calculation of integral multiplier */
+	/* calculate track error for monitoring on QGC */
 	double temp_in[NX+NOD];
 	for (int i = 0; i < NX; ++i) temp_in[ i ] = acadoVariables.x0[ i ];
 	for (int i = NX; i < NX+NOD; ++i) temp_in[ i ] = acadoVariables.od[ i - NX ];
@@ -366,16 +345,11 @@ void FwNMPC::updateACADO_OD() {
 	OD[20] = (double)subs_.ekf_ext.windSpeed * cos((double)subs_.ekf_ext.windDirection);
 	OD[21] = (double)subs_.ekf_ext.windSpeed * sin((double)subs_.ekf_ext.windDirection);
 	OD[22] = (double)subs_.ekf_ext.windZ;
-	OD[23] = (double)subs_.nmpc_params.k_t_ne;
-	OD[24] = (double)subs_.nmpc_params.e_ne_co;
-	OD[25] = (double)subs_.nmpc_params.k_t_d;
-	OD[26] = (double)subs_.nmpc_params.e_d_co;
-	OD[27] = (double)subs_.nmpc_params.eps_v;
-	OD[28] = (double)subs_.nmpc_params.alpha_p_co;
-	OD[29] = (double)subs_.nmpc_params.alpha_m_co;
-	OD[30] = (double)subs_.nmpc_params.alpha_delta_co;
-	OD[31] = (double)subs_.nmpc_params.i_e_t_ne_co;
-	OD[32] = (double)subs_.nmpc_params.i_e_t_d_co;
+	OD[23] = (double)subs_.nmpc_params.alpha_p_co;
+	OD[24] = (double)subs_.nmpc_params.alpha_m_co;
+	OD[25] = (double)subs_.nmpc_params.alpha_delta_co;
+	OD[26] = (double)subs_.nmpc_params.T_b_lat;
+	OD[27] = (double)subs_.nmpc_params.T_b_lon;
 
 	for (int i = 0; i < N+1; ++i) {
 			for (int j = 0; j < NOD; ++j) {
@@ -393,29 +367,21 @@ void FwNMPC::updateACADO_Y() {
 
 	/* update references */
 	double Y[NY];
-	Y[0] 	= 0.0;	// e_t_ne _ref
-	Y[1] 	= 0.0;	// e_t_d _ref
-	Y[2] 	= 0.0;	// i_e_t_ne _ref
-	Y[3] 	= 0.0;	// i_e_t_d _ref
-	Y[4] 	= 0.0;	// e_v_n _ref
-	Y[5] 	= 0.0;	// e_v_e _ref
-	Y[6] 	= 0.0; 	// e_v_d _ref
-	Y[7] 	= subs_.aslctrl_data.AirspeedRef;	// V_ref
-	Y[8] 	= 0.0; 	// p_ref
-	Y[9] 	= 0.0;	// q_ref
-	Y[10] = 0.0;	// r_ref
-	Y[11] = 0.0;	// alpha_soft _ref
-	Y[12] = 0.0;  // delta_T_dot _ref
-	Y[13] = y_uT_ref;	// uthrot _ref
-	Y[14] = 0.0;	// phi_ref _ref
-	Y[15] = y_theta_ref;	// theta_ref _ref
+	Y[0] 	= 0.0;								// eta_lat _ref
+	Y[1] 	= 0.0;								// eta_lon _ref
+	Y[7] 	= subs_.aslctrl_data.airspeedRef;	// V_ref
+	Y[8] 	= 0.0; 								// p_ref
+	Y[9] 	= 0.0;								// q_ref
+	Y[10] 	= 0.0;								// r_ref
+	Y[11] 	= 0.0;								// alpha_soft _ref
+	Y[12] 	= 0.0;  							// delta_T_dot _ref
+	Y[13] 	= y_uT_ref;							// uthrot _ref
+	Y[14] 	= 0.0;								// phi_ref _ref
+	Y[15] 	= y_theta_ref;						// theta_ref _ref
 
 	for (int i = 0; i < N; ++i) {
-		for (int j = 0; j < NY-NU; ++j) {
+		for (int j = 0; j < NY; ++j) {
 			acadoVariables.y[ i * NY + j ] = Y[ j ];
-		}
-		for (int j = 0; j < NU; ++j) {
-			acadoVariables.y[ i * NY + (NY-NU) + j ] = prev_ctrl_horiz_[ i * NU + j ]; //set previous control horizon throughout reference horizon for all other controls
 		}
 	}
 }
@@ -426,30 +392,15 @@ void FwNMPC::updateACADO_W() {
 	double W[NY];
 	for (int i = 0; i < NY; i++) W[ i ] = (double)subs_.nmpc_params.Qdiag[ i ];
 
-	double i_W_mult[2];
-	getIntegralCostMultiplier(i_W_mult);
-
 	// only update diagonal terms
 	for (int i = 0; i < N; ++i) {
 		for (int j = 0; j < NY; ++j) {
-			if (j==2) acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ] * i_W_mult[0]  / W_scale_[ j ];
-			else if (j==3) acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ] * i_W_mult[1]  / W_scale_[ j ];
-			else acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ]  / W_scale_[ j ];
+			acadoVariables.W[ NY * NY * i + NY * j + j ] = W[ j ]  / W_scale_[ j ];
 		}
 	}
 	for (int i = 0; i < NYN; ++i) {
-		if (i==2) acadoVariables.WN[ i * NYN + i ] = W[ i ] * i_W_mult[0]  / W_scale_[ i ];
-		else if (i==3) acadoVariables.WN[ i * NYN + i ] = W[ i ] * i_W_mult[1]  / W_scale_[ i ];
-		else acadoVariables.WN[ i * NYN + i ] =  W[ i ]  / W_scale_[ i ];
+		acadoVariables.WN[ i * NYN + i ] =  W[ i ]  / W_scale_[ i ];
 	}
-}
-
-void FwNMPC::resetIntegrator() {
-
-	for (int i = 1; i < N + 2; ++i) acadoVariables.x[ i * NX - 3 ] = 0.0;
-	for (int i = 1; i < N + 2; ++i) acadoVariables.x[ i * NX - 2 ] = 0.0;
-	acadoVariables.x0[ 12 ] = 0.0;
-	acadoVariables.x0[ 13 ] = 0.0;
 }
 
 double FwNMPC::getLoopRate() {
@@ -458,21 +409,6 @@ double FwNMPC::getLoopRate() {
 
 double FwNMPC::getTimeStep() {
 	return TSTEP;
-}
-
-void FwNMPC::getIntegralCostMultiplier(double *i_W_mult) {
-
-	i_W_mult[0] = 0.0;
-	i_W_mult[1] = 0.0;
-	if (obctrl_en_==1) { // only integrate when actively using off-board controls
-
-		if (fabs(track_error_ne_) < subs_.nmpc_params.i_e_t_ne_co * 0.8) i_W_mult[0] = 1.0;
-		else if (fabs(track_error_ne_) < subs_.nmpc_params.i_e_t_ne_co) i_W_mult[0] = cos((track_error_ne_/subs_.nmpc_params.i_e_t_ne_co - 0.8)/0.2 * 3.141592653589793) * 0.5 + 0.5;
-
-		if (fabs(track_error_d_) < subs_.nmpc_params.i_e_t_d_co * 0.8) i_W_mult[1] = 1.0;
-		else if (fabs(track_error_d_) < subs_.nmpc_params.i_e_t_d_co) i_W_mult[1] = cos((track_error_d_/subs_.nmpc_params.i_e_t_d_co - 0.8)/0.2 * 3.141592653589793) * 0.5 + 0.5;
-	}
-
 }
 
 void FwNMPC::reqSubs() { //TODO: extend this and/or change this to all subs/initializations
@@ -484,8 +420,8 @@ void FwNMPC::reqSubs() { //TODO: extend this and/or change this to all subs/init
 	subs_.current_wp.data = 0;
 
 	/* pull current waypoint list */
-	ros::ServiceClient wp_pull_client_ = nmpc_.serviceClient<mavros::WaypointPull>("/mavros/mission/pull");
-	mavros::WaypointPull wp_pull_srv;
+	ros::ServiceClient wp_pull_client_ = nmpc_.serviceClient<mavros_msgs::WaypointPull>("/mavros/mission/pull");
+	mavros_msgs::WaypointPull wp_pull_srv;
 
 	if (wp_pull_client_.call(wp_pull_srv)) {
 		ROS_ERROR("reqSubs: received %d waypoints", (int)wp_pull_srv.response.wp_received);
@@ -519,34 +455,25 @@ void FwNMPC::calculateTrackError(const real_t *in) {
 
 	const double t2 = cos(in[4]);
 
-	const double alpha = -in[4]+in[7];
-
-	const double t3 = alpha-in[43]+in[45];
-	const double t4 = 1.0/(in[45]*in[45]);
-	const double t5 = -alpha+in[44]+in[45];
-
 	double Vsafe = in[3];
 	if (Vsafe<1.0) Vsafe = 1.0;
 
-	const double n_dot = in[35]+Vsafe*t2*cos(in[5]);
-	const double e_dot = in[36]+Vsafe*t2*sin(in[5]);
-	const double d_dot = in[37]-Vsafe*sin(in[4]);
+	const double n_dot = in[33]+Vsafe*t2*cos(in[5]);
+	const double e_dot = in[34]+Vsafe*t2*sin(in[5]);
+	const double d_dot = in[35]-Vsafe*sin(in[4]);
 
 	/* begin manual input !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
 
 	// CHECK SEGMENT SWITCHING CONDITIONS //TODO: put this in a function!
 	const int idx_OD_0 = ACADO_NX+ACADO_NU-minus_NU;
-	bool b_switch_segment = false;
 	int pparam_sel = 0;
 
-	// omitted switch logic
-
-	double d_n = 0.0;
-	double d_e = 0.0;
-	double d_d = 0.0;
-	double Td_n = 1.0;
-	double Td_e = 0.0;
-	double Td_d = 0.0;
+	double p_n = 0.0;
+	double p_e = 0.0;
+	double p_d = 0.0;
+	double tP_n = 1.0;
+	double tP_e = 0.0;
+	double tP_d = 0.0;
 
 	const double pparam_type = in[idx_OD_0+pparam_sel];
 
@@ -569,19 +496,19 @@ void FwNMPC::calculateTrackError(const real_t *in) {
 
 	    // calculate tangent
 	    if (norm_ab>0.1) {
-	        Td_n = abn / norm_ab;
-	        Td_e = abe / norm_ab;
-	        Td_d = abd / norm_ab;
+	        tP_n = abn / norm_ab;
+	        tP_e = abe / norm_ab;
+	        tP_d = abd / norm_ab;
 	    }
-
+	    
 	    // dot product
-	    const double dot_abunit_ap = Td_n*(in[0] - pparam_aa_n) + Td_e*(in[1] - pparam_aa_e) + Td_d*(in[2] - pparam_aa_d);
-
+	    const double dot_abunit_ap = tP_n*(in[0] - pparam_aa_n) + tP_e*(in[1] - pparam_aa_e) + tP_d*(in[2] - pparam_aa_d);
+	    
 	    // point on track
-	    d_n = pparam_aa_n + dot_abunit_ap * Td_n;
-	    d_e = pparam_aa_e + dot_abunit_ap * Td_e;
-	    d_d = pparam_aa_d + dot_abunit_ap * Td_d;
-
+	    p_n = pparam_aa_n + dot_abunit_ap * tP_n;
+	    p_e = pparam_aa_e + dot_abunit_ap * tP_e;
+	    p_d = pparam_aa_d + dot_abunit_ap * tP_d;
+	    
 	// CURVE SEGMENT
 	} else if ( pparam_type < 1.5 ) {
 
@@ -598,24 +525,24 @@ void FwNMPC::calculateTrackError(const real_t *in) {
 	    // calculate closest point on loiter circle
 	    const double cp_n = in[0] - pparam_cc_n;
 	    const double cp_e = in[1] - pparam_cc_e;
-	    const double norm_cp = sqrt( cp_n*cp_n + cp_e*cp_e );
+	    const double norm_cr = sqrt( cp_n*cp_n + cp_e*cp_e );
 	    double cp_n_unit;
 	    double cp_e_unit;
-	    if (norm_cp>0.1) {
-	        cp_n_unit = cp_n / norm_cp;
-	        cp_e_unit = cp_e / norm_cp;
+	    if (norm_cr>0.1) {
+	        cp_n_unit = cp_n / norm_cr;
+	        cp_e_unit = cp_e / norm_cr;
 	    }
 	    else {
 	        cp_n_unit = 0.0;
 	        cp_e_unit = 0.0;
 	    }
-	    d_n = pparam_R * cp_n_unit + pparam_cc_n;
-	    d_e = pparam_R * cp_e_unit + pparam_cc_e;
+	    p_n = pparam_R * cp_n_unit + pparam_cc_n;
+	    p_e = pparam_R * cp_e_unit + pparam_cc_e;
 
 	    // calculate tangent
-	    Td_n = pparam_ldir * -cp_e_unit;
-	    Td_e = pparam_ldir * cp_n_unit;
-
+	    tP_n = pparam_ldir * -cp_e_unit;
+	    tP_e = pparam_ldir * cp_n_unit;
+	    
 	    // spiral angular position: [0,2*pi)
 	    const double xi_sp = atan2(cp_e_unit, cp_n_unit);
 	    double delta_xi_p = xi_sp-pparam_xi0;
@@ -632,8 +559,8 @@ void FwNMPC::calculateTrackError(const real_t *in) {
 	    // closest point on nearest spiral leg and tangent down component
 	    if (fabs(pparam_gam_sp) < 0.001) {
 
-	        d_d = pparam_cc_d;
-	        Td_d = 0.0;
+	        p_d = pparam_cc_d;
+	        tP_d = 0.0;
 
 	    } else {
 
@@ -649,47 +576,60 @@ void FwNMPC::calculateTrackError(const real_t *in) {
 	        const double delta_d_k = round( (in[2] - (pparam_cc_d + delta_d_xi)) / (6.28318530718*Rtangam) ) * 6.28318530718*Rtangam;
 
 	        // closest point on nearest spiral leg
-	        d_d = pparam_cc_d + delta_d_k + delta_d_xi;
+	        p_d = pparam_cc_d + delta_d_k + delta_d_xi;
 
-	        /* d (on spiral) = (start height) + (revolution height increment) +
+	        /* p (on spiral) = (start height) + (revolution height increment) +
 	         * (lateral-direcitonal angular position increment)
 	         */
-
+	        
 	        // cap end point
-	        if ((d_d - (delta_d_sp_end + pparam_cc_d)) * pparam_gam_sp < 0.0) {
+	        if ((p_d - (delta_d_sp_end + pparam_cc_d)) * pparam_gam_sp < 0.0) {
 	            // we (or more correctly, the closest point on the nearest spiral leg) are beyond the end point
-	            d_d = pparam_cc_d + delta_d_sp_end;
-	            Td_d = 0.0;
+	            p_d = pparam_cc_d + delta_d_sp_end;
+	            tP_d = 0.0;
 	        }
 	        else {
-	            Td_d = -sin(pparam_gam_sp);
+	            tP_d = -sin(pparam_gam_sp);
 	        }
-
+	        
 	    }
-
-	    if (fabs(Td_n)<0.01 && fabs(Td_e)<0.01) { // should always have lateral-directional references on curve (this is only when we hit the center of the circle)
-	        Td_n=1.0;
+	    
+	    if (fabs(tP_n)<0.01 && fabs(tP_e)<0.01) { // should always have lateral-directional references on curve (this is only when we hit the center of the circle)
+	        tP_n=1.0;
 	    }
-
-	    // Renormalize Td
-	    const double normTd = sqrt(Td_n*Td_n+Td_e*Td_e+Td_d*Td_d);
-	    Td_n = Td_n / normTd;
-	    Td_e = Td_e / normTd;
-	    Td_d = Td_d / normTd;
-
+	    
+	    // Renormalize tP
+	    const double normtP = sqrt(tP_n*tP_n+tP_e*tP_e+tP_d*tP_d);
+	    tP_n = tP_n / normtP;
+	    tP_e = tP_e / normtP;
+	    tP_d = tP_d / normtP;
+	        
 	}
 
 	/* end manual input !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
 
-	/* tracked expressions */
+	const double alpha = -in[4]+in[7];
 
-	const double track_eps_v = in[42];
-	const double pd_n = d_n-in[0];
-	const double pd_e = d_e-in[1];
-	const double pd_d = d_d-in[2];
+	const double t3 = in[1]-p_e;
+	const double t4 = in[0]-p_n;
+	const double norm_rp_ne = sqrt(t3*t3+t4*t4);
 
-	track_error_ne_ = -Td_e*pd_n+Td_n*pd_e;
-	track_error_d_ = pd_d;
+	const double t5 = 1.0/norm_rp_ne;
+	const double t6 = -in[2]+p_d;
+
+	double sgn_rp = 0.0;
+	if (t6>0.0) {
+	    sgn_rp = 1.0;
+	} else if (t6<0.0) {
+	    sgn_rp = -1.0;
+	}
+
+	const double t16 = e_dot*e_dot;
+	const double t17 = n_dot*n_dot;
+	const double t18 = t16+t17;
+
+	track_error_lat_ = t4*tP_e-t3*tP_n;
+	track_error_lon_ = t6;
 }
 
 int FwNMPC::nmpcIteration() {
@@ -734,8 +674,6 @@ int FwNMPC::nmpcIteration() {
 			updateACADO_Y();
 			updateACADO_W();
 
-			resetIntegrator(); // start fresh integrator on first time in loop
-
 			bModeChanged = false;
 		}
 		else {
@@ -745,10 +683,6 @@ int FwNMPC::nmpcIteration() {
 			updateACADO_X0(); // note this shifts augmented states
 			updateACADO_Y();
 			updateACADO_W();
-
-			if (obctrl_en_==0) {
-				resetIntegrator(); // do not integrate unless off-board controls are actively being used
-			}
 		}
 
 		/* update time in us <-- */
@@ -761,12 +695,9 @@ int FwNMPC::nmpcIteration() {
 		/* check current waypoint */
 		if ( subs_.current_wp.data != last_wp_idx_ ) {
 
-			// reset integral of track error, e_t, horizon
-			resetIntegrator();
-
 			// reset switch state, sw, horizon //TODO: encapsulate
 			for (int i = 1; i < N + 2; ++i) acadoVariables.x[ i * NX - 1 ] = 0.0;
-			acadoVariables.x0[ 14 ] = 0.0;
+			acadoVariables.x0[ 12 ] = 0.0;
 
 			// set previous wp list item to last wp id
 			prev_wp_idx_ = (last_wp_idx_==-1) ? subs_.current_wp.data : last_wp_idx_; // if first time through loop, previous wp will be set to current wp
@@ -804,12 +735,6 @@ int FwNMPC::nmpcIteration() {
 		t_elapsed = ros::Time::now() - t_solve_start;
 		t_solve = t_elapsed.toNSec()/1000;
 
-		/* store ctrl horizon before shift */
-		memcpy(prev_ctrl_horiz_, acadoVariables.u, sizeof(acadoVariables.u));
-
-//		/* take applied control only for previous throttle horizon */ //shouldnt be needed anymore..handled in update_Y
-//		for (int i = 0; i < N * NU; i+=3)  prev_ctrl_horiz_[ i ] = acadoVariables.u[ NU ];
-
 		/* nmpc iteration time in us (approximate for publishing to pixhawk) <-- */
 		t_elapsed = ros::Time::now() - t_iter_start;
 		uint64_t t_iter_approx = t_elapsed.toNSec()/1000;
@@ -827,7 +752,7 @@ int FwNMPC::nmpcIteration() {
 		// send "alive" status
 
 		/* publish obctrl msg */
-		mavros::AslObCtrl obctrl_msg;
+		mavros_msgs::AslObCtrl obctrl_msg;
 		obctrl_msg.timestamp = 0;
 		obctrl_msg.uThrot = 0.0f;
 		obctrl_msg.uThrot2 = 0.0f; // for monitoring on QGC
@@ -877,12 +802,12 @@ void FwNMPC::publishControls(uint64_t &t_ctrl, uint64_t t_iter_approx, int obctr
 	else ctrl[ 0 ] = 0.0;
 
 	/* publish obctrl msg */
-	mavros::AslObCtrl obctrl_msg;
+	mavros_msgs::AslObCtrl obctrl_msg;
 	obctrl_msg.timestamp = t_iter_approx;
 	obctrl_msg.uThrot = ( isnan((float)ctrl[0]) ) ? 0.0f : (float)ctrl[0];
-	obctrl_msg.uThrot2 = (float)track_error_d_; // for monitoring on QGC
+	obctrl_msg.uThrot2 = (float)track_error_lon_; // for monitoring on QGC
 	obctrl_msg.uAilR = ( isnan((float)ctrl[1]) ) ? 0.0f : (float)ctrl[1];
-	obctrl_msg.uAilL = (float)track_error_ne_; // for monitoring on QGC
+	obctrl_msg.uAilL = (float)track_error_lat_; // for monitoring on QGC
 	obctrl_msg.uElev = ( isnan((float)ctrl[2]) ) ? 0.0f : (float)ctrl[2];
 	obctrl_msg.obctrl_status = ( isnan((float)ctrl[0]) || isnan((float)ctrl[1]) || isnan((float)ctrl[2]) ) ? 11 : (uint8_t)obctrl_status; // status=11 for nan detection
 
@@ -917,9 +842,7 @@ void FwNMPC::publishAcadoVars() {
 		acado_vars.q[i] = (float)acadoVariables.x[NX * i + 9];
 		acado_vars.r[i] = (float)acadoVariables.x[NX * i + 10];
 		acado_vars.throt[i] = (float)acadoVariables.x[NX * i + 11];
-		acado_vars.i_e_t_ne[i] = (float)acadoVariables.x[NX * i + 12];
-		acado_vars.i_e_t_d[i] = (float)acadoVariables.x[NX * i + 13];
-		acado_vars.xsw[i] = (float)acadoVariables.x[NX * i + 14];
+		acado_vars.xsw[i] = (float)acadoVariables.x[NX * i + 12];
 	}
 
 	/* control horizons */
@@ -953,37 +876,24 @@ void FwNMPC::publishAcadoVars() {
 	acado_vars.wn = (float)acadoVariables.od[20];
 	acado_vars.we = (float)acadoVariables.od[21];
 	acado_vars.wd = (float)acadoVariables.od[22];
-	acado_vars.k_t_ne = (float)acadoVariables.od[23];
-	acado_vars.e_ne_co = (float)acadoVariables.od[24];
-	acado_vars.k_t_d = (float)acadoVariables.od[25];
-	acado_vars.e_d_co = (float)acadoVariables.od[26];
-	acado_vars.eps_v = (float)acadoVariables.od[27];
-	acado_vars.alpha_p_co = (float)acadoVariables.od[28];
-	acado_vars.alpha_m_co = (float)acadoVariables.od[29];
-	acado_vars.alpha_delta_co = (float)acadoVariables.od[30];
-	acado_vars.i_e_t_ne_co = (float)acadoVariables.od[31];
-	acado_vars.i_e_t_d_co = (float)acadoVariables.od[32];
+	acado_vars.alpha_p_co = (float)acadoVariables.od[23];
+	acado_vars.alpha_m_co = (float)acadoVariables.od[24];
+	acado_vars.alpha_delta_co = (float)acadoVariables.od[25];
+	acado_vars.T_b_lat = (float)acadoVariables.od[26];
+	acado_vars.T_b_lon = (float)acadoVariables.od[27];
 
 	/* references */ //NOTE: only recording non-zero references
-//	acado_vars.y_e_t_ne = (float)acadoVariables.y[0];
-//	acado_vars.y_e_t_d = (float)acadoVariables.y[1];
-//	acado_vars.y_i_e_t_ne = (float)acadoVariables.y[2];
-//	acado_vars.y_i_e_t_d = (float)acadoVariables.y[3];
-//	acado_vars.y_e_v_n = (float)acadoVariables.y[4];
-//	acado_vars.y_e_v_e = (float)acadoVariables.y[5];
-//	acado_vars.y_e_v_d = (float)acadoVariables.y[6];
-	acado_vars.y_V = (float)acadoVariables.y[7];
-//	acado_vars.y_p = (float)acadoVariables.y[8];
-//	acado_vars.y_q = (float)acadoVariables.y[9];
-//	acado_vars.y_r = (float)acadoVariables.y[10];
-//	acado_vars.y_asoft = (float)acadoVariables.y[11];
-//	acado_vars.y_uTdot = (float)acadoVariables.y[12];
-	acado_vars.y_uT = (float)acadoVariables.y[13];
-//	acado_vars.y_phi_ref = (float)acadoVariables.y[14];
-	acado_vars.y_theta_ref = (float)acadoVariables.y[15];
-	acado_vars.y_uT0 = (float)acadoVariables.y[16];
-	acado_vars.y_phi_ref0 = (float)acadoVariables.y[17];
-	acado_vars.y_theta_ref0 = (float)acadoVariables.y[18];
+//	acado_vars.y_eta_lat = (float)acadoVariables.y[0];
+//	acado_vars.y_eta_lon = (float)acadoVariables.y[1];
+	acado_vars.y_V = (float)acadoVariables.y[2];
+//	acado_vars.y_p = (float)acadoVariables.y[3];
+//	acado_vars.y_q = (float)acadoVariables.y[4];
+//	acado_vars.y_r = (float)acadoVariables.y[5];
+//	acado_vars.y_asoft = (float)acadoVariables.y[6];
+//	acado_vars.y_uTdot = (float)acadoVariables.y[7];
+	acado_vars.y_uT = (float)acadoVariables.y[8];
+//	acado_vars.y_phi_ref = (float)acadoVariables.y[9];
+	acado_vars.y_theta_ref = (float)acadoVariables.y[10];
 
 	acado_vars_pub_.publish(acado_vars);
 }
@@ -997,8 +907,8 @@ void FwNMPC::publishNmpcInfo(ros::Time t_iter_start, uint64_t t_ctrl, uint64_t t
 	nmpc_info.obj = (double)getObjective();
 
 	/* various elapsed times */
-	nmpc_info.t_ctrl = t_ctrl;			// time elapsed since last control action was published (stays zero if not in auto mode)
-	nmpc_info.t_solve = t_solve;		// time elapsed during nmpc preparation and feedback step (solve time)
+	nmpc_info.t_ctrl = t_ctrl;		// time elapsed since last control action was published (stays zero if not in auto mode)
+	nmpc_info.t_solve = t_solve;	// time elapsed during nmpc preparation and feedback step (solve time)
 	nmpc_info.t_update = t_update;	// time elapsed during array updates
 	nmpc_info.t_wp_man = t_wp_man;	// time elapsed during waypoint management
 

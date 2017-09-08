@@ -26,8 +26,8 @@
 #define NOD	ACADO_NOD	/* Number of online data values. */
 #define NY 	ACADO_NY 	/* Number of measurements/references on nodes 0..N - 1. */
 #define NYN	ACADO_NYN	/* Number of measurements/references on node N. */
-#define N		ACADO_N		/* Number of intervals in the horizon. */
-#define NX_AUGM 4			/* Number of augmented differential state variables. */
+#define N	ACADO_N		/* Number of intervals in the horizon. */
+#define NX_AUGM 2		/* Number of augmented differential state variables. */
 
 /* global variables used by the solver. */
 ACADOvariables acadoVariables;
@@ -46,15 +46,15 @@ public:
 	FwNMPC();
 
 	/* callbacks */
-	void 	aslctrlDataCb(const mavros::AslCtrlData::ConstPtr& msg);
+	void 	aslctrlDataCb(const mavros_msgs::AslCtrlData::ConstPtr& msg);
 	void 	globPosCb(const sensor_msgs::NavSatFix::ConstPtr& msg);
 	void 	globVelCb(const geometry_msgs::Vector3Stamped::ConstPtr& msg);
-	void 	ekfExtCb(const mavros::AslEkfExt::ConstPtr& msg);
-	void 	nmpcParamsCb(const mavros::AslNmpcParams::ConstPtr& msg);
-	void 	waypointListCb(const mavros::WaypointList::ConstPtr& msg);
+	void 	ekfExtCb(const mavros_msgs::AslEkfExt::ConstPtr& msg);
+	void 	nmpcParamsCb(const mavros_msgs::AslNmpcParams::ConstPtr& msg);
+	void 	waypointListCb(const mavros_msgs::WaypointList::ConstPtr& msg);
 	void 	currentWpCb(const std_msgs::Int32::ConstPtr& msg);
-	void 	homeWpCb(const mavros::HomePosition::ConstPtr& msg);
-	void 	aslctrlDebugCb(const mavros::AslCtrlDebug::ConstPtr& msg);
+	void 	homeWpCb(const mavros_msgs::HomePosition::ConstPtr& msg);
+	void 	aslctrlDebugCb(const mavros_msgs::AslCtrlDebug::ConstPtr& msg);
 
 	/* initializations */
 	int 	initNMPC();
@@ -66,12 +66,10 @@ public:
 	void	updateACADO_OD();
 	void	updateACADO_Y();
 	void	updateACADO_W();
-	void	resetIntegrator();
 
 	/* gets */
-	double getLoopRate();
-	double getTimeStep();
-	void 	getIntegralCostMultiplier(double *i_W_mult);
+	double	getLoopRate();
+	double 	getTimeStep();
 	void 	reqSubs();
 	void 	calculateTrackError(const real_t *in);
 
@@ -119,9 +117,6 @@ private:
 	int		last_ctrl_mode;
 	int 	obctrl_en_;
 
-	/* control horizon */
-	double prev_ctrl_horiz_[ NU * N ];
-
 	/* path definitions */
 	int prev_wp_idx_;
 	int last_wp_idx_;
@@ -132,8 +127,8 @@ private:
 	float last_yaw_msg_;
 
 	/* track error */
-	float track_error_ne_;
-	float track_error_d_;
+	float track_error_lat_;
+	float track_error_lon_;
 
 	/* weight scalers */
 	float W_scale_[NY];

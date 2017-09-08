@@ -6,8 +6,8 @@
 #include <ros/console.h>
 
 // INCLUDES for MAVROS
-#include <mavros/WaypointList.h>
-#include <mavros/Waypoint.h>
+#include <mavros_msgs/WaypointList.h>
+#include <mavros_msgs/Waypoint.h>
 
 // INCLUDES ...
 #include <math.h>
@@ -105,7 +105,7 @@ public:
 	void setHomeWp( const double new_home_wp[3] );
 	double getHomeAlt() { return home_wp[2]; };
 	void copyNext2Current();
-	void updatePaths( const mavros::WaypointList wp_list, int cur_idx, int prev_idx );
+	void updatePaths( const mavros_msgs::WaypointList wp_list, int cur_idx, int prev_idx );
 	void ll2NE( double &n, double &e, const double lat, const double lon);
 };
 
@@ -136,7 +136,7 @@ void PathManager::copyNext2Current() {
  *
  * manages the current waypoint targets and provides inputs for dubins current and next path construction
  */
-void PathManager::updatePaths( const mavros::WaypointList wp_list, int cur_idx, int prev_idx ) { //NOTE: using acceptance radii as spiral grades
+void PathManager::updatePaths( const mavros_msgs::WaypointList wp_list, int cur_idx, int prev_idx ) { //NOTE: using acceptance radii as spiral grades
 
 	double wp_a[3];
 	double wp_b[3];

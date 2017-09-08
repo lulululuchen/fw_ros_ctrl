@@ -6,16 +6,16 @@
 #include <ros/console.h>
 
 // INCLUDES for mavros
-#include <mavros/AslCtrlData.h>
-#include <mavros/AslEkfExt.h>
-#include <mavros/AslNmpcParams.h>
+#include <mavros_msgs/AslCtrlData.h>
+#include <mavros_msgs/AslEkfExt.h>
+#include <mavros_msgs/AslNmpcParams.h>
 #include <sensor_msgs/NavSatFix.h>
-#include <mavros/WaypointList.h>
+#include <mavros_msgs/WaypointList.h>
 #include <std_msgs/Int32.h>
 #include <geographic_msgs/GeoPoint.h>
 #include <geometry_msgs/Vector3Stamped.h>
-#include <mavros/AslCtrlDebug.h>
-#include <mavros/HomePosition.h>
+#include <mavros_msgs/AslCtrlDebug.h>
+#include <mavros_msgs/HomePosition.h>
 
 /*
  * class definition for subscription data //TODO: put callbacks here? maybe an init() function for subs? maybe even pubs??
@@ -26,14 +26,14 @@ class Subscriptions
 
 public:
 
-	mavros::AslCtrlData						aslctrl_data;
-	sensor_msgs::NavSatFix	 			glob_pos;
-	geometry_msgs::Vector3Stamped glob_vel;
-	mavros::AslEkfExt							ekf_ext;
-	mavros::AslNmpcParams					nmpc_params;
-	mavros::WaypointList					waypoint_list;
-	std_msgs::Int32								current_wp;
-	geographic_msgs::GeoPoint			home_wp;
+	mavros_msgs::AslCtrlData 		aslctrl_data;
+	sensor_msgs::NavSatFix	 		glob_pos;
+	geometry_msgs::Vector3Stamped 	glob_vel;
+	mavros_msgs::AslEkfExt			ekf_ext;
+	mavros_msgs::AslNmpcParams		nmpc_params;
+	mavros_msgs::WaypointList		waypoint_list;
+	std_msgs::Int32					current_wp;
+	geographic_msgs::GeoPoint		home_wp;
 
 };
 
