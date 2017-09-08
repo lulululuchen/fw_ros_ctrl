@@ -84,6 +84,7 @@ public:
 
 	double	LOOP_RATE;
 	double 	TSTEP;
+	bool 	fake_vel_;
 
 private:
 

@@ -21,6 +21,7 @@ using namespace fw_nmpc;
 FwNMPC::FwNMPC() :
 		LOOP_RATE(20.0), //MAGIC NUMBER
 		TSTEP(0.1), //MAGIC NUMBER
+		fake_vel_(0),
 		t_lastctrl{0},
 		bModeChanged(false),
 		last_ctrl_mode(0),
@@ -92,17 +93,32 @@ void FwNMPC::globPosCb(const sensor_msgs::NavSatFix::ConstPtr& msg) {
 
 void FwNMPC::globVelCb(const geometry_msgs::Vector3Stamped::ConstPtr& msg) {
 
-	subs_.glob_vel.vector.x = msg->vector.x; //vn
-	subs_.glob_vel.vector.y = msg->vector.y; //ve
-	subs_.glob_vel.vector.z = msg->vector.z; //vd
+	if (fake_vel_) {
+		subs_.glob_vel.vector.x = 13.5*cos(subs_.aslctrl_data.yawAngle); //vn
+		subs_.glob_vel.vector.y = 13.5*sin(subs_.aslctrl_data.yawAngle); //ve
+		subs_.glob_vel.vector.z = 0.0; //vd
+	}
+	else {
+		subs_.glob_vel.vector.x = msg->vector.x; //vn
+		subs_.glob_vel.vector.y = msg->vector.y; //ve
+		subs_.glob_vel.vector.z = msg->vector.z; //vd
+	}
 }
 
 void FwNMPC::ekfExtCb(const mavros_msgs::AslEkfExt::ConstPtr& msg) {
 
-	subs_.ekf_ext.airspeed 		= msg->airspeed;
-	subs_.ekf_ext.windSpeed		= msg->windSpeed;
-	subs_.ekf_ext.windDirection = msg->windDirection;
-	subs_.ekf_ext.windZ			= msg->windZ;
+	if (fake_vel_) {
+		subs_.ekf_ext.airspeed 		= 13.5;
+		subs_.ekf_ext.windSpeed		= 0.0;
+		subs_.ekf_ext.windDirection = 0.0;
+		subs_.ekf_ext.windZ			= 0.0;
+	}
+	else {
+		subs_.ekf_ext.airspeed 		= msg->airspeed;
+		subs_.ekf_ext.windSpeed		= msg->windSpeed;
+		subs_.ekf_ext.windDirection = msg->windDirection;
+		subs_.ekf_ext.windZ			= msg->windZ;
+	}
 }
 
 void FwNMPC::nmpcParamsCb(const mavros_msgs::AslNmpcParams::ConstPtr& msg) {
@@ -153,6 +169,9 @@ int FwNMPC::initNMPC() {
 
 	/* get model discretization step */
 	nmpc_.getParam("/nmpc/time_step", TSTEP);
+
+	/* fake velocities? */
+	nmpc_.getParam("/nmpc/fake_vel", fake_vel_);
 
 	return RET;
 }

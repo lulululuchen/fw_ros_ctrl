@@ -2,6 +2,9 @@
   <node name="nmpc" pkg="fw_ctrl" type="fw_nmpc"/>
   <param name="/nmpc/loop_rate" type="double" value="20.0" />
   <param name="/nmpc/time_step" type="double" value="0.1" />
+
+  <arg name="fake_vel" default="false" doc="fake airspeed and ground speed during on-ground testing (0=no,1=yes)" /> 
+  <param name="/nmpc/fake_vel" type="bool" value="$(arg fake_vel)"/>
   
   <param name="/nmpc/y_ref/uT" type="double" value="0.375" />
   <param name="/nmpc/y_ref/theta_ref" type="double" value="0.0297" />
