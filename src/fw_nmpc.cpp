@@ -64,7 +64,7 @@ void FwNMPC::aslctrlDataCb(const mavros_msgs::AslCtrlData::ConstPtr& msg) {
 	subs_.aslctrl_data.q 			= msg->q;
 	subs_.aslctrl_data.r 			= msg->r;
 	subs_.aslctrl_data.airspeedRef	= msg->airspeedRef;
-	subs_.aslctrl_data.uThrot		= msg->uThrot;
+	subs_.aslctrl_data.uThrot		= (FAKE_SIGNALS) ? 0.6 : msg->uThrot;
 
 	float tmp_yaw = msg->yawAngle * 0.017453292519943f;
 
@@ -851,7 +851,7 @@ void FwNMPC::publishAcadoVars() {
 	fw_ctrl::AcadoVars acado_vars;
 
 	/* measurements */
-	for (int i=0; i<NX+1; i++) {
+	for (int i=0; i<NX; i++) {
 		acado_vars.x0[i] = (float)acadoVariables.x0[i];
 	}
 
