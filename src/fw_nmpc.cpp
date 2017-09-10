@@ -58,21 +58,22 @@ void FwNMPC::aslctrlDataCb(const mavros_msgs::AslCtrlData::ConstPtr& msg) {
 
 	subs_.aslctrl_data.header		= msg->header;
 	subs_.aslctrl_data.aslctrl_mode	= msg->aslctrl_mode;
-	subs_.aslctrl_data.rollAngle	= msg->rollAngle * 0.017453292519943f;
 	if (FAKE_SIGNALS) {
 		double y_uT_ref;
 		nmpc_.getParam("/nmpc/y_ref/uT", y_uT_ref);
 		double y_theta_ref;
 		nmpc_.getParam("/nmpc/y_ref/theta_ref", y_theta_ref);
 
+		subs_.aslctrl_data.rollAngle	= 0.0;
 		subs_.aslctrl_data.pitchAngle	= y_theta_ref;
 		subs_.aslctrl_data.p 			= 0.0;
 		subs_.aslctrl_data.q 			= 0.0;
 		subs_.aslctrl_data.r 			= 0.0;
 		subs_.aslctrl_data.airspeedRef	= 13.5;
-		subs_.aslctrl_data.uThrot 		= y_uT_ref;
+		subs_.aslctrl_data.uThrot 		= y_uT_ref+CTRL_DEADZONE[ 0 ];
 	}
 	else {
+		subs_.aslctrl_data.rollAngle	= msg->rollAngle * 0.017453292519943f;
 		subs_.aslctrl_data.pitchAngle	= msg->pitchAngle * 0.017453292519943f;
 		subs_.aslctrl_data.p 			= msg->p;
 		subs_.aslctrl_data.q 			= msg->q;
@@ -80,7 +81,6 @@ void FwNMPC::aslctrlDataCb(const mavros_msgs::AslCtrlData::ConstPtr& msg) {
 		subs_.aslctrl_data.airspeedRef	= msg->airspeedRef;
 		subs_.aslctrl_data.uThrot 		= msg->uThrot;
 	}
-	
 
 	float tmp_yaw = msg->yawAngle * 0.017453292519943f;
 
