@@ -21,7 +21,7 @@ using namespace fw_nmpc;
 FwNMPC::FwNMPC() :
 		LOOP_RATE(20.0), //MAGIC NUMBER
 		TSTEP(0.1), //MAGIC NUMBER
-		fake_vel_(0),
+		FAKE_SIGNALS(false),
 		t_lastctrl{0},
 		bModeChanged(false),
 		last_ctrl_mode(0),
@@ -93,10 +93,10 @@ void FwNMPC::globPosCb(const sensor_msgs::NavSatFix::ConstPtr& msg) {
 
 void FwNMPC::globVelCb(const geometry_msgs::Vector3Stamped::ConstPtr& msg) {
 
-	if (fake_vel_) {
-		subs_.glob_vel.vector.x = 13.5*cos(subs_.aslctrl_data.yawAngle); //vn
-		subs_.glob_vel.vector.y = 13.5*sin(subs_.aslctrl_data.yawAngle); //ve
-		subs_.glob_vel.vector.z = 0.0; //vd
+	if (FAKE_SIGNALS) {
+		subs_.glob_vel.vector.x = 13.5*cos(subs_.aslctrl_data.yawAngle) + 4.0*cos(1.047); //vn
+		subs_.glob_vel.vector.y = 13.5*sin(subs_.aslctrl_data.yawAngle) + 4.0*sin(1.047); //ve
+		subs_.glob_vel.vector.z = 0.0 - 1.0; //vd
 	}
 	else {
 		subs_.glob_vel.vector.x = msg->vector.x; //vn
@@ -107,11 +107,11 @@ void FwNMPC::globVelCb(const geometry_msgs::Vector3Stamped::ConstPtr& msg) {
 
 void FwNMPC::ekfExtCb(const mavros_msgs::AslEkfExt::ConstPtr& msg) {
 
-	if (fake_vel_) {
+	if (FAKE_SIGNALS) {
 		subs_.ekf_ext.airspeed 		= 13.5;
-		subs_.ekf_ext.windSpeed		= 0.0;
-		subs_.ekf_ext.windDirection = 0.0;
-		subs_.ekf_ext.windZ			= 0.0;
+		subs_.ekf_ext.windSpeed		= 4.0;
+		subs_.ekf_ext.windDirection = 1.047;
+		subs_.ekf_ext.windZ			= -1.0;
 	}
 	else {
 		subs_.ekf_ext.airspeed 		= msg->airspeed;
@@ -170,8 +170,8 @@ int FwNMPC::initNMPC() {
 	/* get model discretization step */
 	nmpc_.getParam("/nmpc/time_step", TSTEP);
 
-	/* fake velocities? */
-	nmpc_.getParam("/nmpc/fake_vel", fake_vel_);
+	/* fake signals */
+	nmpc_.getParam("/nmpc/fake_signals", FAKE_SIGNALS);
 
 	return RET;
 }
@@ -324,9 +324,16 @@ void FwNMPC::updateACADO_X0() {
 	X0[8]	= (double)subs_.aslctrl_data.p; 																	// p
 	X0[9]	= (double)subs_.aslctrl_data.q; 																	// q
 	X0[10]	= (double)subs_.aslctrl_data.r; 																	// r
-	// NOTE: yes.. this is shifting the state. Only for these internal variables, however.--linear interpolation
-	X0[11]	= acadoVariables.x[11]+(acadoVariables.x[NX+11]-acadoVariables.x[11])/getLoopRate()/getTimeStep(); 	// NEXT throt state in horizon.
-	X0[12]	= acadoVariables.x[12]+(acadoVariables.x[NX+12]-acadoVariables.x[12])/getLoopRate()/getTimeStep(); 	// NEXT xsw state in horizon.
+	if (FAKE_SIGNALS) {
+		// no shifting internal states when faking signals
+		X0[11]	= acadoVariables.x[11];
+		X0[12]	= acadoVariables.x[12];
+	}
+	else {
+		// NOTE: yes.. this is shifting the state. Only for these internal states, however.--linear interpolation
+		X0[11]	= acadoVariables.x[11]+(acadoVariables.x[NX+11]-acadoVariables.x[11])/getLoopRate()/getTimeStep(); 	// NEXT throt state in horizon.
+		X0[12]	= acadoVariables.x[12]+(acadoVariables.x[NX+12]-acadoVariables.x[12])/getLoopRate()/getTimeStep(); 	// NEXT xsw state in horizon.
+	}
 
 	for (int i = 0; i < NX; ++i) acadoVariables.x0[ i ] = X0[ i ];
 
@@ -465,6 +472,7 @@ void FwNMPC::reqSubs() { //TODO: extend this and/or change this to all subs/init
 }
 
 void FwNMPC::calculateTrackError(const real_t *in) {
+	// Code snippet from end lsq term in model.c
 
 	/* for manual input indexing ... */
 

@@ -3,8 +3,8 @@
   <param name="/nmpc/loop_rate" type="double" value="20.0" />
   <param name="/nmpc/time_step" type="double" value="0.1" />
 
-  <arg name="fake_vel" default="false" doc="fake airspeed and ground speed during on-ground testing (0=no,1=yes)" /> 
-  <param name="/nmpc/fake_vel" type="bool" value="$(arg fake_vel)"/>
+  <arg name="fake_signals" default="false" doc="fake airspeed, wind speed, and ground speed during on-ground testing (true/false)" /> 
+  <param name="/nmpc/fake_signals" type="bool" value="$(arg fake_signals)"/>
   
   <param name="/nmpc/y_ref/uT" type="double" value="0.375" />
   <param name="/nmpc/y_ref/theta_ref" type="double" value="0.0297" />
