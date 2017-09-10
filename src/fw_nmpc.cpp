@@ -59,12 +59,28 @@ void FwNMPC::aslctrlDataCb(const mavros_msgs::AslCtrlData::ConstPtr& msg) {
 	subs_.aslctrl_data.header		= msg->header;
 	subs_.aslctrl_data.aslctrl_mode	= msg->aslctrl_mode;
 	subs_.aslctrl_data.rollAngle	= msg->rollAngle * 0.017453292519943f;
-	subs_.aslctrl_data.pitchAngle	= msg->pitchAngle * 0.017453292519943f;
-	subs_.aslctrl_data.p 			= msg->p;
-	subs_.aslctrl_data.q 			= msg->q;
-	subs_.aslctrl_data.r 			= msg->r;
-	subs_.aslctrl_data.airspeedRef	= msg->airspeedRef;
-	subs_.aslctrl_data.uThrot		= (FAKE_SIGNALS) ? 0.6 : msg->uThrot;
+	if (FAKE_SIGNALS) {
+		double y_uT_ref;
+		nmpc_.getParam("/nmpc/y_ref/uT", y_uT_ref);
+		double y_theta_ref;
+		nmpc_.getParam("/nmpc/y_ref/theta_ref", y_theta_ref);
+
+		subs_.aslctrl_data.pitchAngle	= y_theta_ref;
+		subs_.aslctrl_data.p 			= 0.0;
+		subs_.aslctrl_data.q 			= 0.0;
+		subs_.aslctrl_data.r 			= 0.0;
+		subs_.aslctrl_data.airspeedRef	= 13.5;
+		subs_.aslctrl_data.uThrot 		= y_uT_ref;
+	}
+	else {
+		subs_.aslctrl_data.pitchAngle	= msg->pitchAngle * 0.017453292519943f;
+		subs_.aslctrl_data.p 			= msg->p;
+		subs_.aslctrl_data.q 			= msg->q;
+		subs_.aslctrl_data.r 			= msg->r;
+		subs_.aslctrl_data.airspeedRef	= msg->airspeedRef;
+		subs_.aslctrl_data.uThrot 		= msg->uThrot;
+	}
+	
 
 	float tmp_yaw = msg->yawAngle * 0.017453292519943f;
 
@@ -157,13 +173,6 @@ void FwNMPC::aslctrlDebugCb(const mavros_msgs::AslCtrlDebug::ConstPtr& msg) {
 
 int FwNMPC::initNMPC() {
 
-	/* Initialize ACADO variables */
-	initACADOVars();
-	ROS_ERROR("initNMPC: ACADO variables initialized");
-
-	/* Initialize the solver. */
-	int RET = initializeSolver();
-
 	/* get loop rate */
 	nmpc_.getParam("/nmpc/loop_rate", LOOP_RATE);
 
@@ -173,6 +182,13 @@ int FwNMPC::initNMPC() {
 	/* fake signals */
 	nmpc_.getParam("/nmpc/fake_signals", FAKE_SIGNALS);
 
+	/* Initialize ACADO variables */
+	initACADOVars();
+	ROS_ERROR("initNMPC: ACADO variables initialized");
+
+	/* Initialize the solver. */
+	int RET = initializeSolver();
+
 	return RET;
 }
 
@@ -180,15 +196,15 @@ void FwNMPC::initACADOVars() {
 
 	//TODO: maybe actually wait for all subscriptions to be filled here before initializing?
 
-	/* put something reasonable here.. NOT all zeros, solver is initialized from here */
-	double X[NX] 	= {0.0, 0.0, 0.0, 13.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3, 0.0};
-	double U[NU] 	= {0.3, 0.0, 0.0};
-	double OD[NOD]	= {0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 30.0, 0.8, 0.0, 0.0, 0.0, 0.1396, -0.0524, 0.0349, 1.0, 2.0};
-
 	double y_uT_ref;
 	nmpc_.getParam("/nmpc/y_ref/uT", y_uT_ref);
 	double y_theta_ref;
 	nmpc_.getParam("/nmpc/y_ref/theta_ref", y_theta_ref);
+
+	/* put something reasonable here.. NOT all zeros, solver is initialized from here */
+	double X[NX] 	= {0.0, 0.0, 0.0, 13.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, y_uT_ref, 0.0};
+	double U[NU] 	= {y_uT_ref, 0.0, y_theta_ref};
+	double OD[NOD]	= {0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 30.0, 0.8, 0.0, 0.0, 0.0, 0.1396, -0.0524, 0.0349, 1.0, 2.0};
 
 	double Y[NY] = {0.0, 0.0, 13.5, 0.0, 0.0, 0.0, 0.0, 0.0, y_uT_ref, 0.0, y_theta_ref};
 	double W[NY] = {200.0, 200.0, 10.0, 20.0, 20.0, 5.0, 100.0, 40.0, 30.0, 50.0, 50.0};

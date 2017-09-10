@@ -7,7 +7,7 @@
   <param name="/nmpc/fake_signals" type="bool" value="$(arg fake_signals)"/>
   
   <param name="/nmpc/y_ref/uT" type="double" value="0.375" />
-  <param name="/nmpc/y_ref/theta_ref" type="double" value="0.0297" />
+  <param name="/nmpc/y_ref/theta_ref" type="double" value="0.0222" />
   
   <param name="/nmpc/w_scale/q1" type="double" value="1.570796326794897" />
   <param name="/nmpc/w_scale/q2" type="double" value="1.570796326794897" />
