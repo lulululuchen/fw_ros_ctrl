@@ -84,7 +84,7 @@ public:
 
 	double	LOOP_RATE;
 	double 	TSTEP;
-	bool 	FAKE_SIGNALS;
+	int 	FAKE_SIGNALS;
 
 private:
 

@@ -21,7 +21,7 @@ using namespace fw_nmpc;
 FwNMPC::FwNMPC() :
 		LOOP_RATE(20.0), //MAGIC NUMBER
 		TSTEP(0.1), //MAGIC NUMBER
-		FAKE_SIGNALS(false),
+		FAKE_SIGNALS(0),
 		t_lastctrl{0},
 		bModeChanged(false),
 		last_ctrl_mode(0),
@@ -58,7 +58,7 @@ void FwNMPC::aslctrlDataCb(const mavros_msgs::AslCtrlData::ConstPtr& msg) {
 
 	subs_.aslctrl_data.header		= msg->header;
 	subs_.aslctrl_data.aslctrl_mode	= msg->aslctrl_mode;
-	if (FAKE_SIGNALS) {
+	if (FAKE_SIGNALS==1) {
 		double y_uT_ref;
 		nmpc_.getParam("/nmpc/y_ref/uT", y_uT_ref);
 		double y_theta_ref;
@@ -70,6 +70,20 @@ void FwNMPC::aslctrlDataCb(const mavros_msgs::AslCtrlData::ConstPtr& msg) {
 		subs_.aslctrl_data.q 			= 0.0;
 		subs_.aslctrl_data.r 			= 0.0;
 		subs_.aslctrl_data.airspeedRef	= 13.5;
+		subs_.aslctrl_data.uThrot 		= y_uT_ref+CTRL_DEADZONE[ 0 ];
+	}
+	else if (FAKE_SIGNALS==2) {
+		double y_uT_ref;
+		nmpc_.getParam("/nmpc/y_ref/uT", y_uT_ref);
+		double y_theta_ref;
+		nmpc_.getParam("/nmpc/y_ref/theta_ref", y_theta_ref);
+
+		subs_.aslctrl_data.rollAngle	= 0.0 + 0.05*(((double) rand() / (RAND_MAX)) * 2.0 - 1.0);
+		subs_.aslctrl_data.pitchAngle	= y_theta_ref + 0.1*fabs(y_theta_ref)*(((double) rand() / (RAND_MAX)) * 2.0 - 1.0);
+		subs_.aslctrl_data.p 			= 0.0;
+		subs_.aslctrl_data.q 			= 0.0;
+		subs_.aslctrl_data.r 			= 0.0;
+		subs_.aslctrl_data.airspeedRef	= 13.5  + 0.2*fabs(13.5)*(((double) rand() / (RAND_MAX)) * 2.0 - 1.0);
 		subs_.aslctrl_data.uThrot 		= y_uT_ref+CTRL_DEADZONE[ 0 ];
 	}
 	else {
@@ -109,7 +123,7 @@ void FwNMPC::globPosCb(const sensor_msgs::NavSatFix::ConstPtr& msg) {
 
 void FwNMPC::globVelCb(const geometry_msgs::Vector3Stamped::ConstPtr& msg) {
 
-	if (FAKE_SIGNALS) {
+	if (FAKE_SIGNALS==1 || FAKE_SIGNALS==2) {
 		subs_.glob_vel.vector.x = 13.5*cos(subs_.aslctrl_data.yawAngle) + 4.0*cos(1.047); //vn
 		subs_.glob_vel.vector.y = 13.5*sin(subs_.aslctrl_data.yawAngle) + 4.0*sin(1.047); //ve
 		subs_.glob_vel.vector.z = 0.0 - 1.0; //vd
@@ -123,10 +137,16 @@ void FwNMPC::globVelCb(const geometry_msgs::Vector3Stamped::ConstPtr& msg) {
 
 void FwNMPC::ekfExtCb(const mavros_msgs::AslEkfExt::ConstPtr& msg) {
 
-	if (FAKE_SIGNALS) {
+	if (FAKE_SIGNALS==1) {
 		subs_.ekf_ext.airspeed 		= 13.5;
 		subs_.ekf_ext.windSpeed		= 4.0;
 		subs_.ekf_ext.windDirection = 1.047;
+		subs_.ekf_ext.windZ			= -1.0;
+	}
+	else if (FAKE_SIGNALS==2) {
+		subs_.ekf_ext.airspeed 		= 13.5;
+		subs_.ekf_ext.windSpeed		= 4.0 + 0.2*4.0*(((double) rand() / (RAND_MAX)) * 2.0 - 1.0);
+		subs_.ekf_ext.windDirection = 1.047 + 0.3*(((double) rand() / (RAND_MAX)) * 2.0 - 1.0);
 		subs_.ekf_ext.windZ			= -1.0;
 	}
 	else {
@@ -340,7 +360,7 @@ void FwNMPC::updateACADO_X0() {
 	X0[8]	= (double)subs_.aslctrl_data.p; 																	// p
 	X0[9]	= (double)subs_.aslctrl_data.q; 																	// q
 	X0[10]	= (double)subs_.aslctrl_data.r; 																	// r
-	if (FAKE_SIGNALS) {
+	if (FAKE_SIGNALS==1) {
 		// no shifting internal states when faking signals
 		X0[11]	= acadoVariables.x[11];
 		X0[12]	= acadoVariables.x[12];
@@ -411,15 +431,15 @@ void FwNMPC::updateACADO_Y() {
 	double Y[NY];
 	Y[0] 	= 0.0;								// eta_lat _ref
 	Y[1] 	= 0.0;								// eta_lon _ref
-	Y[7] 	= subs_.aslctrl_data.airspeedRef;	// V_ref
-	Y[8] 	= 0.0; 								// p_ref
-	Y[9] 	= 0.0;								// q_ref
-	Y[10] 	= 0.0;								// r_ref
-	Y[11] 	= 0.0;								// alpha_soft _ref
-	Y[12] 	= 0.0;  							// delta_T_dot _ref
-	Y[13] 	= y_uT_ref;							// uthrot _ref
-	Y[14] 	= 0.0;								// phi_ref _ref
-	Y[15] 	= y_theta_ref;						// theta_ref _ref
+	Y[2] 	= subs_.aslctrl_data.airspeedRef;	// V_ref
+	Y[3] 	= 0.0; 								// p_ref
+	Y[4] 	= 0.0;								// q_ref
+	Y[5] 	= 0.0;								// r_ref
+	Y[6] 	= 0.0;								// alpha_soft _ref
+	Y[7] 	= 0.0;  							// delta_T_dot _ref
+	Y[8] 	= y_uT_ref;							// uthrot _ref
+	Y[9] 	= 0.0;								// phi_ref _ref
+	Y[10] 	= y_theta_ref;						// theta_ref _ref
 
 	for (int i = 0; i < N; ++i) {
 		for (int j = 0; j < NY; ++j) {
