@@ -150,7 +150,7 @@ void FwNMPC::ekfExtCb(const mavros_msgs::AslEkfExt::ConstPtr& msg) {
 		subs_.ekf_ext.windZ			= -1.0;
 	}
 	else {
-		subs_.ekf_ext.airspeed 		= msg->airspeed;
+		subs_.ekf_ext.airspeed 		= (msg->airspeed<1.0) ? 1.0 : msg->airspeed;
 		subs_.ekf_ext.windSpeed		= msg->windSpeed;
 		subs_.ekf_ext.windDirection = msg->windDirection;
 		subs_.ekf_ext.windZ			= msg->windZ;
@@ -313,7 +313,7 @@ void FwNMPC::initHorizon() {
 	paths_.ll2NE(X0[0], X0[1], (double)subs_.glob_pos.latitude, (double)subs_.glob_pos.longitude); // n, e
 	X0[2]	= -((double)subs_.glob_pos.altitude - paths_.getHomeAlt()); // d
 	X0[3]	= (double)subs_.ekf_ext.airspeed; // V
-	X0[4]	= -asin((double)((subs_.odom.twist.twist.linear.z - subs_.ekf_ext.windZ) / subs_.ekf_ext.airspeed)); // gamma
+	X0[4]	= -asin((double)((subs_.odom.twist.twist.linear.z - subs_.ekf_ext.windZ) / ((subs_.ekf_ext.airspeed<1.0) ? 1.0 : subs_.ekf_ext.airspeed))); // gamma
 	X0[5]	= (double)subs_.aslctrl_data.yawAngle; // xi
 	X0[6]	= (double)subs_.aslctrl_data.rollAngle; // phi
 	X0[7]	= (double)subs_.aslctrl_data.pitchAngle; // theta
@@ -353,7 +353,7 @@ void FwNMPC::updateACADO_X0() {
 	paths_.ll2NE(X0[0], X0[1], (double)subs_.glob_pos.latitude, (double)subs_.glob_pos.longitude); 				// n, e
 	X0[2]	= -((double)subs_.glob_pos.altitude - paths_.getHomeAlt()); 										// d
 	X0[3]	= (double)subs_.ekf_ext.airspeed; 																	// V
-	X0[4]	= -asin((double)((subs_.odom.twist.twist.linear.z - subs_.ekf_ext.windZ) / subs_.ekf_ext.airspeed)); 		// gamma
+	X0[4]	= -asin((double)((subs_.odom.twist.twist.linear.z - subs_.ekf_ext.windZ) / ((subs_.ekf_ext.airspeed<1.0) ? 1.0 : subs_.ekf_ext.airspeed))); 		// gamma
 	X0[5]	= (double)subs_.aslctrl_data.yawAngle; 																// xi
 	X0[6]	= (double)subs_.aslctrl_data.rollAngle; 															// phi
 	X0[7]	= (double)subs_.aslctrl_data.pitchAngle; 															// theta
