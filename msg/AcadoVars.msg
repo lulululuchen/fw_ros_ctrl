@@ -5,24 +5,24 @@
 float32[13] x0			# measurement vector
 
 # state horizons
-float32[81] n			# northing [m]
-float32[81] e			# easting [m]
-float32[81] d			# down [m]
-float32[81] V			# airspeed [m/s]
-float32[81] gamma		# flight path angle [rad]
-float32[81] xi			# heading angle [rad]
-float32[81] phi			# roll angle [rad]
-float32[81] theta		# pitch angle [rad]
-float32[81] p			# roll rate [rad/s]
-float32[81] q			# pitch rate [rad/s]
-float32[81] r			# yaw rate [rad/s]
-float32[81] throt		# throttle setting [%]
-float32[81] xsw			# switching state [~]
+float32[71] n			# northing [m]
+float32[71] e			# easting [m]
+float32[71] d			# down [m]
+float32[71] V			# airspeed [m/s]
+float32[71] gamma		# flight path angle [rad]
+float32[71] xi			# heading angle [rad]
+float32[71] phi			# roll angle [rad]
+float32[71] theta		# pitch angle [rad]
+float32[71] p			# roll rate [rad/s]
+float32[71] q			# pitch rate [rad/s]
+float32[71] r			# yaw rate [rad/s]
+float32[71] throt		# throttle setting [%]
+float32[71] xsw			# switching state [~]
 
 # controls
-float32[80] uT			# throttle input
-float32[80] phi_ref		# roll angle reference
-float32[80] theta_ref	# pitch angle reference
+float32[70] uT			# throttle input
+float32[70] phi_ref		# roll angle reference
+float32[70] theta_ref	# pitch angle reference
 
 # online data
 uint8 pparam1   		# type(=0)	type(=1)

@@ -10,6 +10,7 @@
 #include <mavros_msgs/AslEkfExt.h>
 #include <mavros_msgs/AslNmpcParams.h>
 #include <sensor_msgs/NavSatFix.h>
+#include <nav_msgs/Odometry.h>
 #include <mavros_msgs/WaypointList.h>
 #include <std_msgs/Int32.h>
 #include <geographic_msgs/GeoPoint.h>
@@ -28,7 +29,7 @@ public:
 
 	mavros_msgs::AslCtrlData 		aslctrl_data;
 	sensor_msgs::NavSatFix	 		glob_pos;
-	geometry_msgs::Vector3Stamped 	glob_vel;
+	nav_msgs::Odometry 				odom;
 	mavros_msgs::AslEkfExt			ekf_ext;
 	mavros_msgs::AslNmpcParams		nmpc_params;
 	mavros_msgs::WaypointList		waypoint_list;

@@ -39,8 +39,8 @@ FwNMPC::FwNMPC() :
 
 	/* subscribers */
 	aslctrl_data_sub_	= nmpc_.subscribe("/mavros/aslctrl/data", 1, &FwNMPC::aslctrlDataCb, this);
-	glob_pos_sub_ 		= nmpc_.subscribe("/mavros/global_position/global", 1, &FwNMPC::globPosCb, this);
-	glob_vel_sub_		= nmpc_.subscribe("/mavros/global_position/gp_vel", 1, &FwNMPC::globVelCb, this);
+	glob_pos_sub_ 		= nmpc_.subscribe("/mavros/global_position/global", 1, &FwNMPC::globPosCb, this);  //TODO: switch to UTM - stop doing own ll2ne
+	odom_sub_			= nmpc_.subscribe("/mavros/global_position/local", 1, &FwNMPC::odomCb, this);
 	ekf_ext_sub_		= nmpc_.subscribe("/mavros/aslekf_extended", 1, &FwNMPC::ekfExtCb, this);
 	nmpc_params_sub_ 	= nmpc_.subscribe("/mavros/nmpc_params", 1, &FwNMPC::nmpcParamsCb, this);
 	waypoint_list_sub_	= nmpc_.subscribe("/mavros/mission/waypoints", 1, &FwNMPC::waypointListCb, this);
@@ -121,17 +121,17 @@ void FwNMPC::globPosCb(const sensor_msgs::NavSatFix::ConstPtr& msg) {
 	subs_.glob_pos.altitude = msg->altitude;
 }
 
-void FwNMPC::globVelCb(const geometry_msgs::Vector3Stamped::ConstPtr& msg) {
+void FwNMPC::odomCb(const nav_msgs::Odometry::ConstPtr& msg) {
 
 	if (FAKE_SIGNALS==1 || FAKE_SIGNALS==2) {
-		subs_.glob_vel.vector.x = 13.5*cos(subs_.aslctrl_data.yawAngle) + 4.0*cos(1.047); //vn
-		subs_.glob_vel.vector.y = 13.5*sin(subs_.aslctrl_data.yawAngle) + 4.0*sin(1.047); //ve
-		subs_.glob_vel.vector.z = 0.0 - 1.0; //vd
+		subs_.odom.twist.twist.linear.x = 13.5*cos(subs_.aslctrl_data.yawAngle) + 4.0*cos(1.047); //vn
+		subs_.odom.twist.twist.linear.y = 13.5*sin(subs_.aslctrl_data.yawAngle) + 4.0*sin(1.047); //ve
+		subs_.odom.twist.twist.linear.z = 0.0 - 1.0; //vd
 	}
 	else {
-		subs_.glob_vel.vector.x = msg->vector.x; //vn
-		subs_.glob_vel.vector.y = msg->vector.y; //ve
-		subs_.glob_vel.vector.z = msg->vector.z; //vd
+		subs_.odom.twist.twist.linear.x = msg->twist.twist.linear.x; //vn
+		subs_.odom.twist.twist.linear.y = msg->twist.twist.linear.y; //ve
+		subs_.odom.twist.twist.linear.z = msg->twist.twist.linear.z; //vd
 	}
 }
 
@@ -313,7 +313,7 @@ void FwNMPC::initHorizon() {
 	paths_.ll2NE(X0[0], X0[1], (double)subs_.glob_pos.latitude, (double)subs_.glob_pos.longitude); // n, e
 	X0[2]	= -((double)subs_.glob_pos.altitude - paths_.getHomeAlt()); // d
 	X0[3]	= (double)subs_.ekf_ext.airspeed; // V
-	X0[4]	= -asin((double)((subs_.glob_vel.vector.z - subs_.ekf_ext.windZ) / subs_.ekf_ext.airspeed)); // gamma
+	X0[4]	= -asin((double)((subs_.odom.twist.twist.linear.z - subs_.ekf_ext.windZ) / subs_.ekf_ext.airspeed)); // gamma
 	X0[5]	= (double)subs_.aslctrl_data.yawAngle; // xi
 	X0[6]	= (double)subs_.aslctrl_data.rollAngle; // phi
 	X0[7]	= (double)subs_.aslctrl_data.pitchAngle; // theta
@@ -329,13 +329,13 @@ void FwNMPC::initHorizon() {
 	for (int i = 0; i < N + 1; ++i) {
 		for (int j = 0; j < NX-NX_AUGM; ++j) {
 			if (j==0) {
-				acadoVariables.x[ i * NX + j ] = X0[0] + subs_.glob_vel.vector.x * getTimeStep() * (double)i; // linear propagation
+				acadoVariables.x[ i * NX + j ] = X0[0] + subs_.odom.twist.twist.linear.x * getTimeStep() * (double)i; // linear propagation
 			}
 			else if (j==1) {
-				acadoVariables.x[ i * NX + j ] = X0[1] + subs_.glob_vel.vector.y * getTimeStep() * (double)i; // linear propagation
+				acadoVariables.x[ i * NX + j ] = X0[1] + subs_.odom.twist.twist.linear.y * getTimeStep() * (double)i; // linear propagation
 			}
 			else if (j==2) {
-				acadoVariables.x[ i * NX + j ] = X0[2] + subs_.glob_vel.vector.z * getTimeStep() * (double)i; // linear propagation
+				acadoVariables.x[ i * NX + j ] = X0[2] + subs_.odom.twist.twist.linear.z * getTimeStep() * (double)i; // linear propagation
 			}
 			else if (j==8 || j==9 || j==10) {
 				acadoVariables.x[ i * NX + j ] = 0.0; //zero out rates in horizon to avoid blow-up initializations
@@ -353,7 +353,7 @@ void FwNMPC::updateACADO_X0() {
 	paths_.ll2NE(X0[0], X0[1], (double)subs_.glob_pos.latitude, (double)subs_.glob_pos.longitude); 				// n, e
 	X0[2]	= -((double)subs_.glob_pos.altitude - paths_.getHomeAlt()); 										// d
 	X0[3]	= (double)subs_.ekf_ext.airspeed; 																	// V
-	X0[4]	= -asin((double)((subs_.glob_vel.vector.z - subs_.ekf_ext.windZ) / subs_.ekf_ext.airspeed)); 		// gamma
+	X0[4]	= -asin((double)((subs_.odom.twist.twist.linear.z - subs_.ekf_ext.windZ) / subs_.ekf_ext.airspeed)); 		// gamma
 	X0[5]	= (double)subs_.aslctrl_data.yawAngle; 																// xi
 	X0[6]	= (double)subs_.aslctrl_data.rollAngle; 															// phi
 	X0[7]	= (double)subs_.aslctrl_data.pitchAngle; 															// theta

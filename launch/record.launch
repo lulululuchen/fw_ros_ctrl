@@ -2,7 +2,7 @@
 
   <arg name="file_name" value="/home/asl/Documents/rosbags/nmpc" />
 
-  <arg name="general_topics" value="/mavros/global_position/global /mavros/aslctrl/data /mavros/aslekf_extended /mavros/aslctrl/debug" />
+  <arg name="general_topics" value="/mavros/global_position/global /mavros/global_position/local /mavros/aslctrl/data /mavros/aslekf_extended /mavros/aslctrl/debug" />
 
   <arg name="nmpc_topics" value="/nmpc/acado_vars /nmpc/info /mavros/nmpc_params /nmpc/asl_obctrl" />   
 

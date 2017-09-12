@@ -48,7 +48,7 @@ public:
 	/* callbacks */
 	void 	aslctrlDataCb(const mavros_msgs::AslCtrlData::ConstPtr& msg);
 	void 	globPosCb(const sensor_msgs::NavSatFix::ConstPtr& msg);
-	void 	globVelCb(const geometry_msgs::Vector3Stamped::ConstPtr& msg);
+	void 	odomCb(const nav_msgs::Odometry::ConstPtr& msg);
 	void 	ekfExtCb(const mavros_msgs::AslEkfExt::ConstPtr& msg);
 	void 	nmpcParamsCb(const mavros_msgs::AslNmpcParams::ConstPtr& msg);
 	void 	waypointListCb(const mavros_msgs::WaypointList::ConstPtr& msg);
@@ -97,7 +97,7 @@ private:
 	/* subscribers */
 	ros::Subscriber aslctrl_data_sub_;
 	ros::Subscriber glob_pos_sub_;
-	ros::Subscriber glob_vel_sub_;
+	ros::Subscriber odom_sub_;
 	ros::Subscriber ekf_ext_sub_;
 	ros::Subscriber nmpc_params_sub_;
 	ros::Subscriber waypoint_list_sub_;
