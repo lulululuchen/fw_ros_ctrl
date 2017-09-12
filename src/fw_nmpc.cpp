@@ -370,6 +370,9 @@ void FwNMPC::updateACADO_X0() {
 		X0[11]	= acadoVariables.x[11]+(acadoVariables.x[NX+11]-acadoVariables.x[11])/getLoopRate()/getTimeStep(); 	// NEXT throt state in horizon.
 		X0[12]	= acadoVariables.x[12]+(acadoVariables.x[NX+12]-acadoVariables.x[12])/getLoopRate()/getTimeStep(); 	// NEXT xsw state in horizon.
 	}
+	bool fake_motor_failure=false;
+	nmpc_.getParam("/nmpc/fake_motor_failure", fake_motor_failure);
+	if (fake_motor_failure) X0[12]=0.0;
 
 	for (int i = 0; i < NX; ++i) acadoVariables.x0[ i ] = X0[ i ];
 
@@ -424,6 +427,9 @@ void FwNMPC::updateACADO_Y() {
 
 	double y_uT_ref;
 	nmpc_.getParam("/nmpc/y_ref/uT", y_uT_ref);
+	bool fake_motor_failure=false;
+	nmpc_.getParam("/nmpc/fake_motor_failure", fake_motor_failure);
+	if (fake_motor_failure) y_uT_ref=0.0;
 	double y_theta_ref;
 	nmpc_.getParam("/nmpc/y_ref/theta_ref", y_theta_ref);
 
@@ -453,6 +459,10 @@ void FwNMPC::updateACADO_W() {
 	/* update objective gains */
 	double W[NY];
 	for (int i = 0; i < NY; i++) W[ i ] = (double)subs_.nmpc_params.Qdiag[ i ];
+
+	bool fake_motor_failure=false;
+	nmpc_.getParam("/nmpc/fake_motor_failure", fake_motor_failure);
+	if (fake_motor_failure) W[8]=1e6;
 
 	// only update diagonal terms
 	for (int i = 0; i < N; ++i) {
