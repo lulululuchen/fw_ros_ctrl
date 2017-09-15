@@ -3,7 +3,7 @@
   <param name="/nmpc/loop_rate" type="double" value="10.0" />
   <param name="/nmpc/time_step" type="double" value="0.1" />
 
-  <arg name="fake_signals" default="false" doc="fake airspeed, wind speed, and ground speed during on-ground testing (true/false)" /> 
+  <arg name="fake_signals" default="0" doc="fake airspeed, wind speed, and ground speed during on-ground testing (true/false)" /> 
   <param name="/nmpc/fake_signals" type="int" value="$(arg fake_signals)"/>
   
   <param name="/nmpc/y_ref/uT" type="double" value="0.375" />
