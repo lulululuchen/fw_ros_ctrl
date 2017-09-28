@@ -26,7 +26,6 @@ FwNMPC::FwNMPC() :
 		bModeChanged(false),
 		last_ctrl_mode(0),
 		obctrl_en_(0),
-		prev_wp_idx_(-1),
 		last_wp_idx_(-1),
 		bYawReceived(false),
 		last_yaw_msg_(0.0f),
@@ -224,10 +223,10 @@ void FwNMPC::initACADOVars() {
 	/* put something reasonable here.. NOT all zeros, solver is initialized from here */
 	double X[NX] 	= {0.0, 0.0, 0.0, 13.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, y_uT_ref, 0.0};
 	double U[NU] 	= {y_uT_ref, 0.0, y_theta_ref};
-	double OD[NOD]	= {0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 30.0, 0.8, 0.0, 0.0, 0.0, 0.1396, -0.0524, 0.0349, 1.0, 2.0};
+	double OD[NOD]	= {2.0, 0.0, 0.0, -100.0, 100.0, 0.0, 0.0, 2.0, 0.0, 0.0, -100.0, 100.0, 0.0, 0.0, 30.0, 0.8, 0.0, 0.0, 0.0, 0.1396, -0.0524, 0.0349, 1.0, 2.0};
 
 	double Y[NY] = {0.0, 0.0, 13.5, 0.0, 0.0, 0.0, 0.0, 0.0, y_uT_ref, 0.0, y_theta_ref};
-	double W[NY] = {200.0, 200.0, 10.0, 20.0, 20.0, 5.0, 100.0, 40.0, 30.0, 50.0, 50.0};
+	double W[NY] = {200.0, 200.0, 80.0, 20.0, 20.0, 5.0, 120.0, 40.0, 30.0, 50.0, 50.0};
 
 	nmpc_.getParam("nmpc/w_scale/q1", W_scale_[0]);
 	nmpc_.getParam("nmpc/w_scale/q2", W_scale_[1]);
@@ -394,27 +393,23 @@ void FwNMPC::updateACADO_OD() {
 	OD[4] = paths_.path_current.pparam5;
 	OD[5] = paths_.path_current.pparam6;
 	OD[6] = paths_.path_current.pparam7;
-	OD[7] = paths_.path_current.pparam8;
-	OD[8] = paths_.path_current.pparam9;
-	OD[9] = paths_.path_next.pparam1;
-	OD[10] = paths_.path_next.pparam2;
-	OD[11] = paths_.path_next.pparam3;
-	OD[12] = paths_.path_next.pparam4;
-	OD[13] = paths_.path_next.pparam5;
-	OD[14] = paths_.path_next.pparam6;
-	OD[15] = paths_.path_next.pparam7;
-	OD[16] = paths_.path_next.pparam8;
-	OD[17] = paths_.path_next.pparam9;
-	OD[18] = (double)subs_.nmpc_params.R_acpt;
-	OD[19] = (double)subs_.nmpc_params.ceta_acpt;
-	OD[20] = (double)subs_.ekf_ext.windSpeed * cos((double)subs_.ekf_ext.windDirection);
-	OD[21] = (double)subs_.ekf_ext.windSpeed * sin((double)subs_.ekf_ext.windDirection);
-	OD[22] = (double)subs_.ekf_ext.windZ;
-	OD[23] = (double)subs_.nmpc_params.alpha_p_co;
-	OD[24] = (double)subs_.nmpc_params.alpha_m_co;
-	OD[25] = (double)subs_.nmpc_params.alpha_delta_co;
-	OD[26] = (double)subs_.nmpc_params.T_b_lat;
-	OD[27] = (double)subs_.nmpc_params.T_b_lon;
+	OD[7] = paths_.path_next.pparam1;
+	OD[8] = paths_.path_next.pparam2;
+	OD[9] = paths_.path_next.pparam3;
+	OD[10] = paths_.path_next.pparam4;
+	OD[11] = paths_.path_next.pparam5;
+	OD[12] = paths_.path_next.pparam6;
+	OD[13] = paths_.path_next.pparam7;
+	OD[14] = (double)subs_.nmpc_params.R_acpt;
+	OD[15] = (double)subs_.nmpc_params.ceta_acpt;
+	OD[16] = (double)subs_.ekf_ext.windSpeed * cos((double)subs_.ekf_ext.windDirection);
+	OD[17] = (double)subs_.ekf_ext.windSpeed * sin((double)subs_.ekf_ext.windDirection);
+	OD[18] = (double)subs_.ekf_ext.windZ;
+	OD[19] = (double)subs_.nmpc_params.alpha_p_co;
+	OD[20] = (double)subs_.nmpc_params.alpha_m_co;
+	OD[21] = (double)subs_.nmpc_params.alpha_delta_co;
+	OD[22] = (double)subs_.nmpc_params.T_b_lat;
+	OD[23] = (double)subs_.nmpc_params.T_b_lon;
 
 	for (int i = 0; i < N+1; ++i) {
 			for (int j = 0; j < NOD; ++j) {
@@ -528,12 +523,14 @@ void FwNMPC::calculateTrackError(const real_t *in) {
 
 	const double t2 = cos(in[4]);
 
+	const double alpha = -in[4]+in[7];
+
 	double Vsafe = in[3];
 	if (Vsafe<1.0) Vsafe = 1.0;
 
-	const double n_dot = in[33]+Vsafe*t2*cos(in[5]);
-	const double e_dot = in[34]+Vsafe*t2*sin(in[5]);
-	const double d_dot = in[35]-Vsafe*sin(in[4]);
+	const double n_dot = in[29]+Vsafe*t2*cos(in[5]);
+	const double e_dot = in[30]+Vsafe*t2*sin(in[5]);
+	const double d_dot = in[31]-Vsafe*sin(in[4]);
 
 	/* begin manual input !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
 
@@ -553,135 +550,146 @@ void FwNMPC::calculateTrackError(const real_t *in) {
 	// LINE SEGMENT
 	if ( pparam_type < 0.5 ) {
 
-	    // variable definitions
-	    const double pparam_aa_n = in[idx_OD_0+pparam_sel+1];
-	    const double pparam_aa_e = in[idx_OD_0+pparam_sel+2];
-	    const double pparam_aa_d = in[idx_OD_0+pparam_sel+3];
-	    const double pparam_bb_n = in[idx_OD_0+pparam_sel+4];
-	    const double pparam_bb_e = in[idx_OD_0+pparam_sel+5];
-	    const double pparam_bb_d = in[idx_OD_0+pparam_sel+6];
-
-	    // calculate vector from waypoint a to b
-	    const double abn = pparam_bb_n - pparam_aa_n;
-	    const double abe = pparam_bb_e - pparam_aa_e;
-	    const double abd = pparam_bb_d - pparam_aa_d;
-	    const double norm_ab = sqrt(abn*abn + abe*abe + abd*abd);
-
 	    // calculate tangent
-	    if (norm_ab>0.1) {
-	        tP_n = abn / norm_ab;
-	        tP_e = abe / norm_ab;
-	        tP_d = abd / norm_ab;
-	    }
+	    double tP_n = cos(in[idx_OD_0+pparam_sel+6])*cos(in[idx_OD_0+pparam_sel+5]);
+	    double tP_e = cos(in[idx_OD_0+pparam_sel+6])*sin(in[idx_OD_0+pparam_sel+5]);
+	    double tP_d = -sin(in[idx_OD_0+pparam_sel+6]);
 	    
 	    // dot product
-	    const double dot_abunit_ap = tP_n*(in[0] - pparam_aa_n) + tP_e*(in[1] - pparam_aa_e) + tP_d*(in[2] - pparam_aa_d);
+	    const double dot_tP_bp = tP_n*(in[0] - in[idx_OD_0+pparam_sel+1]) + tP_e*(in[1] - in[idx_OD_0+pparam_sel+2]) + tP_d*(in[2] - in[idx_OD_0+pparam_sel+3]);
 	    
 	    // point on track
-	    p_n = pparam_aa_n + dot_abunit_ap * tP_n;
-	    p_e = pparam_aa_e + dot_abunit_ap * tP_e;
-	    p_d = pparam_aa_d + dot_abunit_ap * tP_d;
+	    p_n = in[idx_OD_0+pparam_sel+1] + dot_tP_bp * tP_n;
+	    p_e = in[idx_OD_0+pparam_sel+2] + dot_tP_bp * tP_e;
+	    p_d = in[idx_OD_0+pparam_sel+3] + dot_tP_bp * tP_d;
 	    
-	// CURVE SEGMENT
+	// ARC SEGMENT
 	} else if ( pparam_type < 1.5 ) {
 
-	    // variable definitions
-	    const double pparam_cc_n = in[idx_OD_0+pparam_sel+1];
-	    const double pparam_cc_e = in[idx_OD_0+pparam_sel+2];
-	    const double pparam_cc_d = in[idx_OD_0+pparam_sel+3];
-	    const double pparam_R = in[idx_OD_0+pparam_sel+4];
-	    const double pparam_ldir = in[idx_OD_0+pparam_sel+5];
-	    const double pparam_gam_sp = in[idx_OD_0+pparam_sel+6];
-	    const double pparam_xi0 = in[idx_OD_0+pparam_sel+7];
-	    const double pparam_dxi = in[idx_OD_0+pparam_sel+8];
+	// variable definitions
+	//     const double pparam_cc_n = in[idx_OD_0+pparam_sel+1];
+	//     const double pparam_cc_e = in[idx_OD_0+pparam_sel+2];
+	//     const double pparam_cc_d = in[idx_OD_0+pparam_sel+3];
+	//     const double pparam_R = fabs(in[idx_OD_0+pparam_sel+4]);
+	    const double pparam_ldir = (in[idx_OD_0+pparam_sel+4]<0.0) ? -1.0 : 1.0;
+	//     const double pparam_Chi = in[idx_OD_0+pparam_sel+5];
+	//     const double pparam_Gam = in[idx_OD_0+pparam_sel+6];
+	    double Gam_temp = in[idx_OD_0+pparam_sel+6];
 
 	    // calculate closest point on loiter circle
-	    const double cp_n = in[0] - pparam_cc_n;
-	    const double cp_e = in[1] - pparam_cc_e;
-	    const double norm_cr = sqrt( cp_n*cp_n + cp_e*cp_e );
-	    double cp_n_unit;
-	    double cp_e_unit;
+	    const double cr_n = in[0] - in[idx_OD_0+pparam_sel+1];
+	    const double cr_e = in[1] - in[idx_OD_0+pparam_sel+2];
+	    const double norm_cr = sqrt( cr_n*cr_n + cr_e*cr_e );
+	    double cr_n_unit;
+	    double cr_e_unit;
 	    if (norm_cr>0.1) {
-	        cp_n_unit = cp_n / norm_cr;
-	        cp_e_unit = cp_e / norm_cr;
+	        cr_n_unit = cr_n / norm_cr;
+	        cr_e_unit = cr_e / norm_cr;
 	    }
 	    else {
-	        cp_n_unit = 0.0;
-	        cp_e_unit = 0.0;
+	        cr_n_unit = 0.0;
+	        cr_e_unit = 0.0;
 	    }
-	    p_n = pparam_R * cp_n_unit + pparam_cc_n;
-	    p_e = pparam_R * cp_e_unit + pparam_cc_e;
+	    p_n = fabs(in[idx_OD_0+pparam_sel+4]) * cr_n_unit + in[idx_OD_0+pparam_sel+1];
+	    p_e = fabs(in[idx_OD_0+pparam_sel+4]) * cr_e_unit + in[idx_OD_0+pparam_sel+2];
 
 	    // calculate tangent
-	    tP_n = pparam_ldir * -cp_e_unit;
-	    tP_e = pparam_ldir * cp_n_unit;
+	    tP_n = pparam_ldir * -cr_e_unit;
+	    tP_e = pparam_ldir * cr_n_unit;
 	    
-	    // spiral angular position: [0,2*pi)
-	    const double xi_sp = atan2(cp_e_unit, cp_n_unit);
-	    double delta_xi_p = xi_sp-pparam_xi0;
-	    if (pparam_ldir > 0.0 && pparam_xi0 > xi_sp) {
-
-	        delta_xi_p = delta_xi_p + 6.28318530718;
-
-	    } else if (pparam_ldir<0.0 && xi_sp>pparam_xi0) {
-
-	        delta_xi_p = delta_xi_p - 6.28318530718;
-
+	    // angular position
+	    const double xi_pos = atan2(cr_e_unit, cr_n_unit);
+	    
+	    // angular exit
+	    double xi_exit = in[idx_OD_0+pparam_sel+5] - pparam_ldir * 1.570796326794897;
+	    if (xi_exit>3.141592653589793) {
+	        xi_exit = xi_exit - 6.283185307179586;
 	    }
+	    else if (xi_exit<-3.141592653589793) {
+	        xi_exit = xi_exit + 6.283185307179586;
+	    }
+	    
+	    // angular travel (back calculated) from exit [0,2pi)
+	    double delta_xi = pparam_ldir * (xi_exit - xi_pos);
+	    if (delta_xi >= 6.28318530718) delta_xi = 0.0;
+	    if (delta_xi < 0.0) delta_xi = delta_xi + 6.28318530718;
 
 	    // closest point on nearest spiral leg and tangent down component
-	    if (fabs(pparam_gam_sp) < 0.001) {
+	    if (fabs(in[idx_OD_0+pparam_sel+6]) < 0.001) {
 
-	        p_d = pparam_cc_d;
+	        p_d = in[idx_OD_0+pparam_sel+3];
 	        tP_d = 0.0;
 
 	    } else {
 
-	        const double Rtangam = pparam_R * tan(pparam_gam_sp);
+	        const double RtanGam = fabs(in[idx_OD_0+pparam_sel+4]) * tan(in[idx_OD_0+pparam_sel+6]);
 
-	        // spiral height delta for current angle
-	        const double delta_d_xi = -delta_xi_p * Rtangam;
-
-	        // end spiral altitude change
-	        const double delta_d_sp_end = -pparam_dxi * Rtangam;
+	        // height down from exit
+	        const double delta_d_xi = delta_xi * RtanGam;
 
 	        // nearest spiral leg
-	        const double delta_d_k = round( (in[2] - (pparam_cc_d + delta_d_xi)) / (6.28318530718*Rtangam) ) * 6.28318530718*Rtangam;
-
+	        const double delta_d_k = round( (in[2] - (in[idx_OD_0+pparam_sel+3] + delta_d_xi)) / (6.28318530718*RtanGam) ) * 6.28318530718*RtanGam;
+	        
 	        // closest point on nearest spiral leg
-	        p_d = pparam_cc_d + delta_d_k + delta_d_xi;
-
-	        /* p (on spiral) = (start height) + (revolution height increment) +
-	         * (lateral-direcitonal angular position increment)
-	         */
+	        p_d = in[idx_OD_0+pparam_sel+3] + delta_d_k + delta_d_xi;
 	        
 	        // cap end point
-	        if ((p_d - (delta_d_sp_end + pparam_cc_d)) * pparam_gam_sp < 0.0) {
-	            // we (or more correctly, the closest point on the nearest spiral leg) are beyond the end point
-	            p_d = pparam_cc_d + delta_d_sp_end;
+	        if ((p_d - in[idx_OD_0+pparam_sel+3]) * in[idx_OD_0+pparam_sel+6] < 0.0) {
+	            p_d = in[idx_OD_0+pparam_sel+3];
 	            tP_d = 0.0;
+	            Gam_temp = 0.0;
 	        }
 	        else {
-	            tP_d = -sin(pparam_gam_sp);
+	            tP_d = -sin(in[idx_OD_0+pparam_sel+6]);
 	        }
 	        
 	    }
 	    
 	    if (fabs(tP_n)<0.01 && fabs(tP_e)<0.01) { // should always have lateral-directional references on curve (this is only when we hit the center of the circle)
 	        tP_n=1.0;
+	        tP_e=0.0;
 	    }
 	    
-	    // Renormalize tP
-	    const double normtP = sqrt(tP_n*tP_n+tP_e*tP_e+tP_d*tP_d);
-	    tP_n = tP_n / normtP;
-	    tP_e = tP_e / normtP;
-	    tP_d = tP_d / normtP;
-	        
+	    // Normalize tP
+	    tP_n = tP_n * cos(Gam_temp);
+	    tP_e = tP_e * cos(Gam_temp);
+	    
+	// LOITER UNLIM
+	} else if ( pparam_type < 2.5 ) {
+
+	    const double pparam_ldir = (in[idx_OD_0+pparam_sel+4]<0.0) ? -1.0 : 1.0;
+
+	    // calculate closest point on loiter circle
+	    const double cr_n = in[0] - in[idx_OD_0+pparam_sel+1];
+	    const double cr_e = in[1] - in[idx_OD_0+pparam_sel+2];
+	    const double norm_cr = sqrt( cr_n*cr_n + cr_e*cr_e );
+	    double cr_n_unit;
+	    double cr_e_unit;
+	    if (norm_cr>0.1) {
+	        cr_n_unit = cr_n / norm_cr;
+	        cr_e_unit = cr_e / norm_cr;
+	    }
+	    else {
+	        cr_n_unit = 0.0;
+	        cr_e_unit = 0.0;
+	    }
+	    p_n = fabs(in[idx_OD_0+pparam_sel+4]) * cr_n_unit + in[idx_OD_0+pparam_sel+1];
+	    p_e = fabs(in[idx_OD_0+pparam_sel+4]) * cr_e_unit + in[idx_OD_0+pparam_sel+2];
+
+	    // calculate tangent
+	    tP_n = pparam_ldir * -cr_e_unit;
+	    tP_e = pparam_ldir * cr_n_unit;
+	    
+	    p_d = in[idx_OD_0+pparam_sel+3];
+	    tP_d = 0.0;
+	    
+	    if (fabs(tP_n)<0.01 && fabs(tP_e)<0.01) { // should always have lateral-directional references on curve (this is only when we hit the center of the circle)
+	        tP_n=1.0;
+	        tP_e=0.0;
+	    }
 	}
 
 	/* end manual input !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
-
-	const double alpha = -in[4]+in[7];
 
 	const double t3 = in[1]-p_e;
 	const double t4 = in[0]-p_n;
@@ -739,7 +747,6 @@ int FwNMPC::nmpcIteration() {
 			// -->initHorizon needs up to date wp info for ned calculation
 			const double new_home_wp[3] = {subs_.home_wp.latitude, subs_.home_wp.longitude, subs_.home_wp.altitude};
 			paths_.setHomeWp( new_home_wp );
-			prev_wp_idx_ = -1;
 			last_wp_idx_ = -1;
 
 			// initHorizon BEFORE Y, this is to make sure controls and prev_horiz are reinitialized before reaching Y update.
@@ -771,14 +778,11 @@ int FwNMPC::nmpcIteration() {
 			// reset switch state, sw, horizon //TODO: encapsulate
 			for (int i = 1; i < N + 2; ++i) acadoVariables.x[ i * NX - 1 ] = 0.0;
 			acadoVariables.x0[ 12 ] = 0.0;
-
-			// set previous wp list item to last wp id
-			prev_wp_idx_ = (last_wp_idx_==-1) ? subs_.current_wp.data : last_wp_idx_; // if first time through loop, previous wp will be set to current wp
 		}
 		last_wp_idx_ = subs_.current_wp.data;
 
 		/* update path */
-		paths_.updatePaths(subs_.waypoint_list, subs_.current_wp.data, prev_wp_idx_);
+		paths_.updatePaths(subs_.waypoint_list, subs_.current_wp.data);
 
 		/* update ACADO online data */
 		updateACADO_OD();
@@ -933,27 +937,23 @@ void FwNMPC::publishAcadoVars() {
 	acado_vars.pparam5 = (float)acadoVariables.od[4];
 	acado_vars.pparam6 = (float)acadoVariables.od[5];
 	acado_vars.pparam7 = (float)acadoVariables.od[6];
-	acado_vars.pparam8 = (float)acadoVariables.od[7];
-	acado_vars.pparam9 = (float)acadoVariables.od[8];
-	acado_vars.pparam1_next = (uint8_t)acadoVariables.od[9];
-	acado_vars.pparam2_next = (float)acadoVariables.od[10];
-	acado_vars.pparam3_next = (float)acadoVariables.od[11];
-	acado_vars.pparam4_next = (float)acadoVariables.od[12];
-	acado_vars.pparam5_next = (float)acadoVariables.od[13];
-	acado_vars.pparam6_next = (float)acadoVariables.od[14];
-	acado_vars.pparam7_next = (float)acadoVariables.od[15];
-	acado_vars.pparam8_next = (float)acadoVariables.od[16];
-	acado_vars.pparam9_next = (float)acadoVariables.od[17];
-	acado_vars.R_acpt = (float)acadoVariables.od[18];
-	acado_vars.ceta_acpt = (float)acadoVariables.od[19];
-	acado_vars.wn = (float)acadoVariables.od[20];
-	acado_vars.we = (float)acadoVariables.od[21];
-	acado_vars.wd = (float)acadoVariables.od[22];
-	acado_vars.alpha_p_co = (float)acadoVariables.od[23];
-	acado_vars.alpha_m_co = (float)acadoVariables.od[24];
-	acado_vars.alpha_delta_co = (float)acadoVariables.od[25];
-	acado_vars.T_b_lat = (float)acadoVariables.od[26];
-	acado_vars.T_b_lon = (float)acadoVariables.od[27];
+	acado_vars.pparam1_next = (uint8_t)acadoVariables.od[7];
+	acado_vars.pparam2_next = (float)acadoVariables.od[8];
+	acado_vars.pparam3_next = (float)acadoVariables.od[9];
+	acado_vars.pparam4_next = (float)acadoVariables.od[10];
+	acado_vars.pparam5_next = (float)acadoVariables.od[11];
+	acado_vars.pparam6_next = (float)acadoVariables.od[12];
+	acado_vars.pparam7_next = (float)acadoVariables.od[13];
+	acado_vars.R_acpt = (float)acadoVariables.od[14];
+	acado_vars.ceta_acpt = (float)acadoVariables.od[15];
+	acado_vars.wn = (float)acadoVariables.od[16];
+	acado_vars.we = (float)acadoVariables.od[17];
+	acado_vars.wd = (float)acadoVariables.od[18];
+	acado_vars.alpha_p_co = (float)acadoVariables.od[19];
+	acado_vars.alpha_m_co = (float)acadoVariables.od[20];
+	acado_vars.alpha_delta_co = (float)acadoVariables.od[21];
+	acado_vars.T_b_lat = (float)acadoVariables.od[22];
+	acado_vars.T_b_lon = (float)acadoVariables.od[23];
 
 	/* references */ //NOTE: only recording non-zero references
 //	acado_vars.y_eta_lat = (float)acadoVariables.y[0];

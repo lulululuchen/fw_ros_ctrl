@@ -904,10 +904,6 @@ acadoWorkspace.rk_xxx[36] = rk_eta[244];
 acadoWorkspace.rk_xxx[37] = rk_eta[245];
 acadoWorkspace.rk_xxx[38] = rk_eta[246];
 acadoWorkspace.rk_xxx[39] = rk_eta[247];
-acadoWorkspace.rk_xxx[40] = rk_eta[248];
-acadoWorkspace.rk_xxx[41] = rk_eta[249];
-acadoWorkspace.rk_xxx[42] = rk_eta[250];
-acadoWorkspace.rk_xxx[43] = rk_eta[251];
 
 for (run = 0; run < 1; ++run)
 {

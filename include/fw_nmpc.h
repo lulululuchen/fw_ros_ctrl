@@ -111,15 +111,14 @@ private:
 	ros::Publisher acado_vars_pub_;
 
 	/* time keeping */
-	ros::Time	t_lastctrl;
+	ros::Time t_lastctrl;
 
 	/* controller switch */
-	bool	bModeChanged;
-	int		last_ctrl_mode;
-	int 	obctrl_en_;
+	bool bModeChanged;
+	int	last_ctrl_mode;
+	int obctrl_en_;
 
 	/* path definitions */
-	int prev_wp_idx_;
 	int last_wp_idx_;
 	PathManager paths_;
 
