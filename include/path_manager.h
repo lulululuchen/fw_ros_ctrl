@@ -26,13 +26,13 @@ class DubinsSegment
 {						// (line)	// (arc)	// (loiter unlim.)
 public:
 
-	int pparam1; 			// type=0 	// type=1	// type=2
-	double pparam2; 	// b_n 		// c_n 		// c_n
-	double pparam3; 	// b_e		// c_e 		// c_e
-	double pparam4;		// b_d		// c_d 		// c_d
-	double pparam5; 	// N/A		// +/-R 	// +/-R
-	double pparam6; 	// Chi   	// Chi 		// N/A
-	double pparam7; 	// Gam   	// Gam 		// N/A
+	int pparam1; 			// type=0 type=1 type=2
+	double pparam2; 	// b_n 		c_n    c_n
+	double pparam3; 	// b_e		c_e    c_e
+	double pparam4;		// b_d		c_d    c_d
+	double pparam5; 	// N/A		+/-R 	 +/-R
+	double pparam6; 	// Chi   	Chi    N/A
+	double pparam7; 	// Gam   	Gam    N/A
 
 	void setLine( const double exit_bearing, const double line_elevation, double exit_coordinate[3] );
 	void setArc( const double signed_radius, const double exit_bearing, const double elevation, double center_coordinate[3] );
