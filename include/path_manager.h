@@ -26,7 +26,7 @@ class DubinsSegment
 {						// (line)	// (arc)	// (loiter unlim.)
 public:
 
-	int pparam1; 		// type=0 	// type=1	// type=2
+	int pparam1; 			// type=0 	// type=1	// type=2
 	double pparam2; 	// b_n 		// c_n 		// c_n
 	double pparam3; 	// b_e		// c_e 		// c_e
 	double pparam4;		// b_d		// c_d 		// c_d
@@ -139,7 +139,7 @@ void PathManager::copyNext2Current() {
  *
  * manages the current waypoint targets and provides inputs for dubins current and next path construction
  */
-void PathManager::updatePaths( const mavros_msgs::WaypointList wp_list, int cur_idx) { 
+void PathManager::updatePaths( const mavros_msgs::WaypointList wp_list, int cur_idx) {
 
 	int next_idx = cur_idx+1;
 
@@ -172,7 +172,8 @@ void PathManager::updatePaths( const mavros_msgs::WaypointList wp_list, int cur_
 
 			case 31001:
 				double lat_center, lon_center;
-				coordinate_from_bearing_and_distance(wp_list.waypoints[ cur_idx ].x_lat, wp_list.waypoints[ cur_idx ].y_long, _wrap_pi(wp_list.waypoints[ cur_idx ].param3 * M_DEG_TO_RAD),
+				coordinate_from_bearing_and_distance(wp_list.waypoints[ cur_idx ].x_lat, wp_list.waypoints[ cur_idx ].y_long,
+					_wrap_pi(wp_list.waypoints[ cur_idx ].param3 * M_DEG_TO_RAD + ((wp_list.waypoints[ cur_idx ].param2 < 0.0) ? -M_PI_2 : M_PI_2)),
 					fabs(wp_list.waypoints[ cur_idx ].param2), &lat_center, &lon_center);
 				ll2NE(coordinate_ned[0], coordinate_ned[1], lat_center, lon_center);
 				coordinate_ned[2] = -wp_list.waypoints[ cur_idx ].z_alt;
@@ -205,7 +206,8 @@ void PathManager::updatePaths( const mavros_msgs::WaypointList wp_list, int cur_
 
 			case 31001:
 				double lat_center, lon_center;
-				coordinate_from_bearing_and_distance(wp_list.waypoints[ cur_idx ].x_lat, wp_list.waypoints[ cur_idx ].y_long, _wrap_pi(wp_list.waypoints[ cur_idx ].param3 * M_DEG_TO_RAD),
+				coordinate_from_bearing_and_distance(wp_list.waypoints[ cur_idx ].x_lat, wp_list.waypoints[ cur_idx ].y_long,
+					_wrap_pi(wp_list.waypoints[ cur_idx ].param3 * M_DEG_TO_RAD + ((wp_list.waypoints[ cur_idx ].param2 < 0.0) ? -M_PI_2 : M_PI_2)),
 					fabs(wp_list.waypoints[ cur_idx ].param2), &lat_center, &lon_center);
 				ll2NE(coordinate_ned[0], coordinate_ned[1], lat_center, lon_center);
 				coordinate_ned[2] = -wp_list.waypoints[ cur_idx ].z_alt;
@@ -233,7 +235,8 @@ void PathManager::updatePaths( const mavros_msgs::WaypointList wp_list, int cur_
 
 			case 31001:
 				double lat_center, lon_center;
-				coordinate_from_bearing_and_distance(wp_list.waypoints[ next_idx ].x_lat, wp_list.waypoints[ next_idx ].y_long, wp_list.waypoints[ next_idx ].param3 * M_DEG_TO_RAD,
+				coordinate_from_bearing_and_distance(wp_list.waypoints[ next_idx ].x_lat, wp_list.waypoints[ next_idx ].y_long,
+					_wrap_pi(wp_list.waypoints[ next_idx ].param3 * M_DEG_TO_RAD + ((wp_list.waypoints[ next_idx ].param2 < 0.0) ? -M_PI_2 : M_PI_2)),
 					fabs(wp_list.waypoints[ next_idx ].param2), &lat_center, &lon_center);
 				ll2NE(coordinate_ned[0], coordinate_ned[1], lat_center, lon_center);
 				coordinate_ned[2] = -wp_list.waypoints[ next_idx ].z_alt;
