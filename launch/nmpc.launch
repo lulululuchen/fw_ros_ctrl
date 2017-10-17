@@ -3,23 +3,23 @@
   <param name="/nmpc/loop_rate" type="double" value="10.0" />
   <param name="/nmpc/time_step" type="double" value="0.1" />
 
-  <arg name="fake_signals" default="0" /> 
+  <arg name="fake_signals" default="0" />
   <param name="/nmpc/fake_signals" type="int" value="$(arg fake_signals)"/>
-  
+
   <param name="/nmpc/y_ref/uT" type="double" value="0.375" />
   <param name="/nmpc/y_ref/theta_ref" type="double" value="0.0222" />
-  
-  <param name="/nmpc/w_scale/q1" type="double" value="1.570796326794897" />
-  <param name="/nmpc/w_scale/q2" type="double" value="1.570796326794897" />
+
+  <param name="/nmpc/w_scale/q1" type="double" value="2.467401100272341" />
+  <param name="/nmpc/w_scale/q2" type="double" value="2.467401100272341" />
   <param name="/nmpc/w_scale/q3" type="double" value="1.0" />
-  <param name="/nmpc/w_scale/q4" type="double" value="0.872664625997165" />
-  <param name="/nmpc/w_scale/q5" type="double" value="0.872664625997165" />
-  <param name="/nmpc/w_scale/q6" type="double" value="0.872664625997165" />
+  <param name="/nmpc/w_scale/q4" type="double" value="0.761543549466772" />
+  <param name="/nmpc/w_scale/q5" type="double" value="0.761543549466772" />
+  <param name="/nmpc/w_scale/q6" type="double" value="0.761543549466772" />
   <param name="/nmpc/w_scale/q7" type="double" value="1.0" />
   <param name="/nmpc/w_scale/q8" type="double" value="1.0" />
   <param name="/nmpc/w_scale/q9" type="double" value="1.0" />
-  <param name="/nmpc/w_scale/q10" type="double" value="0.523598775598299" />
-  <param name="/nmpc/w_scale/q11" type="double" value="0.261799387799149" />
+  <param name="/nmpc/w_scale/q10" type="double" value="0.274155677808038" />
+  <param name="/nmpc/w_scale/q11" type="double" value="0.068538919452009" />
 
   <param name="/nmpc/fake_motor_failure" type="bool" value="false" doc="fake a motor failure: throt=0, W_throt=1e6" />
 </launch>
