@@ -280,7 +280,7 @@ void FwNMPC::initHorizon() {
 	ROS_ERROR("initHorizon: hold states constant through horizon (first time in loop)");
 
 	//TODO: sliding window and/or low pass filter
-	
+
 	/* get current controls */
 	double U[NU] = {(double)subs_.aslctrl_data.uThrot,0.0,0.0}; // TODO: could potentially pull all current refs.
 
@@ -554,15 +554,15 @@ void FwNMPC::calculateTrackError(const real_t *in) {
 	    double tP_n = cos(in[idx_OD_0+pparam_sel+6])*cos(in[idx_OD_0+pparam_sel+5]);
 	    double tP_e = cos(in[idx_OD_0+pparam_sel+6])*sin(in[idx_OD_0+pparam_sel+5]);
 	    double tP_d = -sin(in[idx_OD_0+pparam_sel+6]);
-	    
+
 	    // dot product
 	    const double dot_tP_bp = tP_n*(in[0] - in[idx_OD_0+pparam_sel+1]) + tP_e*(in[1] - in[idx_OD_0+pparam_sel+2]) + tP_d*(in[2] - in[idx_OD_0+pparam_sel+3]);
-	    
+
 	    // point on track
 	    p_n = in[idx_OD_0+pparam_sel+1] + dot_tP_bp * tP_n;
 	    p_e = in[idx_OD_0+pparam_sel+2] + dot_tP_bp * tP_e;
 	    p_d = in[idx_OD_0+pparam_sel+3] + dot_tP_bp * tP_d;
-	    
+
 	// ARC SEGMENT
 	} else if ( pparam_type < 1.5 ) {
 
@@ -596,10 +596,10 @@ void FwNMPC::calculateTrackError(const real_t *in) {
 	    // calculate tangent
 	    tP_n = pparam_ldir * -cr_e_unit;
 	    tP_e = pparam_ldir * cr_n_unit;
-	    
+
 	    // angular position
 	    const double xi_pos = atan2(cr_e_unit, cr_n_unit);
-	    
+
 	    // angular exit
 	    double xi_exit = in[idx_OD_0+pparam_sel+5] - pparam_ldir * 1.570796326794897;
 	    if (xi_exit>3.141592653589793) {
@@ -608,7 +608,7 @@ void FwNMPC::calculateTrackError(const real_t *in) {
 	    else if (xi_exit<-3.141592653589793) {
 	        xi_exit = xi_exit + 6.283185307179586;
 	    }
-	    
+
 	    // angular travel (back calculated) from exit [0,2pi)
 	    double delta_xi = pparam_ldir * (xi_exit - xi_pos);
 	    if (delta_xi >= 6.28318530718) delta_xi = 0.0;
@@ -629,10 +629,10 @@ void FwNMPC::calculateTrackError(const real_t *in) {
 
 	        // nearest spiral leg
 	        const double delta_d_k = round( (in[2] - (in[idx_OD_0+pparam_sel+3] + delta_d_xi)) / (6.28318530718*RtanGam) ) * 6.28318530718*RtanGam;
-	        
+
 	        // closest point on nearest spiral leg
 	        p_d = in[idx_OD_0+pparam_sel+3] + delta_d_k + delta_d_xi;
-	        
+
 	        // cap end point
 	        if ((p_d - in[idx_OD_0+pparam_sel+3]) * in[idx_OD_0+pparam_sel+6] < 0.0) {
 	            p_d = in[idx_OD_0+pparam_sel+3];
@@ -642,18 +642,18 @@ void FwNMPC::calculateTrackError(const real_t *in) {
 	        else {
 	            tP_d = -sin(in[idx_OD_0+pparam_sel+6]);
 	        }
-	        
+
 	    }
-	    
+
 	    if (fabs(tP_n)<0.01 && fabs(tP_e)<0.01) { // should always have lateral-directional references on curve (this is only when we hit the center of the circle)
 	        tP_n=1.0;
 	        tP_e=0.0;
 	    }
-	    
+
 	    // Normalize tP
 	    tP_n = tP_n * cos(Gam_temp);
 	    tP_e = tP_e * cos(Gam_temp);
-	    
+
 	// LOITER UNLIM
 	} else if ( pparam_type < 2.5 ) {
 
@@ -679,10 +679,10 @@ void FwNMPC::calculateTrackError(const real_t *in) {
 	    // calculate tangent
 	    tP_n = pparam_ldir * -cr_e_unit;
 	    tP_e = pparam_ldir * cr_n_unit;
-	    
+
 	    p_d = in[idx_OD_0+pparam_sel+3];
 	    tP_d = 0.0;
-	    
+
 	    if (fabs(tP_n)<0.01 && fabs(tP_e)<0.01) { // should always have lateral-directional references on curve (this is only when we hit the center of the circle)
 	        tP_n=1.0;
 	        tP_e=0.0;
@@ -955,18 +955,18 @@ void FwNMPC::publishAcadoVars() {
 	acado_vars.T_b_lat = (float)acadoVariables.od[22];
 	acado_vars.T_b_lon = (float)acadoVariables.od[23];
 
-	/* references */ //NOTE: only recording non-zero references
-//	acado_vars.y_eta_lat = (float)acadoVariables.y[0];
-//	acado_vars.y_eta_lon = (float)acadoVariables.y[1];
-	acado_vars.y_V = (float)acadoVariables.y[2];
-//	acado_vars.y_p = (float)acadoVariables.y[3];
-//	acado_vars.y_q = (float)acadoVariables.y[4];
-//	acado_vars.y_r = (float)acadoVariables.y[5];
-//	acado_vars.y_asoft = (float)acadoVariables.y[6];
-//	acado_vars.y_uTdot = (float)acadoVariables.y[7];
-	acado_vars.y_uT = (float)acadoVariables.y[8];
-//	acado_vars.y_phi_ref = (float)acadoVariables.y[9];
-	acado_vars.y_theta_ref = (float)acadoVariables.y[10];
+	/* references */
+	acado_vars.yref[0] = (float)acadoVariables.y[0];
+	acado_vars.yref[1] = (float)acadoVariables.y[1];
+	acado_vars.yref[2] = (float)acadoVariables.y[2];
+	acado_vars.yref[3] = (float)acadoVariables.y[3];
+	acado_vars.yref[4] = (float)acadoVariables.y[4];
+	acado_vars.yref[5] = (float)acadoVariables.y[5];
+	acado_vars.yref[6] = (float)acadoVariables.y[6];
+	acado_vars.yref[7] = (float)acadoVariables.y[7];
+	acado_vars.yref[8] = (float)acadoVariables.y[8];
+	acado_vars.yref[9] = (float)acadoVariables.y[9];
+	acado_vars.yref[10] = (float)acadoVariables.y[10];
 
 	acado_vars_pub_.publish(acado_vars);
 }

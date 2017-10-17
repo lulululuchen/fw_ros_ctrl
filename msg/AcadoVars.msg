@@ -51,6 +51,4 @@ float32 T_b_lat  		   # lateral-directional track error boundary constant [m]
 float32 T_b_lon  		   # longitudinal track error boundary constant [m]
 
 # references
-float32 y_V
-float32 y_uT
-float32 y_theta_ref
+float32[11] yref
