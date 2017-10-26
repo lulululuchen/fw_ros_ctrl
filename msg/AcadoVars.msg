@@ -49,6 +49,8 @@ float32 alpha_m_co     # angle of attack lower cutoff [rad]
 float32 alpha_delta_co # angle of attack cutoff transition length [rad]
 float32 T_b_lat  		   # lateral-directional track error boundary constant [m]
 float32 T_b_lon  		   # longitudinal track error boundary constant [m]
+float32 ddot_clmb      # max climb rate
+float32 ddot_sink      # max sink rate
 
 # references
 float32[11] yref

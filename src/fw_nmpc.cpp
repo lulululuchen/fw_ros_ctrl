@@ -95,7 +95,10 @@ void FwNMPC::aslctrlDataCb(const mavros_msgs::AslCtrlData::ConstPtr& msg) {
 		subs_.aslctrl_data.uThrot 		= msg->uThrot;
 	}
 
-	float tmp_yaw = msg->yawAngle * 0.017453292519943f;
+	/* we need to unwrap xi as it is integrated in the mpc */
+	const double vn_minus_wn = subs_.odom.twist.twist.linear.x - (double)subs_.ekf_ext.windSpeed * cos((double)subs_.ekf_ext.windDirection);
+	const double ve_minus_we = subs_.odom.twist.twist.linear.y - (double)subs_.ekf_ext.windSpeed * sin((double)subs_.ekf_ext.windDirection);
+	double tmp_yaw	= atan2(ve_minus_we, vn_minus_wn); // NOTE: this is not yaw!!
 
 	if (!bYawReceived) {
 		subs_.aslctrl_data.yawAngle = tmp_yaw;
@@ -219,14 +222,18 @@ void FwNMPC::initACADOVars() {
 	nmpc_.getParam("/nmpc/y_ref/uT", y_uT_ref);
 	double y_theta_ref;
 	nmpc_.getParam("/nmpc/y_ref/theta_ref", y_theta_ref);
+	double ddot_clmb;
+	nmpc_.getParam("/nmpc/od/ddot_clmb", ddot_clmb);
+	double ddot_sink;
+	nmpc_.getParam("/nmpc/od/ddot_sink", ddot_sink);
 
 	/* put something reasonable here.. NOT all zeros, solver is initialized from here */
 	double X[NX] 	= {0.0, 0.0, 0.0, 13.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, y_uT_ref, 0.0};
 	double U[NU] 	= {y_uT_ref, 0.0, y_theta_ref};
-	double OD[NOD]	= {2.0, 0.0, 0.0, -100.0, 100.0, 0.0, 0.0, 2.0, 0.0, 0.0, -100.0, 100.0, 0.0, 0.0, 30.0, 0.8, 0.0, 0.0, 0.0, 0.1396, -0.0524, 0.0349, 1.0, 2.0};
+	double OD[NOD]	= {2.0, 0.0, 0.0, -100.0, 100.0, 0.0, 0.0, 2.0, 0.0, 0.0, -100.0, 100.0, 0.0, 0.0, 30.0, 0.8, 0.0, 0.0, 0.0, 0.1396, -0.0524, 0.0349, 4.0, 1.0, ddot_clmb, ddot_sink};
 
 	double Y[NY] = {0.0, 0.0, 13.5, 0.0, 0.0, 0.0, 0.0, 0.0, y_uT_ref, 0.0, y_theta_ref};
-	double W[NY] = {200.0, 200.0, 80.0, 20.0, 20.0, 5.0, 120.0, 40.0, 30.0, 50.0, 50.0};
+	double W[NY] = {400.0, 400.0, 150.0, 60.0, 60.0, 5.0, 120.0, 100.0, 200.0, 100.0, 60.0};
 
 	nmpc_.getParam("nmpc/w_scale/q1", W_scale_[0]);
 	nmpc_.getParam("nmpc/w_scale/q2", W_scale_[1]);
@@ -353,7 +360,7 @@ void FwNMPC::updateACADO_X0() {
 	X0[2]	= -((double)subs_.glob_pos.altitude - paths_.getHomeAlt()); 										// d
 	X0[3]	= (double)subs_.ekf_ext.airspeed; 																	// V
 	X0[4]	= -asin((double)((subs_.odom.twist.twist.linear.z - subs_.ekf_ext.windZ) / ((subs_.ekf_ext.airspeed<1.0) ? 1.0 : subs_.ekf_ext.airspeed))); 		// gamma
-	X0[5]	= (double)subs_.aslctrl_data.yawAngle; 																// xi
+	X0[5]	= (double)subs_.aslctrl_data.yawAngle; // NOTE: this is actually xi, just using the message as vessel
 	X0[6]	= (double)subs_.aslctrl_data.rollAngle; 															// phi
 	X0[7]	= (double)subs_.aslctrl_data.pitchAngle; 															// theta
 	X0[8]	= (double)subs_.aslctrl_data.p; 																	// p
@@ -384,6 +391,12 @@ void FwNMPC::updateACADO_X0() {
 
 void FwNMPC::updateACADO_OD() {
 
+	/* XXX: some params that have not yet been added to mavlink! */
+	double ddot_clmb;
+	nmpc_.getParam("/nmpc/od/ddot_clmb", ddot_clmb);
+	double ddot_sink;
+	nmpc_.getParam("/nmpc/od/ddot_sink", ddot_sink);
+
 	/* update online data */
 	double OD[NOD];
 	OD[0] = paths_.path_current.pparam1;
@@ -410,6 +423,8 @@ void FwNMPC::updateACADO_OD() {
 	OD[21] = (double)subs_.nmpc_params.alpha_delta_co;
 	OD[22] = (double)subs_.nmpc_params.T_b_lat;
 	OD[23] = (double)subs_.nmpc_params.T_b_lon;
+	OD[24] = ddot_clmb;
+	OD[25] = ddot_sink;
 
 	for (int i = 0; i < N+1; ++i) {
 			for (int j = 0; j < NOD; ++j) {
@@ -522,9 +537,7 @@ void FwNMPC::calculateTrackError(const real_t *in) {
 	/* optimized intermediate calculations */
 
 	const double t2 = cos(in[4]);
-
 	const double alpha = -in[4]+in[7];
-
 	double Vsafe = in[3];
 	if (Vsafe<1.0) Vsafe = 1.0;
 
@@ -551,9 +564,9 @@ void FwNMPC::calculateTrackError(const real_t *in) {
 	if ( pparam_type < 0.5 ) {
 
 	    // calculate tangent
-	    double tP_n = cos(in[idx_OD_0+pparam_sel+6])*cos(in[idx_OD_0+pparam_sel+5]);
-	    double tP_e = cos(in[idx_OD_0+pparam_sel+6])*sin(in[idx_OD_0+pparam_sel+5]);
-	    double tP_d = -sin(in[idx_OD_0+pparam_sel+6]);
+	    tP_n = cos(in[idx_OD_0+pparam_sel+6])*cos(in[idx_OD_0+pparam_sel+5]);
+	    tP_e = cos(in[idx_OD_0+pparam_sel+6])*sin(in[idx_OD_0+pparam_sel+5]);
+	    tP_d = -sin(in[idx_OD_0+pparam_sel+6]);
 
 	    // dot product
 	    const double dot_tP_bp = tP_n*(in[0] - in[idx_OD_0+pparam_sel+1]) + tP_e*(in[1] - in[idx_OD_0+pparam_sel+2]) + tP_d*(in[2] - in[idx_OD_0+pparam_sel+3]);
@@ -566,14 +579,8 @@ void FwNMPC::calculateTrackError(const real_t *in) {
 	// ARC SEGMENT
 	} else if ( pparam_type < 1.5 ) {
 
-	// variable definitions
-	//     const double pparam_cc_n = in[idx_OD_0+pparam_sel+1];
-	//     const double pparam_cc_e = in[idx_OD_0+pparam_sel+2];
-	//     const double pparam_cc_d = in[idx_OD_0+pparam_sel+3];
-	//     const double pparam_R = fabs(in[idx_OD_0+pparam_sel+4]);
+	    // variable definitions
 	    const double pparam_ldir = (in[idx_OD_0+pparam_sel+4]<0.0) ? -1.0 : 1.0;
-	//     const double pparam_Chi = in[idx_OD_0+pparam_sel+5];
-	//     const double pparam_Gam = in[idx_OD_0+pparam_sel+6];
 	    double Gam_temp = in[idx_OD_0+pparam_sel+6];
 
 	    // calculate closest point on loiter circle
@@ -693,24 +700,16 @@ void FwNMPC::calculateTrackError(const real_t *in) {
 
 	const double t3 = in[1]-p_e;
 	const double t4 = in[0]-p_n;
-	const double norm_rp_ne = sqrt(t3*t3+t4*t4);
+	const double t5 = t3*t3;
+	const double t6 = t4*t4;
+	const double t7 = t5+t6;
+	const double t9 = tP_e*tP_e;
+	const double t10 = tP_n*tP_n;
+	const double t11 = t9+t10;
+	const double t12 = 1.0/sqrt(t11);
 
-	const double t5 = 1.0/norm_rp_ne;
-	const double t6 = -in[2]+p_d;
-
-	double sgn_rp = 0.0;
-	if (t6>0.0) {
-	    sgn_rp = 1.0;
-	} else if (t6<0.0) {
-	    sgn_rp = -1.0;
-	}
-
-	const double t16 = e_dot*e_dot;
-	const double t17 = n_dot*n_dot;
-	const double t18 = t16+t17;
-
-	track_error_lat_ = t4*tP_e-t3*tP_n;
-	track_error_lon_ = t6;
+	track_error_lat_ = t4*t12*tP_e-t3*t12*tP_n;
+	track_error_lon_ = -in[2]+p_d;
 }
 
 int FwNMPC::nmpcIteration() {
@@ -954,6 +953,8 @@ void FwNMPC::publishAcadoVars() {
 	acado_vars.alpha_delta_co = (float)acadoVariables.od[21];
 	acado_vars.T_b_lat = (float)acadoVariables.od[22];
 	acado_vars.T_b_lon = (float)acadoVariables.od[23];
+	acado_vars.ddot_clmb = (float)acadoVariables.od[24];
+	acado_vars.ddot_sink = (float)acadoVariables.od[25];
 
 	/* references */
 	acado_vars.yref[0] = (float)acadoVariables.y[0];

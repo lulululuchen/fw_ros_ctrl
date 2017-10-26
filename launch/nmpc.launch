@@ -8,6 +8,8 @@
 
   <param name="/nmpc/y_ref/uT" type="double" value="0.375" />
   <param name="/nmpc/y_ref/theta_ref" type="double" value="0.0222" />
+  <param name="/nmpc/od/ddot_clmb" type="double" value="3.5" />
+  <param name="/nmpc/od/ddot_sink" type="double" value="1.5" />
 
   <param name="/nmpc/w_scale/q1" type="double" value="2.467401100272341" />
   <param name="/nmpc/w_scale/q2" type="double" value="2.467401100272341" />
