@@ -31,6 +31,7 @@ FwNMPC::FwNMPC() :
 		last_yaw_msg_(0.0f),
 		track_error_lat_(0.0f),
 		track_error_lon_(0.0f),
+		T_b_lat_(1.0),
 		W_scale_{0}
 {
 
@@ -230,7 +231,7 @@ void FwNMPC::initACADOVars() {
 	/* put something reasonable here.. NOT all zeros, solver is initialized from here */
 	double X[NX] 	= {0.0, 0.0, 0.0, 13.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, y_uT_ref, 0.0};
 	double U[NU] 	= {y_uT_ref, 0.0, y_theta_ref};
-	double OD[NOD]	= {2.0, 0.0, 0.0, -100.0, 100.0, 0.0, 0.0, 2.0, 0.0, 0.0, -100.0, 100.0, 0.0, 0.0, 30.0, 0.8, 0.0, 0.0, 0.0, 0.1396, -0.0524, 0.0349, 4.0, 1.0, ddot_clmb, ddot_sink};
+	double OD[NOD]	= {2.0, 0.0, 0.0, -100.0, 100.0, 0.0, 0.0, 2.0, 0.0, 0.0, -100.0, 100.0, 0.0, 0.0, 30.0, 0.8, 0.0, 0.0, 0.0, 0.1396, -0.0524, 0.0349, 1.0, 0.5, ddot_clmb, ddot_sink};
 
 	double Y[NY] = {0.0, 0.0, 13.5, 0.0, 0.0, 0.0, 0.0, 0.0, y_uT_ref, 0.0, y_theta_ref};
 	double W[NY] = {400.0, 400.0, 150.0, 60.0, 60.0, 5.0, 120.0, 100.0, 200.0, 100.0, 60.0};
@@ -421,7 +422,7 @@ void FwNMPC::updateACADO_OD() {
 	OD[19] = (double)subs_.nmpc_params.alpha_p_co;
 	OD[20] = (double)subs_.nmpc_params.alpha_m_co;
 	OD[21] = (double)subs_.nmpc_params.alpha_delta_co;
-	OD[22] = (double)subs_.nmpc_params.T_b_lat;
+	OD[22] = T_b_lat_;
 	OD[23] = (double)subs_.nmpc_params.T_b_lon;
 	OD[24] = ddot_clmb;
 	OD[25] = ddot_sink;
@@ -707,9 +708,38 @@ void FwNMPC::calculateTrackError(const real_t *in) {
 	const double t10 = tP_n*tP_n;
 	const double t11 = t9+t10;
 	const double t12 = 1.0/sqrt(t11);
+	const double t13 = e_dot*e_dot;
+	const double t14 = n_dot*n_dot;
+	const double t15 = t13+t14;
 
 	track_error_lat_ = t4*t12*tP_e-t3*t12*tP_n;
 	track_error_lon_ = -in[2]+p_d;
+
+	// sigmoid for track error: when plane is too close to track to approach track error boundary perpindicularly
+	// activate within |e|<||vG||^2/g/tan(phi_max)+||vG||*T_b_lat
+	const double norm_vG_lat = sqrt(t15);
+	const double too_close = fabs(track_error_lat_/((norm_vG_lat<1.0) ? 1.0 : (((double)subs_.nmpc_params.T_b_lat)*norm_vG_lat + norm_vG_lat*norm_vG_lat/5.6638))); //XXX: this is just a hack to keep zero vG safe for the time being - need to incorporate with later smooth boundary limiter
+	double sig_e = 1.0;
+	if (too_close<1.0) {
+	    sig_e = cos(1.570796326794897*too_close);
+	    sig_e = sig_e*sig_e;
+	}
+
+	// sigmoid for eta_P: error angle from track direction to ground speed
+	// activate within (-pi,-pi/2)U(pi/2,pi)
+	double sig_eta = 0.0;
+	const double dot_tP_vG = t12*tP_n*n_dot + t12*tP_e*e_dot;
+	if (dot_tP_vG<0.0) sig_eta = dot_tP_vG*dot_tP_vG/((norm_vG_lat<1.0) ? 1.0 : norm_vG_lat*norm_vG_lat); //XXX: this is just a hack to keep zero vG safe for the time being - need to incorporate with later smooth boundary limiter
+
+	// variable (externally input) T_b_lat
+	T_b_lat_ = ((double)subs_.nmpc_params.T_b_lat)*(1.0 + 8.0*sig_eta*sig_e);
+
+	// double e_b_lat;
+	// if (norm_vG_lat>1.0) {
+	//     e_b_lat = T_b_lat*norm_vG_lat;
+	// } else {
+	//     e_b_lat = T_b_lat*(1.0/2.0)+T_b_lat*t15*(1.0/2.0);
+	// }
 }
 
 int FwNMPC::nmpcIteration() {

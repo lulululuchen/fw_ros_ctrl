@@ -129,6 +129,7 @@ private:
 	/* track error */
 	float track_error_lat_;
 	float track_error_lon_;
+	double T_b_lat_;
 
 	/* weight scalers */
 	float W_scale_[NY];

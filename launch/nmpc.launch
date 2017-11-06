@@ -12,7 +12,7 @@
   <param name="/nmpc/od/ddot_sink" type="double" value="1.5" />
 
   <param name="/nmpc/w_scale/q1" type="double" value="2.467401100272341" />
-  <param name="/nmpc/w_scale/q2" type="double" value="2.467401100272341" />
+  <param name="/nmpc/w_scale/q2" type="double" value="1.0" />
   <param name="/nmpc/w_scale/q3" type="double" value="1.0" />
   <param name="/nmpc/w_scale/q4" type="double" value="0.761543549466772" />
   <param name="/nmpc/w_scale/q5" type="double" value="0.761543549466772" />
