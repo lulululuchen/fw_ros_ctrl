@@ -23,5 +23,5 @@
   <param name="/nmpc/w_scale/q10" type="double" value="0.274155677808038" />
   <param name="/nmpc/w_scale/q11" type="double" value="0.068538919452009" />
 
-  <param name="/nmpc/fake_motor_failure" type="bool" value="false" doc="fake a motor failure: throt=0, W_throt=1e6" />
+  <param name="/nmpc/fake_motor_failure" type="bool" value="false" />
 </launch>
