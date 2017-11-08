@@ -719,7 +719,7 @@ void FwNMPC::calculateTrackError(const real_t *in) {
 	// activate within |e|<||vG||^2/g/tan(phi_max)+||vG||*T_b_lat
 	const double norm_vG_lat = sqrt(t15);
 	const double too_close = fabs(track_error_lat_/((norm_vG_lat<1.0) ? 1.0 : (((double)subs_.nmpc_params.T_b_lat)*norm_vG_lat + norm_vG_lat*norm_vG_lat/5.6638))); //XXX: this is just a hack to keep zero vG safe for the time being - need to incorporate with later smooth boundary limiter
-	double sig_e = 1.0;
+	double sig_e = 0.0;
 	if (too_close<1.0) {
 	    sig_e = cos(1.570796326794897*too_close);
 	    sig_e = sig_e*sig_e;
