@@ -1,149 +1,208 @@
+/*******************************************************************************
+ * Copyright (c) 2018, Thomas Stastny, Autonomous Systems Lab (ASL), ETH Zurich,
+ * Switzerland
+ *
+ * You can contact the author at <thomas.stastny@mavt.ethz.ch>
+ *
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ * 1) Redistributions of source code must retain the above copyright notice,
+ *    this list of conditions and the following disclaimer.
+ *
+ * 2) Redistributions in binary form must reproduce the above copyright notice,
+ *    this list of conditions and the following disclaimer in the documentation
+ *    and/or other materials provided with the distribution.
+ *
+ * 3) Neither the name of ETHZ-ASL nor the names of its contributors may be used
+ *    to endorse or promote products derived from this software without specific
+ *    prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL ETHZ-ASL BE LIABLE FOR ANY DIRECT,
+ * INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+ * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ ******************************************************************************/
+
 #ifndef _FW_NMPC_H
 #define _FW_NMPC_H
 
-// INCLUDES for ROS
+// ROS includes
 #include <ros/ros.h>
 #include <ros/console.h>
 
-#include <std_msgs/Header.h>
-#include <std_msgs/String.h>
-#include <std_msgs/Int32.h>
-#include <std_msgs/UInt64.h>
-#include <std_msgs/Float32.h>
-#include <std_msgs/Float32MultiArray.h>
+// ROS msg includes
+#include <geometry_msgs/Quaternion.h>
+#include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/TwistStamped.h>
+#include <geometry_msgs/TwistWithCovarianceStamped.h>
+#include <sensor_msgs/Imu.h>
+#include <grid_map_msgs/GridMap.h>
+#include <grid_map_msgs/GridMapInfo.h>
 
-// INCLUDES for ...
-#include "subs.h"
-#include "path_manager.h"
+// Eigen / tf includes
+#include <Eigen/Eigen>
+#include <eigen_conversions/eigen_msg.h>
+#include <tf/tf.h>
+#include <tf_conversions/tf_eigen.h>
 
-// INCLUDES for ACADO
+// ACADO includes
 #include "acado_common.h"
 #include "acado_auxiliary_functions.h"
 
-/* some convenient definitions */
-#define NX	ACADO_NX	/* Number of differential state variables.  */
-#define NU 	ACADO_NU	/* Number of control inputs. */
-#define NOD	ACADO_NOD	/* Number of online data values. */
-#define NY 	ACADO_NY 	/* Number of measurements/references on nodes 0..N - 1. */
-#define NYN	ACADO_NYN	/* Number of measurements/references on node N. */
-#define N	ACADO_N		/* Number of intervals in the horizon. */
-#define NX_AUGM 2		/* Number of augmented differential state variables. */
+/* ACADO definitions */
+#define NX ACADO_NX		// Number of differential state variables
+#define NU ACADO_NU		// Number of control inputs
+#define NOD	ACADO_NOD	// Number of online data values
+#define NY ACADO_NY 	// Number of measurements/references on nodes 0..N - 1
+#define NYN	ACADO_NYN	// Number of measurements/references on node N
+#define N	ACADO_N			// Number of intervals in the horizon
 
-/* global variables used by the solver. */
+/* global variables used by the solver */
 ACADOvariables acadoVariables;
 ACADOworkspace acadoWorkspace;
 
 namespace fw_nmpc {
+
+	/* indexing enumeration */
+
+	enum IndexStates {
+	 IDX_X_POS = 0,
+	 IDX_X_GAMMA = 3,
+	 IDX_X_XI,
+	 IDX_X_PHI
+	}; // states
+
+	enum IndexControls {
+	 IDX_U_GAMMA = 0,
+	 IDX_U_PHI
+	}; // controls
+
+	enum IndexOnlineData {
+	 IDX_OD_V = 0,
+	 IDX_OD_W,
+	 IDX_OD_B = 4,
+	 IDX_OD_GAMMA_P = 7,
+	 IDX_OD_CHI_P,
+	 IDX_OD_T_LAT,
+	 IDX_OD_T_LON,
+	 IDX_OD_V_SINK,
+	 IDX_OD_V_CLMB,
+	 IDX_OD_DELTA_H,
+	 IDX_OD_TERR_ORIG_N,
+	 IDX_OD_TERR_ORIG_E,
+	 IDX_OD_TERR_DATA
+	}; // online data
+
 /*
  * @brief fw_nmpc class
  *
  * class that implements fixed-wing nmpc
  */
-class FwNMPC {
+class FwNmpc {
 
 public:
 
-	FwNMPC();
+	FwNmpc();
 
 	/* callbacks */
-	void 	aslctrlDataCb(const mavros_msgs::AslCtrlData::ConstPtr& msg);
-	void 	globPosCb(const sensor_msgs::NavSatFix::ConstPtr& msg);
-	void 	odomCb(const nav_msgs::Odometry::ConstPtr& msg);
-	void 	ekfExtCb(const mavros_msgs::AslEkfExt::ConstPtr& msg);
-	void 	nmpcParamsCb(const mavros_msgs::AslNmpcParams::ConstPtr& msg);
-	void 	waypointListCb(const mavros_msgs::WaypointList::ConstPtr& msg);
-	void 	currentWpCb(const std_msgs::Int32::ConstPtr& msg);
-	void 	homeWpCb(const mavros_msgs::HomePosition::ConstPtr& msg);
-	void 	aslctrlDebugCb(const mavros_msgs::AslCtrlDebug::ConstPtr& msg);
-
-	/* initializations */
-	int 	initNMPC();
-	void 	initACADOVars();
-	void 	initHorizon();
+	void imuCb(const sensor_msgs::Imu::ConstPtr& msg);
+	void gridMapCb(const grid_map_msgs::GridMap::ConstPtr& msg);
+	void gridMapInfoCb(const grid_map_msgs::GridMapInfo::ConstPtr& msg);
+	void localPosCb(const geometry_msgs::PoseStamped::ConstPtr& msg);
+	void localVelCb(const geometry_msgs::TwistStamped::ConstPtr& msg);
+	void windEstCb(const geometry_msgs::TwistWithCovarianceStamped::ConstPtr& msg);
 
 	/* sets */
-	void 	updateACADO_X0();
-	void	updateACADO_OD();
-	void	updateACADO_Y();
-	void	updateACADO_W();
+
 
 	/* gets */
-	double	getLoopRate();
-	double 	getTimeStep();
-	void 	reqSubs();
-	void 	calculateTrackError(const real_t *in);
 
-	/* functions */
-	void 	update();
-	int 	nmpcIteration();
-
-	/* publishing encapsulation */
-	void	publishControls(uint64_t &t_ctrl, uint64_t t_iter_approx, int obctrl_status);
-	void	publishAcadoVars();
-	void	publishNmpcInfo(ros::Time t_iter_start, uint64_t t_ctrl, uint64_t t_solve, uint64_t t_update, uint64_t t_wp_man);
-
-	double	LOOP_RATE;
-	double 	TSTEP;
-	int 	FAKE_SIGNALS;
 
 private:
-
-	/* subscription data */
-	Subscriptions 	subs_;
 
 	/* node handles */
 	ros::NodeHandle nmpc_;
 
 	/* subscribers */
-	ros::Subscriber aslctrl_data_sub_;
-	ros::Subscriber glob_pos_sub_;
-	ros::Subscriber odom_sub_;
-	ros::Subscriber ekf_ext_sub_;
-	ros::Subscriber nmpc_params_sub_;
-	ros::Subscriber waypoint_list_sub_;
-	ros::Subscriber current_wp_sub_;
-	ros::Subscriber home_wp_sub_;
-	ros::Subscriber aslctrl_debug_sub_;
+	ros::Subscriber imu_sub_;
+	ros::Subscriber local_pos_sub_;
+	ros::Subscriber local_vel_sub_;
+	ros::Subscriber wind_est_sub_;
+	ros::Subscriber grid_map_sub_;
 
 	/* publishers */
-	ros::Publisher obctrl_pub_;
-	ros::Publisher nmpc_info_pub_;
-	ros::Publisher acado_vars_pub_;
+	ros::Publisher att_sp_pub_;
 
-	/* time keeping */
-	ros::Time t_lastctrl;
+	/* functions */
+
+	// check for subscriptions
+	void checkSubs();
+
+	// initialization
+	void initAcadoVars();
+	void initHorizon();
+	int initNmpc();
+
+	// iteration step
+	int nmpcIteration();
+
+	// publishing encapsulation
+	void publishControls(uint64_t &t_ctrl, uint64_t t_iter_approx, int obctrl_status);
+	void publishAcadoVars();
+	void publishNmpcInfo(ros::Time t_iter_start, uint64_t t_ctrl, uint64_t t_solve, uint64_t t_update, uint64_t t_wp_man);
+
+	// updates
+	void updateAcadoOd(); 		// update ACADO online data
+	void updateAcadoW(); 			// update ACADO weighting matrices
+	void updateAcadoX0(); 		// update ACADO state measurements
+	void updateAcadoY(); 			// update ACADO references
+
+	// helpers XXX: maybe move these somewhere else.
+	double constrain(const double x, const double xmin, const double xmax);
+
+	void shutdown();
+
+	/* estimated states */
+	Eigen::Vector3d x0_pos_; 		// local position (ned) [m]
+  Eigen::Vector3d x0_vel_;		// local velocity (ned) [m]
+  Eigen::Vector3d x0_euler_;	// attitude (euler angles - RPY) [rad]
+	Eigen::Vector3d x0_wind_;		// wind estimate (ned) [m/s]
+
+	/* calculated states */
+	double airsp_;							// airspeed [m/s]
+
+	/* solver matrices */
+	Eigen::Matrix<double, ACADO_NX, 1> x0_; 									// measured states
+	Eigen::Matrix<double, ACADO_NX, ACADO_N + 1> x_; 					// states
+  Eigen::Matrix<double, ACADO_NU, ACADO_N> u_; 							// controls
+  Eigen::Matrix<double, ACADO_NY, ACADO_N> y_; 							// references
+  Eigen::Matrix<double, ACADO_NYN, 1> yN_; 									// end term references
+  Eigen::Matrix<double, ACADO_NY, ACADO_NY> W_; 						// weights
+  Eigen::Matrix<double, ACADO_NYN, ACADO_NYN> WN_; 					// end term weights
+	Eigen::Matrix<double, IDX_OD_TERR_DATA, ACADO_N + 1> od_; // online data (excluding terrain data)
+
+	/* timing */
+	double loop_rate_;
+	ros::Time t_last_ctrl_;
+	double t_step_;
 
 	/* controller switch */
 	bool bModeChanged;
 	int	last_ctrl_mode;
 	int obctrl_en_;
 
-	/* path definitions */
-	int last_wp_idx_;
-	PathManager paths_;
-
 	/* continuity */
 	bool bYawReceived;
 	float last_yaw_msg_;
-
-	/* track error */
-	float track_error_lat_;
-	float track_error_lon_;
-	double T_b_lat_;
-
-	/* weight scalers */
-	float W_scale_[NY];
-
-	/* control offsets / saturations / normalizations */ //TODO: this should probably not be hard-coded.
-	// uT, phi_ref, theta_ref
-	const double CTRL_DEADZONE[3] = {0.2, 0.0, 0.0}; // zero-based deadzone TODO: non-zero-based? asymmetric?
-//	const double CTRL_OFFSET[3] = {0.0, 0.0, 0.0}; // constant offset TODO: how to use?
-	const double CTRL_NORMALIZATION[3] = {0.8, 1.0, 1.0}; // normlization !!must not be zero!!
-	const double CTRL_SATURATION[3][2] = { {0.0, 1.0}, {-0.5236, 0.5236}, {-0.2618, 0.2618} }; // these are saturations for the internal model ATM* TODO: probably should incorporate some saturation for the incoming controls as well
-
-	/* node functions */
-	void 	shutdown();
-
 };
 
 } // namespace fw_nmpc
