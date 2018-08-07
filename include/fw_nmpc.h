@@ -35,30 +35,33 @@
 #ifndef _FW_NMPC_H
 #define _FW_NMPC_H
 
-// ROS includes
+// ROS
 #include <ros/ros.h>
 #include <ros/console.h>
-
-// ROS msg includes
 #include <geometry_msgs/Quaternion.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/TwistStamped.h>
 #include <geometry_msgs/TwistWithCovarianceStamped.h>
 #include <sensor_msgs/Imu.h>
+
+// Grid map
+#include <grid_map_core/GridMap.hpp>
+#include <grid_map_ros/GridMapRosConverter.hpp>
 #include <grid_map_msgs/GridMap.h>
 #include <grid_map_msgs/GridMapInfo.h>
 
-// Eigen / tf includes
-#include <Eigen/Eigen>
-#include <eigen_conversions/eigen_msg.h>
+// tf
 #include <tf/tf.h>
 #include <tf_conversions/tf_eigen.h>
 
-// ACADO includes
+// Eigen
+#include <Eigen/Eigen>
+#include <eigen_conversions/eigen_msg.h>
+
+// ACADO
 #include "acado_common.h"
 #include "acado_auxiliary_functions.h"
 
-/* ACADO definitions */
 #define NX ACADO_NX		// Number of differential state variables
 #define NU ACADO_NU		// Number of control inputs
 #define NOD	ACADO_NOD	// Number of online data values
@@ -66,9 +69,11 @@
 #define NYN	ACADO_NYN	// Number of measurements/references on node N
 #define N	ACADO_N			// Number of intervals in the horizon
 
-/* global variables used by the solver */
 ACADOvariables acadoVariables;
 ACADOworkspace acadoWorkspace;
+
+#define LEN_IDX_N 141 // local map size north
+#define LEN_IDX_E 141 // local map size east
 
 namespace fw_nmpc {
 
@@ -94,8 +99,6 @@ namespace fw_nmpc {
 	 IDX_OD_CHI_P,
 	 IDX_OD_T_LAT,
 	 IDX_OD_T_LON,
-	 IDX_OD_V_SINK,
-	 IDX_OD_V_CLMB,
 	 IDX_OD_DELTA_H,
 	 IDX_OD_TERR_ORIG_N,
 	 IDX_OD_TERR_ORIG_E,
@@ -123,9 +126,7 @@ public:
 
 	/* sets */
 
-
 	/* gets */
-
 
 private:
 
@@ -134,10 +135,11 @@ private:
 
 	/* subscribers */
 	ros::Subscriber imu_sub_;
+	ros::Subscriber grid_map_sub_;
+	ros::Subscriber grid_map_info_sub_;
 	ros::Subscriber local_pos_sub_;
 	ros::Subscriber local_vel_sub_;
 	ros::Subscriber wind_est_sub_;
-	ros::Subscriber grid_map_sub_;
 
 	/* publishers */
 	ros::Publisher att_sp_pub_;
@@ -158,7 +160,8 @@ private:
 	// publishing encapsulation
 	void publishControls(uint64_t &t_ctrl, uint64_t t_iter_approx, int obctrl_status);
 	void publishAcadoVars();
-	void publishNmpcInfo(ros::Time t_iter_start, uint64_t t_ctrl, uint64_t t_solve, uint64_t t_update, uint64_t t_wp_man);
+	void publishNmpcInfo(ros::Time t_iter_start, uint64_t t_ctrl, uint64_t t_solve,
+		uint64_t t_update, uint64_t t_wp_man);
 
 	// updates
 	void updateAcadoOd(); 		// update ACADO online data
@@ -171,24 +174,31 @@ private:
 
 	void shutdown();
 
-	/* estimated states */
+	/* grid map */
+	grid_map::GridMap global_map_;
+
+	/* pixhawk states / estimates */
 	Eigen::Vector3d x0_pos_; 		// local position (ned) [m]
   Eigen::Vector3d x0_vel_;		// local velocity (ned) [m]
   Eigen::Vector3d x0_euler_;	// attitude (euler angles - RPY) [rad]
 	Eigen::Vector3d x0_wind_;		// wind estimate (ned) [m/s]
+	double home_lat_;						// home position latitude [deg]
+	double home_lon_;						// home position longitude [deg]
+	double home_alt_;						// home position altitude (absolute) [m]
 
 	/* calculated states */
 	double airsp_;							// airspeed [m/s]
 
 	/* solver matrices */
-	Eigen::Matrix<double, ACADO_NX, 1> x0_; 									// measured states
-	Eigen::Matrix<double, ACADO_NX, ACADO_N + 1> x_; 					// states
-  Eigen::Matrix<double, ACADO_NU, ACADO_N> u_; 							// controls
-  Eigen::Matrix<double, ACADO_NY, ACADO_N> y_; 							// references
-  Eigen::Matrix<double, ACADO_NYN, 1> yN_; 									// end term references
-  Eigen::Matrix<double, ACADO_NY, ACADO_NY> W_; 						// weights
-  Eigen::Matrix<double, ACADO_NYN, ACADO_NYN> WN_; 					// end term weights
-	Eigen::Matrix<double, IDX_OD_TERR_DATA, ACADO_N + 1> od_; // online data (excluding terrain data)
+	Eigen::Matrix<double, ACADO_NX, 1> x0_; 										// measured states
+	Eigen::Matrix<double, ACADO_NX, ACADO_N + 1> x_; 						// states
+  Eigen::Matrix<double, ACADO_NU, ACADO_N> u_; 								// controls
+  Eigen::Matrix<double, ACADO_NY, ACADO_N> y_; 								// references
+  Eigen::Matrix<double, ACADO_NYN, 1> yN_; 										// end term references
+  Eigen::Matrix<double, ACADO_NY, ACADO_NY> W_; 							// weights
+  Eigen::Matrix<double, ACADO_NYN, ACADO_NYN> WN_; 						// end term weights
+	Eigen::Matrix<double, IDX_OD_TERR_DATA, 1> od_; 						// 1-step online data (without terrain data)
+	Eigen::Matrix<double, LEN_IDX_N, LEN_IDX_E> local_terrain_; // local terrain
 
 	/* timing */
 	double loop_rate_;

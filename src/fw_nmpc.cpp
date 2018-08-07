@@ -52,11 +52,13 @@ FwNmpc::FwNmpc() :
 	ROS_INFO("Instance of NMPC created");
 
 	/* subscribers */
-	imu_sub_ = nmpc_.subscribe("/mavros/imu/data", 1, &FwNMPC::imuCb, this);
-	grid_map_sub_ = nmpc_.subscribe("/fw_lander", 1, &FwNMPC::gridMapCb, this);
-	local_pos_sub_ = nmpc_.subscribe("/mavros/local_position/pose", 1, &FwNMPC::localPosCb, this);
-  local_vel_sub_ = nmpc_.subscribe("/mavros/local_position/velocity", 1, &FwNMPC::localVelCb, this);
-	wind_est_sub_ = nmpc_.subscribe("/mavros/wind_estimation", 1, &FwNMPC::windEstCb, this);
+	imu_sub_ = nmpc_.subscribe("/mavros/imu/data", 1, &FwNmpc::imuCb, this);
+	grid_map_sub_ = nmpc_.subscribe("/fw_lander/global_map", 1, &FwNmpc::gridMapCb, this);
+	grid_map_info_sub_ = nmpc_.subscribe("/fw_lander/global_map_info", 1, &FwNmpc::gridMapInfoCb, this);
+	home_pos_sub_ = nmpc_.subscribe("/mavros/home_position", 1, &FwNmpc::homePosCb, this);
+	local_pos_sub_ = nmpc_.subscribe("/mavros/local_position/pose", 1, &FwNmpc::localPosCb, this);
+  local_vel_sub_ = nmpc_.subscribe("/mavros/local_position/velocity", 1, &FwNmpc::localVelCb, this);
+	wind_est_sub_ = nmpc_.subscribe("/mavros/wind_estimation", 1, &FwNmpc::windEstCb, this);
 
 	/* publishers */
 	att_sp_pub_ = nmpc_.advertise<geometry_msgs::PoseStamped>("/mavros/setpoint_attitude/attitude", 1);
@@ -68,23 +70,51 @@ void FwNmpc::imuCb(const sensor_msgs::Imu::ConstPtr& msg) // IMU msg callback
 {
 	Eigen::Quaterniond q;
 	tf::quaternionMsgToEigen(msg->orientation, q);
-	x0_euler_ = quaternionToYawPitchRoll(q);
+	x0_euler_ = q.toRotationMatrix().eulerAngles(0, 1, 2);
 }
 
 void FwNmpc::gridMapCb(const grid_map_msgs::GridMap::ConstPtr& msg) // Grid map msg callback
 {
-	// only update first row with terrain data
-	// this will *not change throughout the horizon,
-	// no need to waste cpu copying large arrays
-	for (int i = 0; i < NOD - OD_TERR_DATA; ++i) {
-		acadoVariables.od[OD_TERR_DATA + i] =  (double)msg->data.data[i];
-	}
+	bool ret;
+
+	// convert to eigen
+	ret = fromMessage(msg, global_map_);
+	if (ret) ROS_ERROR("grid map cb: failed to convert msg to eigen");
+
+	// bound position inside map
+	grid_map::Position pos_xy = x0_pos_.head(2).reverse();
+	grid_map::boundPositionToRange(pos_xy, global_map_.getLength(), global_map_.getPosition());
+
+	// get index of position
+	grid_map::Index idx_pos;
+	ret = global_map_.getIndex(pos_xy, idx_pos);
+	if (ret) ROS_ERROR("grid map cb: position outside map"); // should not happen
+
+	// get / bound local map origin
+	int idx_local_origin_x = idx_pos(0) - (LEN_IDX_E-1)/2;
+	int idx_local_origin_y = idx_pos(1) - (LEN_IDX_N-1)/2;
+	grid_map::boundIndexToRange(idx_local_origin_x, global_map_.getSize().x()-LEN_IDX_E);
+	grid_map::boundIndexToRange(idx_local_origin_y, global_map_.getSize().y()-LEN_IDX_N);
+
+	idx_pos = idx_local_origin_x+LEN_IDX_E, idx_local_origin_y+LEN_IDX_N;
+	global_map_.getPosition(idx_pos, pos_xy);
+	od_(OD_TERR_ORIG_E) = pos_xy(1);
+	od_(OD_TERR_ORIG_N) = pos_xy(2);
+
+	Eigen::Map<Eigen::Matrix<double, ACADO_NOD-IDX_OD_TERR_DATA, 1>>(const_cast<double*>(acadoVariables.od + OD_TERR_DATA,
+		ACADO_NOD-IDX_OD_TERR_DATA)) = global_map_["elevation"].block(idx_local_origin_x,idx_local_origin_y,LEN_IDX_E,LEN_IDX_N).transpose();
 }
 
-void FwNmpc::gridMapCb(const grid_map_msgs::GridMapInfo::ConstPtr& msg) // Grid map info msg callback
+void FwNmpc::gridMapInfoCb(const grid_map_msgs::GridMapInfo::ConstPtr& msg) // Grid map info msg callback
 {
-	od_.row(OD_TERR_ORIG_N).setConstant(msg->pose.position.y);
-	od_.row(OD_TERR_ORIG_E).setConstant(msg->pose.position.x);
+
+}
+
+void FwNmpc::homePosCb(const mavros_msgs::HomePosition::ConstPtr& msg) // Home position msg callback
+{
+	home_lat_ = (double)msg->latitude;
+	home_lon_ = (double)msg->longitude;
+	home_alt_ = (double)msg->altitude;
 }
 
 void FwNmpc::localPosCb(const geometry_msgs::PoseStamped::ConstPtr& msg) // Local position msg callback
@@ -110,12 +140,6 @@ void FwNmpc::windEstCb(const geometry_msgs::TwistWithCovarianceStamped::ConstPtr
 
 void FwNmpc::checkSubs()
 {
-	/* initialize home wp and current wp seq structs while waiting for real data */
-	subs_.home_wp.latitude = 0.0;
-	subs_.home_wp.longitude = 0.0;
-	subs_.home_wp.altitude = 0.0;
-	subs_.current_wp.data = 0;
-
 	/* pull current waypoint list */
 	ros::ServiceClient wp_pull_client_ = nmpc_.serviceClient<mavros_msgs::WaypointPull>("/mavros/mission/pull");
 	mavros_msgs::WaypointPull wp_pull_srv;
@@ -127,20 +151,23 @@ void FwNmpc::checkSubs()
 	}
 
 	/* wait for home waypoint */
-	while ( subs_.home_wp.latitude < 0.1 && subs_.home_wp.longitude < 0.1 ) {
-
+	while (home_lat_ < 0.1 && home_lon_ < 0.1 ) {
 		ros::spinOnce();
-		ROS_INFO ("check subs: waiting for home waypoint");
+		ROS_INFO ("check subs: waiting for home position");
 		sleep(0.5);
 	}
-
-	ROS_ERROR("check subs: received home waypoint");
+	ROS_ERROR("check subs: received home position");
 
 	return;
 }
 
 void FwNmpc::initAcadoVars()
 {
+	x0_pos_.setZero();
+	x0_vel_ << 10.0, 0.0, 0.0;
+	x0_euler_.setZero();
+	x0_wind_.setZero();
+
 	x0_.setZero();
 	x_.setZero();
 	u_.setZero();
@@ -150,51 +177,60 @@ void FwNmpc::initAcadoVars()
 	WN_.setZero();
 	od_.setZero();
 
-	x0_pos_.setZero();
-	x0_vel_ << 10.0, 0.0, 0.0;
-	x0_euler_.setZero();
-	x0_wind_.setZero();
-
 	updateAcadoX0();
 	updateAcadoOd();
+	updateAcadoY();
+	updateAcadoW();
 
-
-
-
+	Eigen::Map<Eigen::Matrix<double, ACADO_NX, ACADO_N + 1>>(const_cast<double*>(acadoVariables.x)) = x_;
   Eigen::Map<Eigen::Matrix<double, ACADO_NY, ACADO_N>>(const_cast<double*>(acadoVariables.y)) = y_;
   Eigen::Map<Eigen::Matrix<double, ACADO_NYN, 1>>(const_cast<double*>(acadoVariables.yN)) = yN_;
   Eigen::Map<Eigen::Matrix<double, ACADO_NY, ACADO_NY>>(const_cast<double*>(acadoVariables.W)) = W_;
   Eigen::Map<Eigen::Matrix<double, ACADO_NYN, ACADO_NYN>>(const_cast<double*>(acadoVariables.WN)) = WN_;
-	Eigen::Map<Eigen::Matrix<double, OD_TERR_DATA, ACADO_N + 1>>(const_cast<double*>(acadoVariables.od)) = od_;
 }
 
 void FwNmpc::initHorizon()
 {
-	Eigen::Matrix<double, 1, ACADO_N+1> t_n1;
-	for (int i = 0; i < N+1; ++i) t_n1(i) = i;
-	Eigen::Matrix<double, 1, ACADO_N+1> ones_n1 = Eigen::Matrix<double, 1, ACADO_N+1>::Ones();
+	// initialize solver
+	int RET = acado_initializeSolver();
 
-	/* states */
+	// initialize all nodes with forward simulation and zeroed out controls
+	Eigen::Map<Eigen::Matrix<double, ACADO_NU, ACADO_N>>(const_cast<double*>(acadoVariables.u)) = u_.Zeros();
+	initializeNodesByForwardSimulation();
 
-	// linearly propagate position at current velocity
-	x_.block(IDX_X_POS,0,3,N+1) = x0_.block(IDX_X_POS,0,3,0) * ones_n1 + t_step_ * (x0_vel_ - x0_wind_) * t_n1;
+	ROS_ERROR("re-init horizon: propagate states with zeroed controls through horizon");
 
-	// hold direction constant (corresponding to linear propagation of position)
-	x_.block(IDX_X_GAMMA,0,0,N+1) = x0_(IDX_X_GAMMA) * ones_n1;
-	x_.block(IDX_X_XI,0,0,N+1) = x0_(IDX_X_XI) * ones_n1;
-
-	// assume zero roll (no lateral acceleration)
-	x_.block(IDX_X_PHI,0,0,N+1) = Eigen::Matrix<double, 1, ACADO_N+1>::Zero();
-
-	Eigen::Map<Eigen::Matrix<double, ACADO_NX, ACADO_N + 1>>(const_cast<double*>(acadoVariables.x)) = x_;
-
-	/* controls */
-	u_.block(IDX_X_GAMMA,0,0,N) = constrain(x0_(IDX_X_GAMMA), lb_ * ones_n1();
-	u_.block(IDX_X_PHI,0,0,N) = Eigen::Matrix<double, 1, ACADO_N+1>::Zero();
-
-	Eigen::Map<Eigen::Matrix<double, ACADO_NU, ACADO_N>>(const_cast<double*>(acadoVariables.u)) = u_;
-
-	ROS_ERROR("init horizon: hold states and controls constant through horizon");
+	// if (re_init) {
+	// 	// we are re-initializing the horizon possibly in-air, propagate current states forward
+	//
+	//
+	// 	ROS_ERROR("re-init horizon: propagate states with zeroed controls through horizon");
+	// }
+	// else {
+	// 	// this is the first initialization, the values don't really matter here...
+	//
+	// 	Eigen::Matrix<double, 1, ACADO_N+1> t_n1;
+	// 	for (int i = 0; i < N+1; ++i) t_n1(i) = i;
+	// 	Eigen::Matrix<double, 1, ACADO_N+1> ones_n1 = Eigen::Matrix<double, 1, ACADO_N+1>::Ones();
+	//
+	// 	/* states */
+	//
+	// 	// linearly propagate position at current velocity
+	// 	x_.block(IDX_X_POS,0,3,N+1) = x0_.block(IDX_X_POS,0,3,0) * ones_n1 + t_step_ * (x0_vel_ - x0_wind_) * t_n1;
+	//
+	// 	// hold direction constant (corresponding to linear propagation of position)
+	// 	x_.block(IDX_X_GAMMA,0,0,N+1) = x0_(IDX_X_GAMMA) * ones_n1;
+	// 	x_.block(IDX_X_XI,0,0,N+1) = x0_(IDX_X_XI) * ones_n1;
+	//
+	// 	// assume zero roll (no lateral acceleration)
+	// 	x_.block(IDX_X_PHI,0,0,N+1) = Eigen::Matrix<double, 1, ACADO_N+1>::Zero();
+	//
+	// 	/* controls */
+	// 	u_.block(IDX_X_GAMMA,0,0,N) = constrain(x0_(IDX_X_GAMMA), lb_ * ones_n1();
+	// 	u_.block(IDX_X_PHI,0,0,N) = Eigen::Matrix<double, 1, ACADO_N+1>::Zero();
+	//
+	// 	ROS_ERROR("init horizon: hold states and controls constant through horizon");
+	// }
 }
 
 int FwNmpc::initNMPC()
@@ -207,7 +243,7 @@ int FwNmpc::initNMPC()
 	ROS_ERROR("init nmpc: ACADO variables initialized");
 
 	/* initialize the solver */
-	int RET = initializeSolver();
+	initHorizon();
 
 	return RET;
 }
@@ -242,14 +278,9 @@ int FwNMPC::nmpcIteration()
 		if (bModeChanged) {
 			/* first time in loop */
 
-			// update home wp
-			// -->initHorizon needs up to date wp info for ned calculation
-			const double new_home_wp[3] = {subs_.home_wp.latitude, subs_.home_wp.longitude, subs_.home_wp.altitude};
-			paths_.setHomeWp( new_home_wp );
-			last_wp_idx_ = -1;
-
-			// initHorizon BEFORE Y, this is to make sure controls and prev_horiz are reinitialized before reaching Y update.
+			// re-initialize horizon / solver
 			initHorizon();
+
 			updateAcadoY();
 			updateAcadoW();
 
@@ -259,7 +290,7 @@ int FwNMPC::nmpcIteration()
 			//regular update
 
 			/* update ACADO states/references/weights */
-			updateAcadoX0(); // note this shifts augmented states
+			updateAcadoX0();
 			updateAcadoY();
 			updateAcadoW();
 		}
@@ -370,10 +401,10 @@ void FwNmpc::updateAcadoOd()
 	double od;
 
 	// airspeed
-	od_.row(IDX_OD_V).setConstant(airsp_);
+	od_(IDX_OD_V) = airsp_;
 
 	// wind
-	for (int i = 0; i < 3; ++i) od_.row(IDX_OD_W+i).setConstant(x0_wind_(i));
+	od_.segment(IDX_OD_W,3) = x0_wind_;
 
 	// path
 	// IDX_OD_B
@@ -381,16 +412,17 @@ void FwNmpc::updateAcadoOd()
 	// IDX_OD_CHI_P
 
 	// guidance
-	nmpc_.getParam("/nmpc/od/T_lat", od);
-	od_.row(IDX_OD_T_LAT).setConstant(od);
-	nmpc_.getParam("/nmpc/od/T_lon", od);
-	od_.row(IDX_OD_T_LON).setConstant(od);
+	nmpc_.getParam("/nmpc/od/T_lat", od_(IDX_OD_T_LAT));
+	nmpc_.getParam("/nmpc/od/T_lon", od_(IDX_OD_T_LON));
+
 
 	// terrain
-	nmpc_.getParam("/nmpc/od/delta_h", od_(IDX_OD_DELTA_H,0));
+	nmpc_.getParam("/nmpc/od/delta_h", od_(IDX_OD_DELTA_H));
 	// IDX_OD_TERR_ORIG_N,
 	// IDX_OD_TERR_ORIG_E,
 	// IDX_OD_TERR_DATA
+
+	Eigen::Map<Eigen::Matrix<double, IDX_OD_TERR_DATA, 1>>(const_cast<double*>(acadoVariables.od, IDX_OD_TERR_DATA)) = od_;
 }
 
 void FwNmpc::updateAcadoW()
@@ -456,7 +488,7 @@ int main(int argc, char **argv)
 	ros::spinOnce();
 
 	/* wait for required subscriptions */
-	nmpc.reqSubs();
+	nmpc.checkSubs();
 
 	/* initialize states, params, and solver */
 	int ret = nmpc.initNmpc();
