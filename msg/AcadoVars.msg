@@ -2,27 +2,19 @@
 # Thomas Stastny | thomas.stastny@mavt.ethz.ch
 
 # measurements
-float32[13] x0 # measurement vector
+float32[6] x0 # measurement vector
 
 # state horizons
 float32[71] n			# northing [m]
 float32[71] e			# easting [m]
 float32[71] d			# down [m]
-float32[71] V			# airspeed [m/s]
 float32[71] gamma # flight path angle [rad]
 float32[71] xi		# heading angle [rad]
 float32[71] phi		# roll angle [rad]
-float32[71] theta # pitch angle [rad]
-float32[71] p			# roll rate [rad/s]
-float32[71] q			# pitch rate [rad/s]
-float32[71] r			# yaw rate [rad/s]
-float32[71] throt	# throttle setting [%]
-float32[71] xsw		# switching state [~]
 
 # controls
-float32[70] uT			  # throttle input
-float32[70] phi_ref		# roll angle reference
-float32[70] theta_ref	# pitch angle reference
+float32[70] phi_ref		# roll angle reference [rad]
+float32[70] gamma_ref	# flight path angle reference [rad]
 
 # online data
 uint8 pparam1   		   # type=0 type=1 type=2

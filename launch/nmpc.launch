@@ -1,9 +1,49 @@
 <launch>
   <node name="nmpc" pkg="fw_ctrl" type="fw_nmpc"/>
 
+  <!-- timing params -->
   <param name="/nmpc/loop_rate" type="double" value="10.0" />
   <param name="/nmpc/time_step" type="double" value="0.1" />
 
-  <param name="/nmpc/od/ddot_clmb" type="double" value="3.5" />
-  <param name="/nmpc/od/ddot_sink" type="double" value="1.5" />
+  <!-- control bounds -->
+  <param name="/nmpc/bnd/roll_lim_deg" type="double" value="35.0" />
+  <param name="/nmpc/bnd/v_sink" type="double" value="1.5" />
+  <param name="/nmpc/bnd/v_clmb" type="double" value="3.5" />
+
+  <!-- weighting scales: state weights -->
+  <param name="/nmpc/w_scale/chi" type="double" value="0" />
+  <param name="/nmpc/w_scale/gamma" type="double" value="0" />
+  <param name="/nmpc/w_scale/h" type="double" value="0" />
+
+	<!-- weighting scales: control weights -->
+  <param name="/nmpc/w_scale/gamma_ref" type="double" value="0" />
+  <param name="/nmpc/w_scale/phi_ref" type="double" value="0" />
+  <param name="/nmpc/w_scale/gamma_rate" type="double" value="0" />
+  <param name="/nmpc/w_scale/phi_rate" type="double" value="0" />
+
+  <!-- weighting: state weights -->
+  <param name="/nmpc/w/chi" type="double" value="0" />
+  <param name="/nmpc/w/gamma" type="double" value="0" />
+  <param name="/nmpc/w/h" type="double" value="0" />
+
+	<!-- weighting: control weights -->
+  <param name="/nmpc/w/gamma_ref" type="double" value="0" />
+  <param name="/nmpc/w/phi_ref" type="double" value="0" />
+  <param name="/nmpc/w/gamma_rate" type="double" value="0" />
+  <param name="/nmpc/w/phi_rate" type="double" value="0" />
+
+  <!-- online data: path params -->
+  <param name="/nmpc/od/b_n" type="double" value="0" />
+  <param name="/nmpc/od/b_e" type="double" value="0" />
+  <param name="/nmpc/od/b_d" type="double" value="0" />
+  <param name="/nmpc/od/gamma_p" type="double" value="0" />
+  <param name="/nmpc/od/chi_p" type="double" value="0" />
+
+  <!-- online data: guidance params -->
+  <param name="/nmpc/od/T_lat" type="double" value="5" />
+  <param name="/nmpc/od/T_lon" type="double" value="5" />
+
+  <!-- online data: terrain params -->
+  <param name="/nmpc/od/delta_h" type="double" value="10" />
+
 </launch>

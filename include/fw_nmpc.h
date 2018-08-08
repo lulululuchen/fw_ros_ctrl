@@ -43,6 +43,7 @@
 #include <geometry_msgs/TwistStamped.h>
 #include <geometry_msgs/TwistWithCovarianceStamped.h>
 #include <sensor_msgs/Imu.h>
+#include <std_msgs/Int32.h>
 
 // Grid map
 #include <grid_map_core/GridMap.hpp>
@@ -75,6 +76,8 @@ ACADOworkspace acadoWorkspace;
 #define LEN_IDX_N 141 // local map size north
 #define LEN_IDX_E 141 // local map size east
 
+#define DEG_TO_RAD 0.017453292519943 // degrees to radians XXX: is there really no other function already built in for this?
+
 namespace fw_nmpc {
 
 	/* indexing enumeration */
@@ -90,6 +93,16 @@ namespace fw_nmpc {
 	 IDX_U_GAMMA = 0,
 	 IDX_U_PHI
 	}; // controls
+
+	enum IndexOutputs {
+		IDX_Y_CHI = 0,
+		IDX_Y_GAMMA,
+		IDX_Y_H,
+		IDX_Y_GAMMA_REF,
+		IDX_Y_PHI_REF,
+		IDX_Y_GAMMA_RATE,
+		IDX_Y_PHI_RATE
+	} // outputs
 
 	enum IndexOnlineData {
 	 IDX_OD_V = 0,
@@ -122,6 +135,7 @@ public:
 	void gridMapInfoCb(const grid_map_msgs::GridMapInfo::ConstPtr& msg);
 	void localPosCb(const geometry_msgs::PoseStamped::ConstPtr& msg);
 	void localVelCb(const geometry_msgs::TwistStamped::ConstPtr& msg);
+	void sysStatusCb(const mavros_msgs::State::ConstPtr& msg);
 	void windEstCb(const geometry_msgs::TwistWithCovarianceStamped::ConstPtr& msg);
 
 	/* sets */
@@ -139,10 +153,13 @@ private:
 	ros::Subscriber grid_map_info_sub_;
 	ros::Subscriber local_pos_sub_;
 	ros::Subscriber local_vel_sub_;
+	ros::Subscriber sys_status_sub_;
 	ros::Subscriber wind_est_sub_;
 
 	/* publishers */
 	ros::Publisher att_sp_pub_;
+	ros::Publisher obctrl_status_pub_;
+	ros::Publisher thrust_pub_;
 
 	/* functions */
 
@@ -185,6 +202,7 @@ private:
 	double home_lat_;						// home position latitude [deg]
 	double home_lon_;						// home position longitude [deg]
 	double home_alt_;						// home position altitude (absolute) [m]
+	bool offboard_mode_;				// system is in offboard control mode
 
 	/* calculated states */
 	double airsp_;							// airspeed [m/s]
@@ -195,10 +213,10 @@ private:
   Eigen::Matrix<double, ACADO_NU, ACADO_N> u_; 								// controls
   Eigen::Matrix<double, ACADO_NY, ACADO_N> y_; 								// references
   Eigen::Matrix<double, ACADO_NYN, 1> yN_; 										// end term references
-  Eigen::Matrix<double, ACADO_NY, ACADO_NY> W_; 							// weights
-  Eigen::Matrix<double, ACADO_NYN, ACADO_NYN> WN_; 						// end term weights
+  Eigen::Matrix<double, ACADO_NY, 1> W_; 											// weight diagonal
+	Eigen::Matrix<double, ACADO_NY, 1> W_scale_;								// weight scale diagonal
+  Eigen::Matrix<double, ACADO_NYN, 1> WN_; 										// end term weight diagonal
 	Eigen::Matrix<double, IDX_OD_TERR_DATA, 1> od_; 						// 1-step online data (without terrain data)
-	Eigen::Matrix<double, LEN_IDX_N, LEN_IDX_E> local_terrain_; // local terrain
 
 	/* timing */
 	double loop_rate_;

@@ -58,10 +58,13 @@ FwNmpc::FwNmpc() :
 	home_pos_sub_ = nmpc_.subscribe("/mavros/home_position", 1, &FwNmpc::homePosCb, this);
 	local_pos_sub_ = nmpc_.subscribe("/mavros/local_position/pose", 1, &FwNmpc::localPosCb, this);
   local_vel_sub_ = nmpc_.subscribe("/mavros/local_position/velocity", 1, &FwNmpc::localVelCb, this);
+	sys_status_sub_ = nmpc_.subscribe("/mavros/state", 1, &FwNmpc::sysStatusCb, this);
 	wind_est_sub_ = nmpc_.subscribe("/mavros/wind_estimation", 1, &FwNmpc::windEstCb, this);
 
 	/* publishers */
 	att_sp_pub_ = nmpc_.advertise<geometry_msgs::PoseStamped>("/mavros/setpoint_attitude/attitude", 1);
+	obctrl_status_pub_ = nmpc_.advertise<std_msgs::Int32>("/nmpc/status", 1);
+	thrust_pub_ = nmpc_.advertise<std_msgs::Float64>("/mavros/setpoint_attitude/thrust", 1);
 }
 
 /* callbacks */
@@ -127,6 +130,13 @@ void FwNmpc::localVelCb(const geometry_msgs::TwistStamped::ConstPtr& msg) // Loc
 	tf::vectorMsgToEigen(msg->twist.linear, x0_vel_);
 }
 
+void FwNmpc::sysStatusCb(const mavros_msgs::State::ConstPtr& msg) // System status msg callback
+{
+	// this message comes at 1 Hz and resets the NMPC if not in OFFBOARD mode
+  ROS_INFO_STREAM("Received Pixhawk Mode: " <<  msg->mode);
+  offboard_mode_ = msg->mode == "OFFBOARD";
+}
+
 void FwNmpc::windEstCb(const geometry_msgs::TwistWithCovarianceStamped::ConstPtr& msg) // Wind estimation msg callback
 {
 	tf::vectorMsgToEigen(msg->twist.twist.linear, x0_wind_);
@@ -183,10 +193,6 @@ void FwNmpc::initAcadoVars()
 	updateAcadoW();
 
 	Eigen::Map<Eigen::Matrix<double, ACADO_NX, ACADO_N + 1>>(const_cast<double*>(acadoVariables.x)) = x_;
-  Eigen::Map<Eigen::Matrix<double, ACADO_NY, ACADO_N>>(const_cast<double*>(acadoVariables.y)) = y_;
-  Eigen::Map<Eigen::Matrix<double, ACADO_NYN, 1>>(const_cast<double*>(acadoVariables.yN)) = yN_;
-  Eigen::Map<Eigen::Matrix<double, ACADO_NY, ACADO_NY>>(const_cast<double*>(acadoVariables.W)) = W_;
-  Eigen::Map<Eigen::Matrix<double, ACADO_NYN, ACADO_NYN>>(const_cast<double*>(acadoVariables.WN)) = WN_;
 }
 
 void FwNmpc::initHorizon()
@@ -250,150 +256,217 @@ int FwNmpc::initNMPC()
 
 int FwNMPC::nmpcIteration()
 {
-	/* elapsed time reusable var */
+	obctrl_status_ = 0;
+
+	// elapsed time reusable var
 	ros::Duration t_elapsed;
 
-	/* start nmpc iteration timer --> */
+	/* <--START: nmpc iteration timer */
 	ros::Time t_iter_start = ros::Time::now();
 
-	/* various timer initializations */
-	uint64_t t_ctrl = 0;		// time elapsed since last control action was published (stays zero if not in auto mode)
+	// various timer initializations
+	uint64_t t_ctrl = 0;		// time elapsed since last control action was published (stays zero if not in offboard mode)
 	uint64_t t_solve = 0;		// time elapsed during nmpc preparation and feedback step (solve time)
 	uint64_t t_update = 0; 	// time elapsed during array updates
-	uint64_t t_wp_man = 0; 	// time elapsed during waypoint management
+	uint64_t t_iter = 0; 		// time elapsed from start to end of iteration step
 
-	/* initialize returns */
+	// initialize returns
 	int RET[2] = {0, 0};
 
-	/* check mode */ //TODO: should include some checking to make sure not on ground/ other singularity ridden cases //TODO: this does not cover RC loss..
-	if (last_ctrl_mode != 5) bModeChanged = true;
-	last_ctrl_mode = subs_.aslctrl_data.aslctrl_mode;
-	if (subs_.aslctrl_data.aslctrl_mode == 5) {
+	/* <-- START : update timer */
+	ros::Time t_update_start = ros::Time::now();
 
-		/* start update timer --> */
-		ros::Time t_update_start = ros::Time::now();
+	updateAcadoX0();
+	updateAcadoY();
+	updateAcadoW();
+	updateAcadoOd();
 
-		int obctrl_status = 0;
-
-		if (bModeChanged) {
-			/* first time in loop */
-
-			// re-initialize horizon / solver
-			initHorizon();
-
-			updateAcadoY();
-			updateAcadoW();
-
-			bModeChanged = false;
-		}
-		else {
-			//regular update
-
-			/* update ACADO states/references/weights */
-			updateAcadoX0();
-			updateAcadoY();
-			updateAcadoW();
-		}
-
-		/* update time in us <-- */
-		t_elapsed = ros::Time::now() - t_update_start;
-		t_update = t_elapsed.toNSec()/1000;
-
-		/* start waypoint management timer --> */
-		ros::Time t_wp_man_start = ros::Time::now();
-
-		/* check current waypoint */
-		if ( subs_.current_wp.data != last_wp_idx_ ) {
-
-			// reset switch state, sw, horizon //TODO: encapsulate
-			for (int i = 1; i < N + 2; ++i) acadoVariables.x[ i * NX - 1 ] = 0.0;
-			acadoVariables.x0[ 12 ] = 0.0;
-		}
-		last_wp_idx_ = subs_.current_wp.data;
-
-		/* update path */
-		paths_.updatePaths(subs_.waypoint_list, subs_.current_wp.data);
-
-		/* update ACADO online data */
-		updateAcadoOd();
-
-		/* waypoint management time in us <-- */
-		t_elapsed = ros::Time::now() - t_wp_man_start;
-		t_wp_man = t_elapsed.toNSec()/1000;
-
-		/* start nmpc solve timer --> */
-		ros::Time t_solve_start = ros::Time::now();
-
-		/* Prepare first step */
-		RET[0] = preparationStep();
-		if ( RET[0] != 0 ) {
-			ROS_ERROR("nmpc iteration: preparation step error, code %d", RET[0]);
-			obctrl_status = RET[0];
-		}
-
-		/* Perform the feedback step. */
-		RET[1] = feedbackStep();
-		if ( RET[1] != 0 ) {
-			ROS_ERROR("nmpc iteration: feedback step error, code %d", RET[1]);
-			obctrl_status = RET[1]; //TODO: find a way that doesnt overwrite the other one...
-		}
-
-		/* solve time in us <-- */
-		t_elapsed = ros::Time::now() - t_solve_start;
-		t_solve = t_elapsed.toNSec()/1000;
-
-		/* nmpc iteration time in us (approximate for publishing to pixhawk) <-- */
-		t_elapsed = ros::Time::now() - t_iter_start;
-		uint64_t t_iter_approx = t_elapsed.toNSec()/1000;
-
-		/* publish control action */
-		publishControls(t_ctrl, t_iter_approx, obctrl_status);
-
-		//TODO: this should be interpolated in the event of Tnmpc ~= Tfcall //TODO: should this be before the feedback step?
-		/* Optional: shift the initialization (look in acado_common.h). */
-//		shiftStates(1, 0, 0);
-//		shiftControls( 0 );
-
-	}
-	else {
-		// send "alive" status
-
-		/* publish obctrl msg */
-		mavros_msgs::AslObCtrl obctrl_msg;
-		obctrl_msg.timestamp = 0;
-		obctrl_msg.uThrot = 0.0f;
-		obctrl_msg.uThrot2 = 0.0f; // for monitoring on QGC
-		obctrl_msg.uAilR = 0.0f;
-		obctrl_msg.uAilL = 0.0f; // for monitoring on QGC
-		obctrl_msg.uElev = 0.0f;
-		obctrl_msg.obctrl_status = 0;
-
-		obctrl_pub_.publish(obctrl_msg);
+	if (re_init_horizon_) {
+		initHorizon();
+		re_init_horizon_ = false;
 	}
 
-	/* publish ACADO variables */ // should this go outside?
+	t_elapsed = ros::Time::now() - t_update_start;
+	t_update = t_elapsed.toNSec()/1000;
+	/* update time in us : END --> */
+
+	/* <-- START : nmpc solve timer */
+	ros::Time t_solve_start = ros::Time::now();
+
+	// prepare first step
+	RET[0] = preparationStep();
+	if ( RET[0] != 0 ) {
+		ROS_ERROR("nmpc iteration: preparation step error, code %d", RET[0]);
+		obctrl_status_ = RET[0];
+		re_init_horizon_ = true;
+	}
+
+	// perform the feedback step
+	RET[1] = feedbackStep();
+	if ( RET[1] != 0 ) {
+		ROS_ERROR("nmpc iteration: feedback step error, code %d", RET[1]);
+		obctrl_status_ = RET[1]; //TODO: find a way that doesnt overwrite the other one...
+		re_init_horizon_ = true;
+	}
+	updateHorizons();
+
+	t_elapsed = ros::Time::now() - t_solve_start;
+	t_solve = t_elapsed.toNSec()/1000;
+	/* solve time in us : END --> */
+
+	/* publishing */
+
+	// send controls to vehicle
+	publishControls();
+	ros::Duration t_elapsed = ros::Time::now() - t_lastctrl;
+	t_ctrl = t_elapsed.toNSec()/1000;
+	t_lastctrl = ros::Time::now(); // record directly after publishing control
+
+	// store current acado variables
 	publishAcadoVars();
 
-	/* publish nmpc info */
-	publishNmpcInfo(t_iter_start, t_ctrl, t_solve, t_update, t_wp_man);
+	// record timing / nmpc info
+	publishNmpcInfo(t_iter_start, t_ctrl, t_solve, t_update);
 
-	/* return status */
-	return (RET[0] != 0 || RET[1] != 0) ? 1 : 0; //perhaps a better reporting method?
+	return 0;
 }
 
-void FwNmpc::publishControls(uint64_t &t_ctrl, uint64_t t_iter_approx, int obctrl_status)
+void FwNmpc::publishControls()
 {
+	//TODO: this should be interpolated in the event of t_step < t_iter
 
+	// get control bounds
+	double roll_lim_rad;
+	nmpc_.getParam("/nmpc/veh/roll_lim_deg", roll_lim_rad); // sym.
+	roll_lim_rad *= DEG_TO_RAD;
+	double v;
+	nmpc_.getParam("/nmpc/veh/v_sink", v); // pos down
+	double gamma_lb = -asin(constrain(v / airsp_, 0.0, 1.0));
+	nmpc_.getParam("/nmpc/veh/v_clmb", v); // pos up
+	double gamma_ub = asin(constrain(v / airsp_, 0.0, 1.0));
+
+	// apply first NU controls
+	double roll_ref = acadoVariables.u[IDX_U_PHI]);
+	double gamma_ref = acadoVariables.u[IDX_U_GAMMA];
+	if (isnan(roll_ref) || isnan(gamma_ref)) {
+		// probably solver issue
+		roll_ref = 0.0;
+		gamma_ref = 0.0;
+		re_init_horizon_ = true;
+		obctrl_status_ = 11; // 11 (arbitrarily) for NaNs -- TODO: enumerate
+	}
+	else {
+		// constrain to bounds
+		roll_ref = constrain(roll_ref, -roll_lim_rad, roll_lim_rad);
+		gamma_ref = constrain(gamma_ref, gamma_lb, gamma_ub);
+	}
+
+	// thrust sp -- not actually used currently
+	mavros_msgs::Thrust thrust_sp;
+	thrust_sp.thrust = 0.0f;
+
+	thrust_pub_.publish(thrust_sp);
+
+	// attitude setpoint
+	geometry_msgs::PoseStamped att_sp;
+	att_sp.header.frame_id = "world";
+	Eigen::AngleAxisd rollAngle(roll_ref, Eigen::Vector3d::UnitX());
+	Eigen::AngleAxisd pitchAngle(gamma_ref, Eigen::Vector3d::UnitY());
+	Eigen::AngleAxisd yawAngle(0.0, Eigen::Vector3d::UnitZ());
+	Eigen::Quaterniond att_sp_quat_eigen = yawAngle * pitchAngle * rollAngle;
+	quaternionEigenToMsg(att_sp_quat_eigen, att_sp.pose.orientation);
+
+	att_sp_pub_.publish(att_sp);
 }
 
 void FwNmpc::publishAcadoVars()
 {
+	fw_ctrl::AcadoVars acado_vars;
 
+	/* measurements */
+	Eigen::Map<Eigen::Matrix<double, ACADO_NX, 1>>(const_cast<float*>(acado_vars.x0)) = x0_;
+
+	/* state horizons */
+	Eigen::Map<Eigen::Matrix<double, ACADO_NX, 1>>(const_cast<float*>(acado_vars.n)) = acadoVariables.x;
+	acado_vars.e = (float)acadoVariables.x;
+	acado_vars.d = (float)acadoVariables.x;
+	acado_vars.gamma = (float)acadoVariables.x;
+	acado_vars.xi = (float)acadoVariables.x[NX * i + 5];
+	acado_vars.phi = (float)acadoVariables.x[NX * i + 6];
+
+
+	/* control horizons */
+	for (int i=0; i<N; i++) {
+		acado_vars.uT[i] = (float)acadoVariables.u[NU * i];
+		acado_vars.phi_ref[i] = (float)acadoVariables.u[NU * i + 1];
+		acado_vars.theta_ref[i] = (float)acadoVariables.u[NU * i + 2];
+	}
+
+	/* online data */
+	acado_vars.pparam1 = (uint8_t)acadoVariables.od[0];
+	acado_vars.pparam2 = (float)acadoVariables.od[1];
+	acado_vars.pparam3 = (float)acadoVariables.od[2];
+	acado_vars.pparam4 = (float)acadoVariables.od[3];
+	acado_vars.pparam5 = (float)acadoVariables.od[4];
+	acado_vars.pparam6 = (float)acadoVariables.od[5];
+	acado_vars.pparam7 = (float)acadoVariables.od[6];
+	acado_vars.pparam1_next = (uint8_t)acadoVariables.od[7];
+	acado_vars.pparam2_next = (float)acadoVariables.od[8];
+	acado_vars.pparam3_next = (float)acadoVariables.od[9];
+	acado_vars.pparam4_next = (float)acadoVariables.od[10];
+	acado_vars.pparam5_next = (float)acadoVariables.od[11];
+	acado_vars.pparam6_next = (float)acadoVariables.od[12];
+	acado_vars.pparam7_next = (float)acadoVariables.od[13];
+	acado_vars.R_acpt = (float)acadoVariables.od[14];
+	acado_vars.ceta_acpt = (float)acadoVariables.od[15];
+	acado_vars.wn = (float)acadoVariables.od[16];
+	acado_vars.we = (float)acadoVariables.od[17];
+	acado_vars.wd = (float)acadoVariables.od[18];
+	acado_vars.alpha_p_co = (float)acadoVariables.od[19];
+	acado_vars.alpha_m_co = (float)acadoVariables.od[20];
+	acado_vars.alpha_delta_co = (float)acadoVariables.od[21];
+	acado_vars.T_b_lat = (float)acadoVariables.od[22];
+	acado_vars.T_b_lon = (float)acadoVariables.od[23];
+	acado_vars.ddot_clmb = (float)acadoVariables.od[24];
+	acado_vars.ddot_sink = (float)acadoVariables.od[25];
+
+	/* references */
+	acado_vars.yref[0] = (float)acadoVariables.y[0];
+	acado_vars.yref[1] = (float)acadoVariables.y[1];
+	acado_vars.yref[2] = (float)acadoVariables.y[2];
+	acado_vars.yref[3] = (float)acadoVariables.y[3];
+	acado_vars.yref[4] = (float)acadoVariables.y[4];
+	acado_vars.yref[5] = (float)acadoVariables.y[5];
+	acado_vars.yref[6] = (float)acadoVariables.y[6];
+	acado_vars.yref[7] = (float)acadoVariables.y[7];
+	acado_vars.yref[8] = (float)acadoVariables.y[8];
+	acado_vars.yref[9] = (float)acadoVariables.y[9];
+	acado_vars.yref[10] = (float)acadoVariables.y[10];
+
+	acado_vars_pub_.publish(acado_vars);
 }
 
-void FwNmpc::publishNmpcInfo(ros::Time t_iter_start, uint64_t t_ctrl, uint64_t t_solve, uint64_t t_update, uint64_t t_wp_man)
+void FwNmpc::publishNmpcInfo(ros::Time t_iter_start, uint64_t t_ctrl, uint64_t t_solve, uint64_t t_update)
 {
+	fw_ctrl::NmpcInfo nmpc_info;
 
+	// obctrl status
+	nmpc_info.status = obctrl_status_;
+
+	/* solver info */
+	nmpc_info.kkt = (double)getKKT();
+	nmpc_info.obj = (double)getObjective();
+
+	// various elapsed times
+	nmpc_info.t_ctrl = t_ctrl;		// time elapsed since last control action was published (stays zero if not in auto mode)
+	nmpc_info.t_solve = t_solve;	// time elapsed during nmpc preparation and feedback step (solve time)
+	nmpc_info.t_update = t_update;	// time elapsed during array updates
+
+	// nmpc iteration time in us
+	ros::Duration t_elapsed = ros::Time::now() - t_iter_start;
+	nmpc_info.t_iter = (uint64_t)(t_elapsed.toNSec()/1000);
+
+	nmpc_info_pub_.publish(nmpc_info);
 }
 
 void FwNmpc::updateAcadoOd()
@@ -406,15 +479,16 @@ void FwNmpc::updateAcadoOd()
 	// wind
 	od_.segment(IDX_OD_W,3) = x0_wind_;
 
-	// path
-	// IDX_OD_B
-	// IDX_OD_GAMMA_P
-	// IDX_OD_CHI_P
+	// path -- TODO: replace with actual pixhawk waypoint messages and management!
+	nmpc_.getParam("/nmpc/path/b_n", od_(IDX_OD_B));
+	nmpc_.getParam("/nmpc/path/b_e", od_(IDX_OD_B+1));
+	nmpc_.getParam("/nmpc/path/b_d", od_(IDX_OD_B+2));
+	nmpc_.getParam("/nmpc/path/gamma_p", od_(IDX_OD_GAMMA_P));
+	nmpc_.getParam("/nmpc/path/chi_p", od_(IDX_OD_CHI_P);
 
 	// guidance
 	nmpc_.getParam("/nmpc/od/T_lat", od_(IDX_OD_T_LAT));
 	nmpc_.getParam("/nmpc/od/T_lon", od_(IDX_OD_T_LON));
-
 
 	// terrain
 	nmpc_.getParam("/nmpc/od/delta_h", od_(IDX_OD_DELTA_H));
@@ -427,10 +501,37 @@ void FwNmpc::updateAcadoOd()
 
 void FwNmpc::updateAcadoW()
 {
+	// state weight scales
+	nmpc_.getParam("/nmpc/w_scale/chi", W_scale_(IDX_Y_CHI));
+	nmpc_.getParam("/nmpc/w_scale/gamma", W_scale_(IDX_Y_GAMMA));
+	nmpc_.getParam("/nmpc/w_scale/h", W_scale_(IDX_Y_H));
 
+	// control weight scales
+	nmpc_.getParam("/nmpc/w_scale/gamma_ref", W_scale_(IDX_Y_GAMMA_REF));
+	nmpc_.getParam("/nmpc/w_scale/phi_ref", W_scale_(IDX_Y_PHI_REF));
+	nmpc_.getParam("/nmpc/w_scale/gamma_rate", W_scale_(IDX_Y_GAMMA_RATE));
+	nmpc_.getParam("/nmpc/w_scale/phi_rate", W_scale_(IDX_Y_PHI_RATE));
+
+	Eigen::Matrix<double, ACADO_NY, 1> w_num;
+
+	// state weights
+	nmpc_.getParam("/nmpc/w/chi", w_num(IDX_Y_CHI));
+	nmpc_.getParam("/nmpc/w/gamma", w_num(IDX_Y_GAMMA));
+	nmpc_.getParam("/nmpc/w/h", w_num(IDX_Y_H));
+
+	// control weights
+	nmpc_.getParam("/nmpc/w/gamma_ref", w_num(IDX_Y_GAMMA_REF));
+	nmpc_.getParam("/nmpc/w/phi_ref", w_num(IDX_Y_PHI_REF));
+	nmpc_.getParam("/nmpc/w/gamma_rate", w_num(IDX_Y_GAMMA_RATE));
+	nmpc_.getParam("/nmpc/w/phi_rate", w_num(IDX_Y_PHI_RATE));
+
+	W_ = w_num.cwiseQuotient(W_scale_.pow(2));
+
+	Eigen::Map<Eigen::Matrix<double, ACADO_NY, ACADO_NY>>(const_cast<double*>(acadoVariables.W)) = W_.asDiagonal();
+  Eigen::Map<Eigen::Matrix<double, ACADO_NYN, ACADO_NYN>>(const_cast<double*>(acadoVariables.WN)) = WN_.head(ACADO_NYN).asDiagonal();
 }
 
-void FwNmpc::updateAcadoX0()
+void FwNmpc::updateAcadoX0();
 {
 	/* position */
 	x0_.segment(IDX_X_POS,3) = x0_pos_;
@@ -465,7 +566,16 @@ void FwNmpc::updateAcadoX0()
 
 void FwNmpc::updateAcadoY()
 {
+	y_.setZero();
+	yN_.setZero();
+	Eigen::Map<Eigen::Matrix<double, ACADO_NY, ACADO_N>>(const_cast<double*>(acadoVariables.y)) = y_;
+  Eigen::Map<Eigen::Matrix<double, ACADO_NYN, 1>>(const_cast<double*>(acadoVariables.yN)) = yN_;
+}
 
+void FwNmpc::updateHorizons()
+{
+	Eigen::Map<Eigen::Matrix<double, ACADO_NY, ACADO_N>>(const_cast<double*>(acadoVariables.y)) = y_;
+  Eigen::Map<Eigen::Matrix<double, ACADO_NYN, 1>>(const_cast<double*>(acadoVariables.yN)) = yN_;
 }
 
 double FwNmpc::constrain(const double x, const double xmin, const double xmax)
