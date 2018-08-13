@@ -49,7 +49,6 @@
 #include <grid_map_core/GridMap.hpp>
 #include <grid_map_ros/GridMapRosConverter.hpp>
 #include <grid_map_msgs/GridMap.h>
-#include <grid_map_msgs/GridMapInfo.h>
 
 // tf
 #include <tf/tf.h>
@@ -132,7 +131,6 @@ public:
 	/* callbacks */
 	void imuCb(const sensor_msgs::Imu::ConstPtr& msg);
 	void gridMapCb(const grid_map_msgs::GridMap::ConstPtr& msg);
-	void gridMapInfoCb(const grid_map_msgs::GridMapInfo::ConstPtr& msg);
 	void localPosCb(const geometry_msgs::PoseStamped::ConstPtr& msg);
 	void localVelCb(const geometry_msgs::TwistStamped::ConstPtr& msg);
 	void sysStatusCb(const mavros_msgs::State::ConstPtr& msg);
@@ -208,15 +206,16 @@ private:
 	double airsp_;							// airspeed [m/s]
 
 	/* solver matrices */
-	Eigen::Matrix<double, ACADO_NX, 1> x0_; 										// measured states
-	Eigen::Matrix<double, ACADO_NX, ACADO_N + 1> x_; 						// states
-  Eigen::Matrix<double, ACADO_NU, ACADO_N> u_; 								// controls
-  Eigen::Matrix<double, ACADO_NY, ACADO_N> y_; 								// references
-  Eigen::Matrix<double, ACADO_NYN, 1> yN_; 										// end term references
-  Eigen::Matrix<double, ACADO_NY, 1> W_; 											// weight diagonal
+	Eigen::Map<Eigen::Matrix<double, ACADO_NX, 1> > x0_; 										// measured states
+	Eigen::Map<Eigen::Matrix<double, ACADO_NX, ACADO_N + 1> > x_; 						// states
+  Eigen::Map<Eigen::Matrix<double, ACADO_NU, ACADO_N> > u_; 								// controls
+  Eigen::Map<Eigen::Matrix<double, ACADO_NY, ACADO_N> > y_; 								// references
+  Eigen::Map<Eigen::Matrix<double, ACADO_NYN, 1> > yN_; 										// end term references
+  Eigen::Map<Eigen::Matrix<double, ACADO_NY, 1> > W_; 											// weight diagonal
 	Eigen::Matrix<double, ACADO_NY, 1> W_scale_;								// weight scale diagonal
-  Eigen::Matrix<double, ACADO_NYN, 1> WN_; 										// end term weight diagonal
-	Eigen::Matrix<double, IDX_OD_TERR_DATA, 1> od_; 						// 1-step online data (without terrain data)
+	Eigen::Map<Eigen::Matrix<double, IDX_OD_TERR_DATA, 1> > od_; 						// 1-step online data (without terrain data)
+	Eigen::Map<Eigen::Matrix<double, LEN_IDX_N, LEN_IDX_E> > terr_data_; 						// 1-step online data (without terrain data)
+	Eigen::Map<<Eigen::Matrix<double, ACADO_NYN, 1> > WN_; 										// end term weight diagonal
 
 	/* timing */
 	double loop_rate_;

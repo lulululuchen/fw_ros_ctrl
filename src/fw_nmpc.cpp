@@ -46,6 +46,15 @@
 using namespace fw_nmpc;
 
 FwNmpc::FwNmpc() :
+		x0_(acadoVariables.x0),
+		x_(acadoVariables.x),
+		u_(acadoVariables.u),
+		y_(acadoVariables.y),
+		yN_(acadoVariables.yN),
+		W_(acadoVariables.W),
+		od_(acadoVariables.od, IDX_OD_TERR_DATA),
+		terr_data_(acadoVariables.od + IDX_OD_TERR_DATA, ACADO_NOD-IDX_OD_TERR_DATA),
+		WN_(acadoVariables.x0),
 		loop_rate_(10.0),
 		t_step_(0.1),
 {
@@ -54,7 +63,6 @@ FwNmpc::FwNmpc() :
 	/* subscribers */
 	imu_sub_ = nmpc_.subscribe("/mavros/imu/data", 1, &FwNmpc::imuCb, this);
 	grid_map_sub_ = nmpc_.subscribe("/fw_lander/global_map", 1, &FwNmpc::gridMapCb, this);
-	grid_map_info_sub_ = nmpc_.subscribe("/fw_lander/global_map_info", 1, &FwNmpc::gridMapInfoCb, this);
 	home_pos_sub_ = nmpc_.subscribe("/mavros/home_position", 1, &FwNmpc::homePosCb, this);
 	local_pos_sub_ = nmpc_.subscribe("/mavros/local_position/pose", 1, &FwNmpc::localPosCb, this);
   local_vel_sub_ = nmpc_.subscribe("/mavros/local_position/velocity", 1, &FwNmpc::localVelCb, this);
@@ -81,7 +89,7 @@ void FwNmpc::gridMapCb(const grid_map_msgs::GridMap::ConstPtr& msg) // Grid map 
 	bool ret;
 
 	// convert to eigen
-	ret = fromMessage(msg, global_map_);
+	ret = GridMapRosConverter::fromMessage(msg, global_map_);
 	if (ret) ROS_ERROR("grid map cb: failed to convert msg to eigen");
 
 	// bound position inside map
@@ -104,13 +112,7 @@ void FwNmpc::gridMapCb(const grid_map_msgs::GridMap::ConstPtr& msg) // Grid map 
 	od_(OD_TERR_ORIG_E) = pos_xy(1);
 	od_(OD_TERR_ORIG_N) = pos_xy(2);
 
-	Eigen::Map<Eigen::Matrix<double, ACADO_NOD-IDX_OD_TERR_DATA, 1>>(const_cast<double*>(acadoVariables.od + OD_TERR_DATA,
-		ACADO_NOD-IDX_OD_TERR_DATA)) = global_map_["elevation"].block(idx_local_origin_x,idx_local_origin_y,LEN_IDX_E,LEN_IDX_N).transpose();
-}
-
-void FwNmpc::gridMapInfoCb(const grid_map_msgs::GridMapInfo::ConstPtr& msg) // Grid map info msg callback
-{
-
+	terr_data_ = global_map_["elevation"].block(idx_local_origin_x,idx_local_origin_y,LEN_IDX_E,LEN_IDX_N).transpose();
 }
 
 void FwNmpc::homePosCb(const mavros_msgs::HomePosition::ConstPtr& msg) // Home position msg callback
@@ -192,7 +194,14 @@ void FwNmpc::initAcadoVars()
 	updateAcadoY();
 	updateAcadoW();
 
+
 	Eigen::Map<Eigen::Matrix<double, ACADO_NX, ACADO_N + 1>>(const_cast<double*>(acadoVariables.x)) = x_;
+
+	Eigen::Map<Eigen::Matrix<double, RowsAtCompileTime, ColsAtCompileTime>>
+
+
+	Eigen::Map<Eigen::Matrix<double, ACADO_NOD-IDX_OD_TERR_DATA, 1>>(const_cast<double*>(acadoVariables.od + OD_TERR_DATA,
+		ACADO_NOD-IDX_OD_TERR_DATA)) =
 }
 
 void FwNmpc::initHorizon()
