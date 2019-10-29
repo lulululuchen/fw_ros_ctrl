@@ -88,8 +88,8 @@ void FwNmpc::gridMapCb(const grid_map_msgs::GridMap::ConstPtr& msg) // Grid map 
 {
 	bool ret;
 
-	// convert to eigen
-	ret = GridMapRosConverter::fromMessage(msg, global_map_);
+	// convert to eigen XXX: this could be super expensive.. copying the *entire global map every time
+	ret = grid_map::GridMapRosConverter::fromMessage(msg, global_map_);
 	if (ret) ROS_ERROR("grid map cb: failed to convert msg to eigen");
 
 	// bound position inside map
@@ -109,8 +109,8 @@ void FwNmpc::gridMapCb(const grid_map_msgs::GridMap::ConstPtr& msg) // Grid map 
 
 	idx_pos = idx_local_origin_x+LEN_IDX_E, idx_local_origin_y+LEN_IDX_N;
 	global_map_.getPosition(idx_pos, pos_xy);
-	od_(OD_TERR_ORIG_E) = pos_xy(1);
-	od_(OD_TERR_ORIG_N) = pos_xy(2);
+	od_(OD_TERR_ORIG_E) = pos_xy(0);
+	od_(OD_TERR_ORIG_N) = pos_xy(1);
 
 	terr_data_ = global_map_["elevation"].block(idx_local_origin_x,idx_local_origin_y,LEN_IDX_E,LEN_IDX_N).transpose();
 }
