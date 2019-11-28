@@ -58,7 +58,7 @@ extern "C"
 /** Compute covariance matrix of the last state estimate. */
 #define ACADO_COMPUTE_COVARIANCE_MATRIX 0
 /** Flag indicating whether constraint values are hard-coded or not. */
-#define ACADO_HARDCODED_CONSTRAINT_VALUES 1
+#define ACADO_HARDCODED_CONSTRAINT_VALUES 0
 /** Indicator for fixed initial state. */
 #define ACADO_INITIAL_STATE_FIXED 1
 /** Number of control/estimation intervals. */
@@ -147,6 +147,18 @@ real_t WN[ 81 ];
  *  Current state feedback vector.
  */
 real_t x0[ 9 ];
+
+/** Column vector of size: 150
+ * 
+ *  Lower bounds values.
+ */
+real_t lbValues[ 150 ];
+
+/** Column vector of size: 150
+ * 
+ *  Upper bounds values.
+ */
+real_t ubValues[ 150 ];
 
 
 } ACADOvariables;

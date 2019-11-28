@@ -1340,7 +1340,8 @@ void calculate_velocity_reference(double *v_ref, double *e_lat, double *e_lon,
         const double *guidance_params,
         const double *speed_states,
         const double *jac_sig_r,
-        const double prio_r)
+        const double prio_r,
+        const int path_type)
 {
     /* DEFINE INPUTS - - - - - - - - - - - - - - - - - - - - - - - - - - */
     
@@ -1356,8 +1357,6 @@ void calculate_velocity_reference(double *v_ref, double *e_lat, double *e_lon,
     const double b_n = path_reference[0];
     const double b_e = path_reference[1];
     const double b_d = path_reference[2];
-    const double Gamma_p = path_reference[3];
-    const double chi_p = path_reference[4];
     
     /* guidance */
     const double T_b_lat = guidance_params[0];
@@ -1372,44 +1371,154 @@ void calculate_velocity_reference(double *v_ref, double *e_lat, double *e_lon,
     
     /* path following - - - - - - - - - - - - - - - - - - - - - - - - - -*/
     
-    /* path tangent unit vector  */
-    const double tP_n_bar = cos(chi_p);
-    const double tP_e_bar = sin(chi_p);
+    double vP_n_unit = 0.0;
+    double vP_e_unit = 0.0;
+    double vP_d_unit = 0.0;
     
-    /* "closest" point on track */
-    const double tp_dot_br = tP_n_bar*(r_n-b_n) + tP_e_bar*(r_e-b_e);
-    const double tp_dot_br_n = tp_dot_br*tP_n_bar;
-    const double tp_dot_br_e = tp_dot_br*tP_e_bar;
-    const double p_lat = tp_dot_br_n*tP_n_bar + tp_dot_br_e*tP_e_bar;
-    const double p_d = b_d - p_lat*tan(Gamma_p);
+    if (path_type == 0) {
+        /* loiter at fixed altitude */
         
-    /* position error */
-    *e_lat = (r_n-b_n)*tP_e_bar - (r_e-b_e)*tP_n_bar;
-    *e_lon = p_d - r_d;
-    
-    /* lateral-directional error boundary */
-    const double e_b_lat = T_b_lat * sqrt(vG_n*vG_n + vG_e*vG_e);
-    
-    /* course approach angle */
-    const double chi_app = atan(M_PI_2*(*e_lat)/e_b_lat);
-    
-    /* longitudinal error boundary */
-    double e_b_lon;
-    if (fabs(vG_d) < 1.0) {
-        e_b_lon = T_b_lon * 0.5 * (1.0 + vG_d*vG_d); /* vG_d may be zero */
+        const double Gamma_p = 0.0;
+        
+        /* loiter direction (hijack chi_p param) */
+        const double loiter_dir = (path_reference[4] < 0.0) ? -1.0 : 1.0;
+        const double radius = (fabs(path_reference[4]) < 0.1) ? 0.1 : fabs(path_reference[4]);
+        
+        /* vector from circle center to aircraft */
+        const double br_n = r_n-b_n;
+        const double br_e = r_e-b_e;
+        const double br_d = r_d-b_d;
+        
+        /* lateral-directional distance to circle center */
+        const double dist_to_center = sqrt(br_n*br_n + br_e*br_e);
+        
+        /* norm of lateral-directional ground velocity */
+        const double vG_lat = sqrt(vG_n*vG_n + vG_e*vG_e);
+
+        double br_n_unit, br_e_unit;
+        double p_n, p_e;
+        if (dist_to_center < 0.1) {
+            if (vG_lat < 0.1) {
+                /* arbitrarily set the point in the northern top of the circle */
+                br_n_unit = 1.0;
+                br_e_unit = 0.0;
+                
+                /* closest point on circle */
+                p_n = b_n + br_n_unit * radius;
+                p_e = b_e + br_e_unit * radius;
+            }
+            else {
+                /* set the point in the direction we are moving */
+                br_n_unit = vG_n / vG_lat * 0.1;
+                br_e_unit = vG_e / vG_lat * 0.1;
+                
+                /* closest point on circle */
+                p_n = b_n + br_n_unit * radius;
+                p_e = b_e + br_e_unit * radius;
+            }
+        }
+        else {
+            /* set the point in the direction of the aircraft */
+            br_n_unit = br_n / dist_to_center;
+            br_e_unit = br_e / dist_to_center;
+            
+            /* closest point on circle */
+            p_n = b_n + br_n_unit * radius;
+            p_e = b_e + br_e_unit * radius;
+        }
+        
+        /* path tangent unit vector */
+        const double tP_n_bar = -br_e_unit * loiter_dir;
+        const double tP_e_bar = br_n_unit * loiter_dir;
+        const double chi_p = atan2(tP_e_bar, tP_n_bar);
+
+        /* position error */
+        *e_lat = (r_n-p_n)*tP_e_bar - (r_e-p_e)*tP_n_bar;
+        *e_lon = b_d - r_d;
+        
+        /* lateral-directional error boundary */
+        const double e_b_lat = T_b_lat * sqrt(vG_n*vG_n + vG_e*vG_e);
+
+        /* course approach angle */
+        const double chi_app = atan(M_PI_2*(*e_lat)/e_b_lat);
+
+        /* longitudinal error boundary */
+        double e_b_lon;
+        if (fabs(vG_d) < 1.0) {
+            e_b_lon = T_b_lon * 0.5 * (1.0 + vG_d*vG_d); /* vG_d may be zero */
+        }
+        else {
+            e_b_lon = T_b_lon * fabs(vG_d);
+        }
+
+        /* flight path approach angle */
+        const double Gamma_app = -gamma_app_max * atan(M_PI_2*(*e_lon)/e_b_lon);
+
+        /* normalized ground velocity setpoint */
+        const double cos_gamma = cos(Gamma_p + Gamma_app);
+        vP_n_unit = cos_gamma*cos(chi_p + chi_app);
+        vP_e_unit = cos_gamma*sin(chi_p + chi_app);
+        vP_d_unit = -sin(Gamma_p + Gamma_app);
+    }
+    else if (path_type == 1) {
+        /* line */
+        
+        /* path direction */
+        const double Gamma_p = path_reference[3];
+        const double chi_p = path_reference[4];
+        
+        /* path tangent unit vector  */
+        const double tP_n_bar = cos(chi_p);
+        const double tP_e_bar = sin(chi_p);
+
+        /* "closest" point on track */
+        const double tp_dot_br = tP_n_bar*(r_n-b_n) + tP_e_bar*(r_e-b_e);
+        const double tp_dot_br_n = tp_dot_br*tP_n_bar;
+        const double tp_dot_br_e = tp_dot_br*tP_e_bar;
+        const double p_lat = tp_dot_br_n*tP_n_bar + tp_dot_br_e*tP_e_bar;
+        const double p_d = b_d - p_lat*tan(Gamma_p);
+
+        /* position error */
+        *e_lat = (r_n-b_n)*tP_e_bar - (r_e-b_e)*tP_n_bar;
+        *e_lon = p_d - r_d;
+        
+        /* lateral-directional error boundary */
+        const double e_b_lat = T_b_lat * sqrt(vG_n*vG_n + vG_e*vG_e);
+
+        /* course approach angle */
+        const double chi_app = atan(M_PI_2*(*e_lat)/e_b_lat);
+
+        /* longitudinal error boundary */
+        double e_b_lon;
+        if (fabs(vG_d) < 1.0) {
+            e_b_lon = T_b_lon * 0.5 * (1.0 + vG_d*vG_d); /* vG_d may be zero */
+        }
+        else {
+            e_b_lon = T_b_lon * fabs(vG_d);
+        }
+
+        /* flight path approach angle */
+        const double Gamma_app = -gamma_app_max * atan(M_PI_2*(*e_lon)/e_b_lon);
+
+        /* normalized ground velocity setpoint */
+        const double cos_gamma = cos(Gamma_p + Gamma_app);
+        vP_n_unit = cos_gamma*cos(chi_p + chi_app);
+        vP_e_unit = cos_gamma*sin(chi_p + chi_app);
+        vP_d_unit = -sin(Gamma_p + Gamma_app);
     }
     else {
-        e_b_lon = T_b_lon * fabs(vG_d);
+        /* unknown */
+        /* fly north.. */
+        
+        /* position error */
+        *e_lat = 0.0;
+        *e_lon = 0.0;
+
+        /* normalized ground velocity setpoint */
+        vP_n_unit = 1.0;
+        vP_e_unit = 0.0;
+        vP_d_unit = 0.0;
     }
-    
-    /* flight path approach angle */
-    const double Gamma_app = -gamma_app_max * atan(M_PI_2*(*e_lon)/e_b_lon);
-    
-    /* normalized ground velocity setpoint */
-    const double cos_gamma = cos(Gamma_p + Gamma_app);
-    const double vP_n_unit = cos_gamma*cos(chi_p + chi_app);
-    const double vP_e_unit = cos_gamma*sin(chi_p + chi_app);
-    const double vP_d_unit = -sin(Gamma_p + Gamma_app);
     
     if (use_occ_as_guidance) {
         /* terrain avoidance velocity setpoint */

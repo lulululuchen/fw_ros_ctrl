@@ -1,49 +1,105 @@
 <launch>
   <node name="nmpc" pkg="fw_ctrl" type="fw_nmpc"/>
 
-  <!-- timing params -->
-  <param name="/nmpc/loop_rate" type="double" value="10.0" />
-  <param name="/nmpc/time_step" type="double" value="0.1" />
+  <!-- timing parameters -->
+  <param name="/nmpc/loop_rate" type="double" value="10.0" />                   <!-- iteration loop rate [Hz] -->
+  <param name="/nmpc/time_step" type="double" value="0.1" />                    <!-- NMPC time step (node discretization) [s] -->
 
-  <!-- control bounds -->
-  <param name="/nmpc/bnd/roll_lim_deg" type="double" value="35.0" />
-  <param name="/nmpc/bnd/v_sink" type="double" value="1.5" />
-  <param name="/nmpc/bnd/v_clmb" type="double" value="3.5" />
+  <!-- path reference parameters -->
+  <param name="/nmpc/path/path_type" type="int" value="0" />                    <!-- path type, 0: const. alt. loiter; 1: line -->
+  <param name="/nmpc/path/b_n" type="double" value="0.0" />                     <!-- path northing origin [m] -->
+  <param name="/nmpc/path/b_e" type="double" value="0.0" />                     <!-- path easting origin [m] -->
+  <param name="/nmpc/path/b_d" type="double" value="0.0" />                     <!-- path down origin [m] -->
+  <param name="/nmpc/path/Gamma_p" type="double" value="0.0" />                 <!-- path ground-relative flight path angle [deg] -->
+  <param name="/nmpc/path/chi_p" type="double" value="0.0" />                   <!-- path course [deg] (when path_type=0, signed radius of loiter [m]) -->
 
-  <!-- weighting scales: state weights -->
-  <param name="/nmpc/w_scale/chi" type="double" value="0" />
-  <param name="/nmpc/w_scale/gamma" type="double" value="0" />
-  <param name="/nmpc/w_scale/h" type="double" value="0" />
+  <!-- guidance parameters -->
+  <param name="/nmpc/guidance/T_lat" type="double" value="5.0" />               <!-- lateral-directional guidance time constant [s] -->
+  <param name="/nmpc/guidance/T_lon" type="double" value="3.0" />               <!-- longitudinal guidance time constant [s] -->
+  <param name="/nmpc/guidance/gamma_app_max" type="double" value="20.0" />      <!-- maximum approach flight path angle [deg] -->
 
-	<!-- weighting scales: control weights -->
-  <param name="/nmpc/w_scale/gamma_ref" type="double" value="0" />
-  <param name="/nmpc/w_scale/phi_ref" type="double" value="0" />
-  <param name="/nmpc/w_scale/gamma_rate" type="double" value="0" />
-  <param name="/nmpc/w_scale/phi_rate" type="double" value="0" />
+  <!-- propeller parameters -->
+  <param name="/nmpc/prop/n_0" type="double" value="2.3926" />                  <!-- prop speed at zero inflow and zero input [rps] -->
+  <param name="/nmpc/prop/n_max" type="double" value="163.6667" />              <!-- maximum prop speed [rps] -->
+  <param name="/nmpc/prop/n_delta" type="double" value="184.2153" />            <!-- slope of first order prop speed to throttle input (PX4) mapping approximation -->
+  <param name="/nmpc/prop/vpmin" type="double" value="10.0" />                  <!-- minimum propeller inflow [m/s] -->
+  <param name="/nmpc/prop/vpmax" type="double" value="25.0" />                  <!-- maximum propeller inflow [m/s] -->
+  <param name="/nmpc/prop/n_T0_vmin" type="double" value="40.8964" />           <!-- zero-thrust prop speed at minimum airspeed [rps] -->
+  <param name="/nmpc/prop/n_T0_vmax" type="double" value="102.6870" />          <!-- zero-thrust prop speed at maximum airspeed [rps] -->
+  <param name="/nmpc/prop/epsilon_T" type="double" value="2.0" />               <!-- thrust incidence [deg] -->
 
-  <!-- weighting: state weights -->
-  <param name="/nmpc/w/chi" type="double" value="0" />
-  <param name="/nmpc/w/gamma" type="double" value="0" />
-  <param name="/nmpc/w/h" type="double" value="0" />
+  <!-- sliding window parameters -->
+  <param name="/nmpc/len_slw" type="int" value="10" />
 
-	<!-- weighting: control weights -->
-  <param name="/nmpc/w/gamma_ref" type="double" value="0" />
-  <param name="/nmpc/w/phi_ref" type="double" value="0" />
-  <param name="/nmpc/w/gamma_rate" type="double" value="0" />
-  <param name="/nmpc/w/phi_rate" type="double" value="0" />
+  <!-- soft angle of attack parameters -->
+	<param name="/nmpc/aoa_params/delta_aoa" type="double" value="4.0" />         <!-- soft angle of attack buffer [deg] -->
+	<param name="/nmpc/aoa_params/aoa_m" type="double" value="-5.0" />            <!-- soft minimum angle of attack [deg] -->
+	<param name="/nmpc/aoa_params/aoa_p" type="double" value="7.0" />             <!-- soft maximum angle of attack [deg] -->
+	<param name="/nmpc/aoa_params/sig_aoa_1" type="double" value="0.001" />       <!-- minimum soft exponential cost at unit input = 1 -->
 
-  <!-- online data: path params -->
-  <param name="/nmpc/od/b_n" type="double" value="0" />
-  <param name="/nmpc/od/b_e" type="double" value="0" />
-  <param name="/nmpc/od/b_d" type="double" value="0" />
-  <param name="/nmpc/od/gamma_p" type="double" value="0" />
-  <param name="/nmpc/od/chi_p" type="double" value="0" />
+  <!-- soft terrain parameters -->
+  <param name="/nmpc/terrain_params/h_offset" type="double" value="10.0" />     <!-- soft nadir terrain offset [m] -->
+  <param name="/nmpc/terrain_params/delta_h" type="double" value="10.0" />      <!-- soft nadir terrain buffer [m] -->
+  <param name="/nmpc/terrain_params/sig_h_1" type="double" value="0.001" />     <!-- minimum soft exponential cost at unit input = 1 -->
+  <param name="/nmpc/terrain_params/r_offset" type="double" value="10.0" />     <!-- soft radial terrain offset [m] -->
+  <param name="/nmpc/terrain_params/delta_r0" type="double" value="5.0" />      <!-- soft radial terrain buffer (at zero relative velocity) [m] -->
+  <param name="/nmpc/terrain_params/k_r_offset" type="double" value="1.0" />    <!-- gain on relative velocity term of radial offset -->
+  <param name="/nmpc/terrain_params/k_delta_r" type="double" value="1.0" />     <!-- gain on relative velocity term of radial buffer -->
+  <param name="/nmpc/terrain_params/sig_r_1" type="double" value="0.001" />     <!-- minimum soft exponential cost at unit input = 1 -->
 
-  <!-- online data: guidance params -->
-  <param name="/nmpc/od/T_lat" type="double" value="5" />
-  <param name="/nmpc/od/T_lon" type="double" value="5" />
+  <!-- vehicle parameters -->
+	<param name="/nmpc/veh/airsp_thres" type="double" value="4.0" />              <!-- airspeed threshold [m/s] -->
 
-  <!-- online data: terrain params -->
-  <param name="/nmpc/od/delta_h" type="double" value="10" />
+  <!-- control-augmented model dynamics -->
+  <param name="/nmpc/od/tau_phi" type="double" value="0.5" />                   <!-- control-augmented roll response time constant [s] -->
+	<param name="/nmpc/od/tau_theta" type="double" value="0.5" />                 <!-- control-augmented pitch response time constant [s] -->
+	<param name="/nmpc/od/k_phi" type="double" value="1.1" />                     <!-- control-augmented roll response gain [s] -->
+	<param name="/nmpc/od/k_theta" type="double" value="1.1" />                   <!-- control-augmented pitch response gain [s] -->
+	<param name="/nmpc/od/tau_n" type="double" value="0.2" />                     <!-- propeller delay [s] -->
+
+  <!-- lower control bounds -->
+  <param name="/nmpc/lb/u_T" type="double" value="0.0" />                       <!-- throttle lower bound -->
+	<param name="/nmpc/lb/phi_ref" type="double" value="-35.0" />                 <!-- roll reference lower bound [deg] -->
+	<param name="/nmpc/lb/theta_ref" type="double" value="-15.0" />               <!-- pitch reference lower bound [deg] -->
+
+  <!-- upper control bounds -->
+	<param name="/nmpc/ub/u_T" type="double" value="1.0" />                       <!-- throttle upper bound -->
+	<param name="/nmpc/ub/phi_ref" type="double" value="35.0" />                  <!-- roll reference upper bound [deg] -->
+	<param name="/nmpc/ub/theta_ref" type="double" value="25.0" />                <!-- pitch reference upper bound [deg] -->
+
+  <!-- objective references -->
+  <param name="/nmpc/y_ref/v" type="double" value="13.5" />                     <!-- airspeed reference [m/s] -->
+
+  <!-- objective inverse squared output scaling -->
+	<param name="/nmpc/inv_y_scale_sq/vn" type="double" value="1.0" />            <!--  -->
+	<param name="/nmpc/inv_y_scale_sq/vd" type="double" value="1.0" />            <!--  -->
+	<param name="/nmpc/inv_y_scale_sq/ve" type="double" value="1.0" />            <!--  -->
+	<param name="/nmpc/inv_y_scale_sq/v" type="double" value="1.0" />             <!--  -->
+	<param name="/nmpc/inv_y_scale_sq/phi" type="double" value="1.0" />           <!--  -->
+	<param name="/nmpc/inv_y_scale_sq/theta" type="double" value="1.0" />         <!--  -->
+	<param name="/nmpc/inv_y_scale_sq/soft_aoa" type="double" value="1.0" />      <!--  -->
+	<param name="/nmpc/inv_y_scale_sq/soft_h" type="double" value="1.0" />        <!--  -->
+	<param name="/nmpc/inv_y_scale_sq/soft_r" type="double" value="1.0" />        <!--  -->
+	<param name="/nmpc/inv_y_scale_sq/u_T" type="double" value="1e2" />           <!-- 1/0.1^2 -->
+	<param name="/nmpc/inv_y_scale_sq/phi_ref" type="double" value="3.2828e3" />  <!-- 1/deg2rad(1)^2 -->
+	<param name="/nmpc/inv_y_scale_sq/theta_ref" type="double" value="3.2828e3" /><!-- 1/deg2rad(1)^2 -->
+
+  <!-- objective weights -->
+	<param name="/nmpc/w/vn" type="double" value="1e4" />                         <!--  -->
+	<param name="/nmpc/w/ve" type="double" value="1e4" />                         <!--  -->
+	<param name="/nmpc/w/vd" type="double" value="1e6" />                         <!--  -->
+	<param name="/nmpc/w/v" type="double" value="1e3" />                          <!--  -->
+	<param name="/nmpc/w/phi" type="double" value="0.0" />                        <!--  -->
+	<param name="/nmpc/w/theta" type="double" value="0.0" />                      <!--  -->
+	<param name="/nmpc/w/soft_aoa" type="double" value="1e8" />                   <!--  -->
+	<param name="/nmpc/w/soft_h" type="double" value="1e7" />                     <!--  -->
+	<param name="/nmpc/w/soft_r" type="double" value="1e7" />                     <!--  -->
+	<param name="/nmpc/w/u_T" type="double" value="1e3" />                        <!--  -->
+	<param name="/nmpc/w/phi_ref" type="double" value="1e1" />                    <!--  -->
+	<param name="/nmpc/w/theta_ref" type="double" value="1e3" />                  <!--  -->
+
+  <!-- filter time constants -->
+  <param name="/nmpc/filt/tau_u" type="double" value="0.5" />                   <!-- control reference horizon filter time constant [s] -->
+  <param name="/nmpc/filt/tau_terr" type="double" value="1.0" />                <!-- terrain feedback filter time constant [s] -->
 
 </launch>
