@@ -10,6 +10,7 @@ float64 obj
 
 # timing
 uint64 t_ctrl
-uint64 t_solve
-uint64 t_update
-uint64 t_iter
+uint64 t_preeval
+uint64 t_prep
+uint64 t_fb
+unit64 t_iter

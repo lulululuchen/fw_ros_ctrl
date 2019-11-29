@@ -35,14 +35,15 @@
 #include <ros/ros.h>
 #include <ros/package.h>
 
-#include <fw_nmpc.h>
+#include <fw_nmpc/fw_nmpc.h>
+#include <lsq_objective.c>
 
 #include <math.h>
 #include <string.h>
 
 using namespace fw_nmpc;
 
-FwNmpc::FwNmpc() :
+FwNMPC::FwNMPC() :
     flaps_normalized_(0.0),
     home_lat_(0),
     home_lon_(0),
@@ -55,32 +56,37 @@ FwNmpc::FwNmpc() :
     first_yaw_received_(false),
     last_yaw_msg_(0.0),
     len_sliding_window_(10),
-    loop_rate_(10.0),
-    t_step_(0.1)
+    log_sqrt_w_over_sig1_r_(1.0),
+    one_over_sqrt_w_r_(1.0),
+    path_error_lat_(0.0),
+    path_error_lon_(0.0),
+    path_type_(0),
+    obctrl_status_(0),
+    re_init_horizon_(false)
 {
     ROS_INFO("Instance of NMPC created");
 
     /* subscribers */
-    act_sub_ = nmpc_.subscribe("/mavros/target_actuator_control", 1, &FwNmpc::actCb, this);
-    grid_map_sub_ = nmpc_.subscribe("/elevation_mapper/map_mpc", 1, &FwNmpc::gridMapCb, this);
-    home_pos_sub_ = nmpc_.subscribe("/mavros/home_position", 1, &FwNmpc::homePosCb, this);
-    imu_sub_ = nmpc_.subscribe("/mavros/imu/data", 1, &FwNmpc::imuCb, this);
-    local_pos_sub_ = nmpc_.subscribe("/mavros/local_position/pose", 1, &FwNmpc::localPosCb, this);
-    local_vel_sub_ = nmpc_.subscribe("/mavros/local_position/velocity", 1, &FwNmpc::localVelCb, this);
-    static_pres_sub_ = nmpc_.subscribe("/mavros/static_pressure", 1, &FwNmpc::staticPresCb, this);
-    sys_status_sub_ = nmpc_.subscribe("/mavros/state", 1, &FwNmpc::sysStatusCb, this);
-    temp_c_sub_ = nmpc_.subscribe("/mavros/temperature_baro", 1, &FwNmpc::tempCCb, this);
-    wind_est_sub_ = nmpc_.subscribe("/mavros/wind_estimation", 1, &FwNmpc::windEstCb, this);
+    act_sub_ = nmpc_.subscribe("/mavros/target_actuator_control", 1, &FwNMPC::actCb, this);
+    grid_map_sub_ = nmpc_.subscribe("/elevation_mapper/map_mpc", 1, &FwNMPC::gridMapCb, this);
+    home_pos_sub_ = nmpc_.subscribe("/mavros/home_position", 1, &FwNMPC::homePosCb, this);
+    imu_sub_ = nmpc_.subscribe("/mavros/imu/data", 1, &FwNMPC::imuCb, this);
+    local_pos_sub_ = nmpc_.subscribe("/mavros/local_position/pose", 1, &FwNMPC::localPosCb, this);
+    local_vel_sub_ = nmpc_.subscribe("/mavros/local_position/velocity", 1, &FwNMPC::localVelCb, this);
+    static_pres_sub_ = nmpc_.subscribe("/mavros/static_pressure", 1, &FwNMPC::staticPresCb, this);
+    sys_status_sub_ = nmpc_.subscribe("/mavros/state", 1, &FwNMPC::sysStatusCb, this);
+    temp_c_sub_ = nmpc_.subscribe("/mavros/temperature_baro", 1, &FwNMPC::tempCCb, this);
+    wind_est_sub_ = nmpc_.subscribe("/mavros/wind_estimation", 1, &FwNMPC::windEstCb, this);
 
     /* publishers */
     att_sp_pub_ = nmpc_.advertise<geometry_msgs::PoseStamped>("/mavros/setpoint_attitude/attitude", 1);
-    nmpc_info_pub_ = nmpc_.advertise<fw_ctrl::NmpcInfo>("/nmpc/info",10,true);
-    nmpc_meas_pub_  = nmpc_.advertise<fw_ctrl::NmpcMeasurements>("/nmpc/measurements",10,true);
-    nmpc_states_pub_  = nmpc_.advertise<fw_ctrl::NmpcStates>("/nmpc/states",10,true);
-    nmpc_controls_pub_  = nmpc_.advertise<fw_ctrl::NmpcControls>("/nmpc/controls",10,true);
-    nmpc_online_data_pub_  = nmpc_.advertise<fw_ctrl::NmpcOnlineData>("/nmpc/online_data",10,true);
-    nmpc_obj_ref_pub_  = nmpc_.advertise<fw_ctrl::NmpcObjRef>("/nmpc/obj_ref",10,true);
-    nmpc_objN_ref_pub_  = nmpc_.advertise<fw_ctrl::NmpcObjNRef>("/nmpc/objN_ref",10,true);
+    nmpc_info_pub_ = nmpc_.advertise<fw_ctrl::NMPCInfo>("/nmpc/info",10,true);
+    nmpc_meas_pub_  = nmpc_.advertise<fw_ctrl::NMPCMeasurements>("/nmpc/measurements",10,true);
+    nmpc_states_pub_  = nmpc_.advertise<fw_ctrl::NMPCStates>("/nmpc/states",10,true);
+    nmpc_controls_pub_  = nmpc_.advertise<fw_ctrl::NMPCControls>("/nmpc/controls",10,true);
+    nmpc_online_data_pub_  = nmpc_.advertise<fw_ctrl::NMPCOnlineData>("/nmpc/online_data",10,true);
+    nmpc_obj_ref_pub_  = nmpc_.advertise<fw_ctrl::NMPCObjRef>("/nmpc/obj_ref",10,true);
+    nmpc_objN_ref_pub_  = nmpc_.advertise<fw_ctrl::NMPCObjNRef>("/nmpc/objN_ref",10,true);
     obctrl_status_pub_ = nmpc_.advertise<std_msgs::Int32>("/nmpc/status", 1);
     thrust_pub_ = nmpc_.advertise<std_msgs::Float64>("/mavros/setpoint_attitude/thrust", 1);
 }
@@ -89,7 +95,7 @@ FwNmpc::FwNmpc() :
 /* CALLBACKS  - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 /*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-void FwNmpc::actCb(const mavros_msgs::ActuatorControl::ConstPtr& msg) // actuator control target msg callback
+void FwNMPC::actCb(const mavros_msgs::ActuatorControl::ConstPtr& msg) // actuator control target msg callback
 {
     if (msg->group_mix == msg->PX4_MIX_FLIGHT_CONTROL) {
         px4_throt_ = (double)msg->controls[3];
@@ -97,7 +103,7 @@ void FwNmpc::actCb(const mavros_msgs::ActuatorControl::ConstPtr& msg) // actuato
     }
 } // actCb
 
-void FwNmpc::gridMapCb(const grid_map_msgs::GridMap::ConstPtr& msg) // grid map msg callback
+void FwNMPC::gridMapCb(const grid_map_msgs::GridMap::ConstPtr& msg) // grid map msg callback
 {
     bool ret;
 
@@ -119,21 +125,21 @@ void FwNmpc::gridMapCb(const grid_map_msgs::GridMap::ConstPtr& msg) // grid map 
     map_width_ = terrain_map_.info.length_y / map_resolution_;
 } // gridMapCb
 
-void FwNmpc::homePosCb(const mavros_msgs::HomePosition::ConstPtr& msg) // home position msg callback
+void FwNMPC::homePosCb(const mavros_msgs::HomePosition::ConstPtr& msg) // home position msg callback
 {
-    home_lat_ = (double)msg->latitude;
-    home_lon_ = (double)msg->longitude;
-    home_alt_ = (double)msg->altitude;
+    home_lat_ = (double)msg->geo.latitude;
+    home_lon_ = (double)msg->geo.longitude;
+    home_alt_ = (double)msg->geo.altitude;
 } // homePosCb
 
-void FwNmpc::imuCb(const sensor_msgs::Imu::ConstPtr& msg) // imu msg callback
+void FwNMPC::imuCb(const sensor_msgs::Imu::ConstPtr& msg) // imu msg callback
 {
     Eigen::Quaterniond q;
     tf::quaternionMsgToEigen(msg->orientation, q);
     x0_euler_ = q.toRotationMatrix().eulerAngles(0, 1, 2);
 } // imuCb
 
-void FwNmpc::localPosCb(const geometry_msgs::PoseStamped::ConstPtr& msg) // local position msg callback
+void FwNMPC::localPosCb(const geometry_msgs::PoseStamped::ConstPtr& msg) // local position msg callback
 {
     // ENU -> NED
     x0_pos_(0) = msg->pose.position.y;
@@ -141,7 +147,7 @@ void FwNmpc::localPosCb(const geometry_msgs::PoseStamped::ConstPtr& msg) // loca
     x0_pos_(2) = -msg->pose.position.z;
 } // localPosCb
 
-void FwNmpc::localVelCb(const geometry_msgs::TwistStamped::ConstPtr& msg) // local velocity msg callback
+void FwNMPC::localVelCb(const geometry_msgs::TwistStamped::ConstPtr& msg) // local velocity msg callback
 {
     // ENU -> NED
     x0_vel_(0) = msg->twist.linear.y;
@@ -149,30 +155,30 @@ void FwNmpc::localVelCb(const geometry_msgs::TwistStamped::ConstPtr& msg) // loc
     x0_vel_(2) = -msg->twist.linear.z;
 } // localVelCb
 
-void FwNmpc::staticPresCb(const sensor_msgs::FluidPressure::ConstPtr& msg) // static pressure msg callback
+void FwNMPC::staticPresCb(const sensor_msgs::FluidPressure::ConstPtr& msg) // static pressure msg callback
 {
     static_pres_ = msg->fluid_pressure;
 } // staticPresCb
 
-void FwNmpc::sysStatusCb(const mavros_msgs::State::ConstPtr& msg) // system status msg callback
+void FwNMPC::sysStatusCb(const mavros_msgs::State::ConstPtr& msg) // system status msg callback
 {
     // this message comes at 1 Hz and resets the NMPC if not in OFFBOARD mode
     ROS_INFO_STREAM("Received Pixhawk Mode: " <<  msg->mode);
     offboard_mode_ = msg->mode == "OFFBOARD";
 } // sysStatusCb
 
-void FwNmpc::tempCCb(const sensor_msgs::Temperature::ConstPtr& msg) // temperature msg callback
+void FwNMPC::tempCCb(const sensor_msgs::Temperature::ConstPtr& msg) // temperature msg callback
 {
     temp_c_ = msg->temperature;
 } // tempCCb
 
-void FwNmpc::windEstCb(const geometry_msgs::TwistWithCovarianceStamped::ConstPtr& msg) // wind estimation msg callback
+void FwNMPC::windEstCb(const geometry_msgs::TwistWithCovarianceStamped::ConstPtr& msg) // wind estimation msg callback
 {
     // ACTUALLY one that is in NED already
     tf::vectorMsgToEigen(msg->twist.twist.linear, x0_wind_);
 } // windEstCb
 
-void FwNmpc::checkSubs()
+void FwNMPC::checkSubs()
 {
     /* wait for home waypoint */
     while (home_lat_ < 0.1 && home_lon_ < 0.1) {
@@ -188,15 +194,35 @@ void FwNmpc::checkSubs()
 } // checkSubs
 
 /*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
+/* GETS - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
+/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
+
+double FwNMPC::getLoopRate()
+{
+    double loop_rate;
+    nmpc_.getParam("/nmpc/loop_rate", loop_rate);   // iteration loop rate [Hz]
+
+    return loop_rate;
+} // getLoopRate
+
+double FwNMPC::getTimeStep()
+{
+    double t_step;
+    nmpc_.getParam("/nmpc/time_step", t_step);      // get model discretization step [s]
+
+    return t_step;
+} // getTimeStep
+
+/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 /* HELPER FUNCTIONS - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 /*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-double FwNmpc::calc_air_density()
+double FwNMPC::calcAirDensity()
 {
     return static_pres_ / (AIR_GAS_CONST * (temp_c_ - ABSOLUTE_NULL_CELSIUS));
-} // calc_air_density
+} // calcAirDensity
 
-double FwNmpc::flaps_to_rad(const double flaps_normalized)
+double FwNMPC::flapsToRad(const double flaps_normalized)
 {
     // for now, assuming that a full normalized signal corresponds to full actuation .. need to check this with px4 convention
     double flaps_lim;
@@ -204,13 +230,13 @@ double FwNmpc::flaps_to_rad(const double flaps_normalized)
     flaps_lim *= DEG_TO_RAD;
 
     return flaps_lim * constrain_double(flaps_normalized, -1.0, 1.0);
-} // flaps_to_rad
+} // flapsToRad
 
-double FwNmpc::map_prop_speed_to_throt(const double n_prop, const double airsp, const double aoa)
+double FwNMPC::mapPropSpeedToThrot(const double n_prop, const double airsp, const double aoa)
 {
     // prop speed input (converted from throttle input considering inflow and zero thrusting conditions)
 
-    double vmin, vmax, n_T0_vmin, n_T0_vmax, n_max, epsilon_T;
+    double vpmin, vpmax, n_T0_vmin, n_T0_vmax, n_max, epsilon_T;
     nmpc_.getParam("/nmpc/prop/vpmin", vpmin);           // minimum propeller inflow [m/s]
     nmpc_.getParam("/nmpc/prop/vpmax", vpmax);           // maximum propeller inflow [m/s]
     nmpc_.getParam("/nmpc/prop/n_T0_vmin", n_T0_vmin);   // zero-thrust prop speed at minimum airspeed [rps]
@@ -223,23 +249,23 @@ double FwNmpc::map_prop_speed_to_throt(const double n_prop, const double airsp, 
     const double sig_vp = constrain_double((vp - vpmin) / (vpmax - vpmin), 0.0, 1.0); // prop inflow linear interpolater
 
     return (n_prop - n_T0_vmin * (1.0 - sig_vp) - n_T0_vmax * sig_vp)/(n_max - n_T0_vmin);
-} // map_prop_speed_to_throt
+} // mapPropSpeedToThrot
 
-double FwNmpc::map_px4_to_throt(const double px4_throt, const double airsp, const double aoa)
+double FwNMPC::mapPX4ToThrot(const double px4_throt, const double airsp, const double aoa)
 {
     double n_0, n_max, n_delta;
     nmpc_.getParam("/nmpc/prop/n_0", n_0);               // prop speed at zero inflow and zero input [rps]
     nmpc_.getParam("/nmpc/prop/n_max", n_max);           // maximum prop speed [rps]
     nmpc_.getParam("/nmpc/prop/n_delta", n_delta);      // slope of first order prop speed to throttle input (PX4) mapping approximation
 
-    return map_prop_speed_to_throt(px4_throt * n_delta + n_0, airsp, aoa);
-} // map_px4_to_throt
+    return mapPropSpeedToThrot(px4_throt * n_delta + n_0, airsp, aoa);
+} // mapPX4ToThrot
 
-double FwNmpc::map_throt_to_prop_speed(const double throt, const double airsp, const double aoa)
+double FwNMPC::mapThrotToPropSpeed(const double throt, const double airsp, const double aoa)
 {
     // prop speed input (converted from throttle input considering inflow and zero thrusting conditions)
 
-    double vmin, vmax, n_T0_vmin, n_T0_vmax, n_max, epsilon_T;
+    double vpmin, vpmax, n_T0_vmin, n_T0_vmax, n_max, epsilon_T;
     nmpc_.getParam("/nmpc/prop/vpmin", vpmin);           // minimum propeller inflow [m/s]
     nmpc_.getParam("/nmpc/prop/vpmax", vpmax);           // maximum propeller inflow [m/s]
     nmpc_.getParam("/nmpc/prop/n_T0_vmin", n_T0_vmin);   // zero-thrust prop speed at minimum airspeed [rps]
@@ -252,26 +278,26 @@ double FwNmpc::map_throt_to_prop_speed(const double throt, const double airsp, c
     const double sig_vp = constrain_double((vp - vpmin) / (vpmax - vpmin), 0.0, 1.0); // prop inflow linear interpolater
 
     return (n_T0_vmin + throt * (n_max - n_T0_vmin)) * (1.0 - sig_vp) + (n_T0_vmax + throt * (n_max - n_T0_vmax)) * sig_vp;
-} // map_throt_to_prop_speed
+} // mapThrotToPropSpeed
 
-double FwNmpc::map_throt_to_px4(const double throt, const double airsp, const double aoa)
+double FwNMPC::mapThrotToPX4(const double throt, const double airsp, const double aoa)
 {
     double n_0, n_max, n_delta;
     nmpc_.getParam("/nmpc/prop/n_0", n_0);               // prop speed at zero inflow and zero input [rps]
     nmpc_.getParam("/nmpc/prop/n_max", n_max);           // maximum prop speed [rps]
     nmpc_.getParam("/nmpc/prop/n_delta", n_delta);      // slope of first order prop speed to throttle input (PX4) mapping approximation
 
-    return (map_throt_to_prop_speed(throt, airsp, aoa) - n_0) / n_delta; // NOTE: this does not include dead-zone or true zero (prop may slowly spin at zero input)
-} // map_throt_to_px4
+    return (mapThrotToPropSpeed(throt, airsp, aoa) - n_0) / n_delta; // NOTE: this does not include dead-zone or true zero (prop may slowly spin at zero input)
+} // mapThrotToPX4
 
-void FwNmpc::propagate_virt_prop_speed(const double throt, const double airsp, const double aoa)
+void FwNMPC::propagateVirtPropSpeed(const double throt, const double airsp, const double aoa)
 {
     double tau_n_prop;
     nmpc_.getParam("/nmpc/od/tau_n_prop", tau_n_prop);
-    n_prop_virt_ = (map_throt_to_prop_speed(throt, airsp, aoa) - n_prop_virt_) / tau_n_prop / loop_rate_;
-} // propagate_virt_prop_speed
+    n_prop_virt_ = (mapThrotToPropSpeed(throt, airsp, aoa) - n_prop_virt_) / tau_n_prop / getLoopRate() + n_prop_virt_;
+} // propagateVirtPropSpeed
 
-double FwNmpc::unwrap_heading(double yaw)
+double FwNMPC::unwrapHeading(double yaw)
 {
     // XXX: once slip is included.. need to disambiguate heading (xi) vs yaw notation abuse here..
 
@@ -282,71 +308,71 @@ double FwNmpc::unwrap_heading(double yaw)
     }
 
     float delta_yaw = yaw - last_yaw_msg_;
-    if ( delta_yaw < -M_PI ) delta_yaw = delta_yaw + TWO_PI;
-    if ( delta_yaw > M_PI ) delta_yaw = delta_yaw - TWO_PI;
+    if ( delta_yaw < -M_PI ) delta_yaw = delta_yaw + 2.0 * M_PI;
+    if ( delta_yaw > M_PI ) delta_yaw = delta_yaw - 2.0 * M_PI;
 
     yaw = yaw + delta_yaw;
 
     last_yaw_msg_ = yaw;
     return yaw;
-} // unwrap_heading
+} // unwrapHeading
 
 /*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 /* PUBLISHERS - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 /*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-void FwNmpc::publishControls(double u_T, double phi_ref, double theta_ref)
+void FwNMPC::publishControls(const double u_T, const double phi_ref, const double theta_ref)
 {
     // thrust sp
     mavros_msgs::Thrust thrust_sp;
-    thrust_sp.thrust = constrain_double(map_throt_to_px4(u_T, acadoVariables.x[IDX_X_V], acadoVariables.x[IDX_X_THETA] - acadoVariables.x[IDX_X_GAMMA]), 0.0, 1.0);
+    thrust_sp.thrust = constrain_double(mapThrotToPX4(u_T, acadoVariables.x[IDX_X_V], acadoVariables.x[IDX_X_THETA] - acadoVariables.x[IDX_X_GAMMA]), 0.0, 1.0);
 
     thrust_pub_.publish(thrust_sp);
 
     // attitude setpoint
     geometry_msgs::PoseStamped att_sp;
     att_sp.header.frame_id = "world";
-    Eigen::AngleAxisd rollAngle(roll_ref, Eigen::Vector3d::UnitX());
-    Eigen::AngleAxisd pitchAngle(gamma_ref, Eigen::Vector3d::UnitY());
+    Eigen::AngleAxisd rollAngle(phi_ref, Eigen::Vector3d::UnitX());
+    Eigen::AngleAxisd pitchAngle(theta_ref, Eigen::Vector3d::UnitY());
     Eigen::AngleAxisd yawAngle(0.0, Eigen::Vector3d::UnitZ());
     Eigen::Quaterniond att_sp_quat_eigen = yawAngle * pitchAngle * rollAngle;
-    quaternionEigenToMsg(att_sp_quat_eigen, att_sp.pose.orientation);
+    tf::quaternionEigenToMsg(att_sp_quat_eigen, att_sp.pose.orientation);
 
     att_sp_pub_.publish(att_sp);
 } // publishControls
 
-void FwNmpc::publishNmpcInfo(ros::Time t_iter_start, uint64_t t_ctrl, uint64_t t_ext_obj, uint64_t t_solve, uint64_t t_update)
+void FwNMPC::publishNMPCInfo(ros::Time t_iter_start, uint64_t t_ctrl, uint64_t t_preeval, uint64_t t_prep, uint64_t t_fb)
 {
-    fw_ctrl::NmpcInfo nmpc_info;
+    fw_ctrl::NMPCInfo nmpc_info;
 
     // obctrl status
     nmpc_info.status = obctrl_status_;
 
     /* solver info */
-    nmpc_info.kkt = (double)getKKT();
-    nmpc_info.obj = (double)getObjective();
+    nmpc_info.kkt = (double)acado_getKKT();
+    nmpc_info.obj = (double)acado_getObjective(); // NOTE: this value will be based on the linearizations from the previous optimized states (objectives not re-pre-evaluated)
 
     // various elapsed times
-    nmpc_info.t_ctrl = t_ctrl;        // time elapsed since last control action was published (stays zero if not in auto mode)
-    nmpc_info.t_ext_obj = t_ext_obj;
-    nmpc_info.t_solve = t_solve;      // time elapsed during nmpc preparation and feedback step (solve time)
-    nmpc_info.t_update = t_update;    // time elapsed during array updates
+    nmpc_info.t_ctrl = t_ctrl;          // time elapsed since last control action was published (stays zero if not in auto mode)
+    nmpc_info.t_preeval = t_preeval;    // time elapsed during objective pre-evaluation (includes array updates etc)
+    nmpc_info.t_prep = t_prep;          // time elapsed during nmpc preparation step
+    nmpc_info.t_fb = t_fb;              // time elapsed during nmpc feedback step
 
     // nmpc iteration time in us
     ros::Duration t_elapsed = ros::Time::now() - t_iter_start;
     nmpc_info.t_iter = (uint64_t)(t_elapsed.toNSec()/1000);
 
     nmpc_info_pub_.publish(nmpc_info);
-} // publishNmpcInfo
+} // publishNMPCInfo
 
-void FwNmpc::publishNmpcStates()
+void FwNMPC::publishNMPCStates()
 {
-    fw_ctrl::NmpcMeasurements nmpc_measurements;
-    fw_ctrl::NmpcStates nmpc_states;
-    fw_ctrl::NmpcControls nmpc_controls;
-    fw_ctrl::NmpcOnlineData nmpc_online_data;
-    fw_ctrl::NmpcObjRef nmpc_obj_ref;
-    fw_ctrl::NmpcObjNRef nmpc_objN_ref;
+    fw_ctrl::NMPCMeasurements nmpc_measurements;
+    fw_ctrl::NMPCStates nmpc_states;
+    fw_ctrl::NMPCControls nmpc_controls;
+    fw_ctrl::NMPCOnlineData nmpc_online_data;
+    fw_ctrl::NMPCObjRef nmpc_obj_ref;
+    fw_ctrl::NMPCObjNRef nmpc_objN_ref;
 
     /* measurements */
     nmpc_measurements.n  = (float)x0_(0);
@@ -398,7 +424,7 @@ void FwNmpc::publishNmpcStates()
     nmpc_online_data.delta_F = (float)acadoVariables.od[IDX_OD_DELTA_F];
     for (int i=0; i<N+1; i++) { // all prior online data are held constant through the horizon
         nmpc_online_data.soft_aoa[i] = (float)acadoVariables.od[NOD * i + IDX_OD_SOFT_AOA];
-        nmpc_online_data.jac_soft_aoa_0[i][i] = (float)acadoVariables.od[NOD * i + IDX_OD_JAC_SOFT_AOA];
+        nmpc_online_data.jac_soft_aoa_0[i] = (float)acadoVariables.od[NOD * i + IDX_OD_JAC_SOFT_AOA];
         nmpc_online_data.jac_soft_aoa_1[i] = (float)acadoVariables.od[NOD * i + IDX_OD_JAC_SOFT_AOA+1];
         nmpc_online_data.soft_h[i] = (float)acadoVariables.od[NOD * i + IDX_OD_SOFT_H];
         nmpc_online_data.jac_soft_h_0[i] = (float)acadoVariables.od[NOD * i + IDX_OD_JAC_SOFT_H];
@@ -447,13 +473,13 @@ void FwNmpc::publishNmpcStates()
     nmpc_online_data_pub_.publish(nmpc_online_data);
     nmpc_obj_ref_pub_.publish(nmpc_obj_ref);
     nmpc_objN_ref_pub_.publish(nmpc_objN_ref);
-} // publishNmpcStates
+} // publishNMPCStates
 
 /*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 /* OBJECTIVE FUNCTIONS  - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 /*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-void FwNmpc::preEvaluateObjectives()
+void FwNMPC::preEvaluateObjectives()
 {
     // TODO: organize this whole thing better..
 
@@ -474,7 +500,7 @@ void FwNmpc::preEvaluateObjectives()
     evaluateExternalObjectives(terrain_data);
 } // preEvaluateObjectives
 
-void FwNmpc::updateObjectiveParameters()
+void FwNMPC::updateObjectiveParameters()
 {
     // TODO: is there a way to only run through this when we know something is updated? e.g. especially with the "log" and "division" operations in the soft constraint params..
     // XXX: THIS FUNCTION IS DISGUSTING -> CLEAN THIS UP!
@@ -523,8 +549,8 @@ void FwNmpc::updateObjectiveParameters()
         one_over_sqrt_w_h = -1.0;
     }
     else {
-        log_sqrt_w_over_sig1_h_ = log(sqrt(acadoVariables.W[NY * IDX_Y_SOFT_H + IDX_Y_SOFT_H] / sig_h_1));
-        one_over_sqrt_w_h_ = 1.0 / sqrt(acadoVariables.W[NY * IDX_Y_SOFT_H + IDX_Y_SOFT_H]);
+        log_sqrt_w_over_sig1_h = log(sqrt(acadoVariables.W[NY * IDX_Y_SOFT_H + IDX_Y_SOFT_H] / sig_h_1));
+        one_over_sqrt_w_h = 1.0 / sqrt(acadoVariables.W[NY * IDX_Y_SOFT_H + IDX_Y_SOFT_H]);
     }
 
     // soft radial terrain parameters
@@ -556,20 +582,25 @@ void FwNmpc::updateObjectiveParameters()
     /* populate (remainder of) terrain param array (XXX: used for lsq obj functions.. may want to get rid of this struct or at least index it in the future) */
     terrain_params_[2] = log_sqrt_w_over_sig1_h;
     terrain_params_[3] = one_over_sqrt_w_h;
-    terrain_params_[6] = k_r_offset / tan(constrain_double(roll_lim_, 0.01, M_PI_2)) / ONE_G; // node-wise ground speed squared is multiplied in the internal ACADO lsq objective to make a multiple of the minimum turning radius
-    terrain_params_[7] = k_delta_r / tan(constrain_double(roll_lim_, 0.01, M_PI_2)) / ONE_G; // node-wise ground speed squared is multiplied in the internal ACADO lsq objective to make a multiple of the minimum turning radius
+    //XXX: need to introduce a roll_lim_ variable at some point which can deviate from the constraints (smaller)
+    terrain_params_[6] = k_r_offset / tan(constrain_double(ub_(IDX_U_PHI_REF), 0.01, M_PI_2)) / ONE_G; // node-wise ground speed squared is multiplied in the internal ACADO lsq objective to make a multiple of the minimum turning radius
+    terrain_params_[7] = k_delta_r / tan(constrain_double(ub_(IDX_U_PHI_REF), 0.01, M_PI_2)) / ONE_G; // node-wise ground speed squared is multiplied in the internal ACADO lsq objective to make a multiple of the minimum turning radius
     terrain_params_[8] = log_sqrt_w_over_sig1_r;
     terrain_params_[9] = one_over_sqrt_w_r;
 
-    log_sqrt_w_over_sig1_r_ = log_sqrt_w_over_sig1_r; // XXX: this is currently the only one needed outside the lsq_objective.c file..
+    // XXX: these two are currently the only ones needed outside the lsq_objective.c file..
+    log_sqrt_w_over_sig1_r_ = log_sqrt_w_over_sig1_r;
+    one_over_sqrt_w_r_ = one_over_sqrt_w_r;
 
     /* guidance parameters */
-    nmpc_.getParam("/nmpc/guidance/T_lat", T_lat_);
-    nmpc_.getParam("/nmpc/guidance/T_lon", T_lon_);
-    nmpc_.getParam("/nmpc/guidance/gamma_app_max", gamma_app_max_);
-    gamma_app_max_ *= DEG_TO_RAD;
+    nmpc_.getParam("/nmpc/guidance/T_lat", guidance_params_[0]);
+    nmpc_.getParam("/nmpc/guidance/T_lon", guidance_params_[1]);
+    nmpc_.getParam("/nmpc/guidance/gamma_app_max", guidance_params_[2]);
+    guidance_params_[2] *= DEG_TO_RAD;
+    nmpc_.getParam("/nmpc/guidance/use_occ_as_guidance", guidance_params_[3]);
 
-    /* path reference */[b_n, b_e, b_d, Gamma_p, chi_p];
+
+    /* path reference */
     nmpc_.getParam("/nmpc/path/path_type", path_type_);
     nmpc_.getParam("/nmpc/path/b_n", path_reference_[0]);
     nmpc_.getParam("/nmpc/path/b_e", path_reference_[1]);
@@ -581,7 +612,7 @@ void FwNmpc::updateObjectiveParameters()
 
 } // updateObjectiveParameters
 
-void FwNmpc::shiftOcclusionSlidingWindow()
+void FwNMPC::shiftOcclusionSlidingWindow()
 {
     /* shift detection window */
     for (int i = 0; i < len_sliding_window_; ++i) {
@@ -595,10 +626,10 @@ void FwNmpc::shiftOcclusionSlidingWindow()
     }
 } // shiftOcclusionSlidingWindow
 
-void FwNmpc::castRays(const double *terrain_data)
+void FwNMPC::castRays(const double *terrain_data)
 {
     /* cast rays along ground speed vector at every node */
-    for (i = 0; i < N+1; ++i)
+    for (int i = 0; i < N+1; ++i)
     {
         /* calculate speed states */
         const double v = acadoVariables.x[i * NX + IDX_X_V];
@@ -631,10 +662,10 @@ void FwNmpc::castRays(const double *terrain_data)
     }
 } // castRays
 
-void FwNmpc::sumOcclusionDetections()
+void FwNMPC::sumOcclusionDetections()
 {
     /* sum detections on sliding horizon window for each node */
-    for (i = 0; i < ACADO_N+1; ++i)
+    for (int i = 0; i < ACADO_N+1; ++i)
     {
         /* init */
         double jac_sig_r_fwd[6] = {0.0,0.0,0.0,0.0,0.0,0.0};
@@ -654,7 +685,7 @@ void FwNmpc::sumOcclusionDetections()
         calculate_speed_states(speed_states, v, gamma, xi, w_n, w_e, w_d);
 
         /* sum detections in sliding window */
-        for (j = i; j < (i + len_sliding_window_); ++j)
+        for (int j = i; j < (i + len_sliding_window_); ++j)
         {
             if (occ_detect_slw_[j]>0) {
                 add_unit_radial_distance_and_gradient(jac_r_unit, &r_unit_min, &f_min, &occ_count,
@@ -664,7 +695,8 @@ void FwNmpc::sumOcclusionDetections()
         }
 
         /* calculate objective/jacobian */ // XXX: should probably have this encapsulated somehow
-        prio_r_fwd = 1.0;
+        double prio_r_fwd = 1.0;
+        double sig_r_fwd;
         if (occ_count>0) {
             if (f_min) {
                 // linear
@@ -702,13 +734,15 @@ void FwNmpc::sumOcclusionDetections()
     }
 } // sumOcclusionDetections
 
-void FwNmpc::evaluateExternalObjectives(const double *terrain_data)
+void FwNMPC::evaluateExternalObjectives(const double *terrain_data)
 {
     /* evaluate external objectives */
     double v_ray[3];
-    for (i = 0; i < ACADO_N +1; ++i)
+    for (int i = 0; i < ACADO_N +1; ++i)
     {
         /* soft aoa constraint */
+        double sig_aoa, prio_aoa;
+        double jac_sig_aoa[2];
         calculate_aoa_objective(&sig_aoa, jac_sig_aoa, &prio_aoa, acadoVariables.x + (i * ACADO_NX), aoa_params_);
 
         od_(IDX_OD_SOFT_AOA, i) = sig_aoa;
@@ -718,7 +752,8 @@ void FwNmpc::evaluateExternalObjectives(const double *terrain_data)
         prio_aoa_(i) = prio_aoa;
 
         /* soft height constraint */
-        double h_terr;
+        double sig_h, prio_h, h_terr;
+        double jac_sig_h[4];
         calculate_height_objective(&sig_h, jac_sig_h, &prio_h, &h_terr, acadoVariables.x + (i * ACADO_NX), terrain_params_,
                                    terr_local_origin_n_, terr_local_origin_e_, map_height_, map_width_, map_resolution_, terrain_data);
 
@@ -742,22 +777,31 @@ void FwNmpc::evaluateExternalObjectives(const double *terrain_data)
 
         /* soft radial constraint */
 
+        double dummy_pos[3];
+        double dummy_normal[3];
+
         /* left ray */
+        double sig_r_left, r_occ_left, prio_r_left, occ_detected_left;
+        double jac_sig_r_left[6];
         v_ray[0] = -speed_states[9];
         v_ray[1] = speed_states[10];
         v_ray[2] = 0.0;
-        calculate_radial_objective(&sig_r_left, jac_sig_r_left, &r_occ_left, p_occ_fwd, n_occ_fwd, &prio_r_left, &occ_detected_left,
+        calculate_radial_objective(&sig_r_left, jac_sig_r_left, &r_occ_left, dummy_pos, dummy_normal, &prio_r_left, &occ_detected_left,
                                    v_ray, acadoVariables.x + (i * ACADO_NX), speed_states, terrain_params_, terr_local_origin_n_, terr_local_origin_e_,
                                    map_height_, map_width_, map_resolution_, terrain_data);
 
         /* right ray */
+        double sig_r_right, r_occ_right, prio_r_right, occ_detected_right;
+        double jac_sig_r_right[6];
         v_ray[0] = speed_states[9];
         v_ray[1] = -speed_states[10];
         v_ray[2] = 0.0;
-        calculate_radial_objective(&sig_r_right, jac_sig_r_right, &r_occ_right, p_occ_fwd, n_occ_fwd, &prio_r_right, &occ_detected_right,
+        calculate_radial_objective(&sig_r_right, jac_sig_r_right, &r_occ_right, dummy_pos, dummy_normal, &prio_r_right, &occ_detected_right,
                                    v_ray, acadoVariables.x + (i * ACADO_NX), speed_states, terrain_params_, terr_local_origin_n_, terr_local_origin_e_,
                                    map_height_, map_width_, map_resolution_, terrain_data);
 
+        /* sum left, right, and forward detections */
+        double jac_sig_r[6];
         jac_sig_r[0] = jac_sig_r_left[0] + jac_sig_r_right[0];
         jac_sig_r[1] = jac_sig_r_left[1] + jac_sig_r_right[1];
         jac_sig_r[2] = jac_sig_r_left[2] + jac_sig_r_right[2];
@@ -765,10 +809,8 @@ void FwNmpc::evaluateExternalObjectives(const double *terrain_data)
         jac_sig_r[4] = jac_sig_r_left[4] + jac_sig_r_right[4];
         jac_sig_r[5] = jac_sig_r_left[5] + jac_sig_r_right[5];
 
-        const double sig_r = sig_r_left + sig_r_right;
-
         /* add to objective cost / jacobian */
-        od_(IDX_OD_SOFT_R, i) += sig_r;
+        od_(IDX_OD_SOFT_R, i) += sig_r_left + sig_r_right;
         od_(IDX_OD_JAC_SOFT_R, i) += jac_sig_r[0];
         od_(IDX_OD_JAC_SOFT_R+1, i) += jac_sig_r[1];
         od_(IDX_OD_JAC_SOFT_R+2, i) += jac_sig_r[2];
@@ -777,15 +819,13 @@ void FwNmpc::evaluateExternalObjectives(const double *terrain_data)
         od_(IDX_OD_JAC_SOFT_R+5, i) += jac_sig_r[5];
 
         /* prioritization */
-        occ_detected_fwd = occ_slw[(len_sliding_window_-1+i) * NOCC + OCC_DETECT_FWD];
+        double occ_detected_fwd = occ_detect_slw_[len_sliding_window_-1+i];
+        double prio_r = 1.0;
         if (!(one_over_sqrt_w_r_<0.0) && (occ_detected_fwd + occ_detected_left + occ_detected_right>0)) {
 
             /* take minimum unit radial distance */
             prio_r = (prio_r_(i, IDX_PRIO_R_FWD) < prio_r_left) ? prio_r_(i, IDX_PRIO_R_FWD) : prio_r_left;
             prio_r = (prio_r < prio_r_right) ? prio_r : prio_r_right;
-        }
-        else {
-            prio_r = 1.0;
         }
         prio_r_(i, IDX_PRIO_R_MAX) = prio_r;
         prio_r_(i, IDX_PRIO_R_LEFT) = prio_r_left;
@@ -809,7 +849,7 @@ void FwNmpc::evaluateExternalObjectives(const double *terrain_data)
     }
 } // evaluateExternalObjectives
 
-void FwNmpc::prioritizeObjectives()
+void FwNMPC::prioritizeObjectives()
 {
     // prioritizes select objectives by adapting specific weights (external to the model jacobian)
 
@@ -822,27 +862,29 @@ void FwNmpc::prioritizeObjectives()
 
     // end term objective weighting through horizon (row-major array)
     for (int j=IDX_Y_VN; j<IDX_Y_VD; j++) {
-        acadoVariables.WN[NYN*j+j] *= prio_h_(i) * prio_r_(i,IDX_PRIO_R_MAX); // de-prioritize path following objectives when near terrain
+        acadoVariables.WN[NYN*j+j] *= prio_h_(N) * prio_r_(N,IDX_PRIO_R_MAX); // de-prioritize path following objectives when near terrain
     }
 } // prioritizeObjectives
 
-void FwNmpc::filterControlReference()
+void FwNMPC::filterControlReference()
 {
-    nmpc_.getParam("/nmpc/filt/tau_u", tau_u_); // control reference time constant
+    double tau_u;
+    nmpc_.getParam("/nmpc/filt/tau_u", tau_u); // control reference time constant
 
     // first order filter on reference horizon driven by currently applied control held through horizon
-    u_ref_ = (u_ * Eigen::Matrix<double, 1, N>::Ones() - u_ref_) / tau_u_ / loop_rate_ + u_ref_;
+    u_ref_ = (u_ * Eigen::Matrix<double, 1, N>::Ones() - u_ref_) / tau_u / getLoopRate() + u_ref_;
 
 } // filterControlReference
 
-void FwNmpc::filterTerrainCostJacobian()
+void FwNMPC::filterTerrainCostJacobian()
 {
-    nmpc_.getParam("/nmpc/filt/tau_terr", tau_terr_); // terrain jacobian time constant
+    double tau_terr;
+    nmpc_.getParam("/nmpc/filt/tau_terr", tau_terr); // terrain jacobian time constant
 
     // first order filter on terrain based jacobian
     for (int i=0; i<N+1; i++) {
         for (int j=IDX_OD_OBJ; j<NOD; j++) {
-            acadoVariables.od[NOD * i + j] = (od_(j, i) - acadoVariables.od[NOD * i + j]) / tau_terr_ / loop_rate_ + acadoVariables.od[NOD * i + j];
+            acadoVariables.od[NOD * i + j] = (od_(j, i) - acadoVariables.od[NOD * i + j]) / tau_terr / getLoopRate() + acadoVariables.od[NOD * i + j];
         }
     }
 
@@ -852,7 +894,7 @@ void FwNmpc::filterTerrainCostJacobian()
 /* NMPC FUNCTIONS - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 /*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-void FwNmpc::applyControl()
+void FwNMPC::applyControl()
 {
     // apply first NU controls
     double u_T = acadoVariables.u[IDX_U_U_T];
@@ -861,7 +903,7 @@ void FwNmpc::applyControl()
     if (isnan(u_T) || isnan(phi_ref) || isnan(theta_ref)) {
         // probably solver issue
         u_T = 0.0;
-        roll_ref = 0.0;
+        phi_ref = 0.0;
         theta_ref = 0.0;
         re_init_horizon_ = true;
         obctrl_status_ = 11; // 11 (arbitrarily) for NaNs -- TODO: enumerate
@@ -869,7 +911,7 @@ void FwNmpc::applyControl()
     else {
         // constrain to bounds XXX: adapt these if necessary once we start playing with the constraints
         u_T = constrain_double(u_T, lb_(IDX_U_U_T), ub_(IDX_U_U_T));
-        roll_ref = constrain_double(roll_ref, lb_(IDX_U_PHI_REF), ub_(IDX_U_PHI_REF));
+        phi_ref = constrain_double(phi_ref, lb_(IDX_U_PHI_REF), ub_(IDX_U_PHI_REF));
         theta_ref = constrain_double(theta_ref, lb_(IDX_U_THETA_REF), ub_(IDX_U_THETA_REF));
     }
 
@@ -880,7 +922,11 @@ void FwNmpc::applyControl()
 
 int FwNMPC::nmpcIteration()
 {
+    // < -- START objective pre-evaluation timer
+    ros::Time t_iter_start = ros::Time::now();
+
     obctrl_status_ = 0;
+    ros::Duration t_elapsed;
 
     // initialize returns
     int RET[2] = {0, 0};
@@ -889,6 +935,9 @@ int FwNMPC::nmpcIteration()
     if (!offboard_mode_) re_init_horizon_ = true;
 
     /* updates */
+
+    // < -- START objective pre-evaluation timer
+    ros::Time t_preeval_start = ros::Time::now();
 
     updateAcadoX0(); // new measurements
     updateAcadoW(); // new weights (not including prioritization)
@@ -915,44 +964,58 @@ int FwNMPC::nmpcIteration()
     filterTerrainCostJacobian(); // time delayed terrain cost jacobians
     updateAcadoOD();
 
+    t_elapsed = ros::Time::now() - t_preeval_start;
+    uint64_t t_preeval = t_elapsed.toNSec()/1000;
+    // END objective pre-evaluation timer -- >
+
     /* ACADO solver functions */
 
     // SOLVER: prepare ACADO workspace for next iteration step
-    RET[0] = preparationStep();
+    // < -- START preparation step timer
+    ros::Time t_prep_start = ros::Time::now();
+    RET[0] = acado_preparationStep();
     if ( RET[0] != 0 ) {
         ROS_ERROR("nmpc iteration: preparation step error, code %d", RET[0]);
         obctrl_status_ = RET[0];
         re_init_horizon_ = true;
         first_yaw_received_ = false;
     }
+    t_elapsed = ros::Time::now() - t_prep_start;
+    uint64_t t_prep = t_elapsed.toNSec()/1000;
+    // END preparation step timer -- >
 
     // SOLVER: perform the feedback step
-    RET[1] = feedbackStep();
+    // < -- START feedback step timer
+    ros::Time t_fb_start = ros::Time::now();
+    RET[1] = acado_feedbackStep();
     if ( RET[1] != 0 ) {
         ROS_ERROR("nmpc iteration: feedback step error, code %d", RET[1]);
         obctrl_status_ = RET[1]; //TODO: find a way that doesnt overwrite the other one...
         re_init_horizon_ = true;
     }
+    t_elapsed = ros::Time::now() - t_fb_start;
+    uint64_t t_fb = t_elapsed.toNSec()/1000;
+    // END feedback step timer -- >
 
     /* publishing */
 
     // send controls to vehicle
     applyControl();
-    publishControls(u_(IDX_U_U_T), u_(IDX_U_PHI_REF), u_(IDX_U_THETA_REF));
-    ros::Duration t_elapsed = ros::Time::now() - t_lastctrl;
-    t_ctrl = t_elapsed.toNSec()/1000;
-    t_lastctrl = ros::Time::now(); // record directly after publishing control
+    if (!re_init_horizon_) publishControls(u_(IDX_U_U_T), u_(IDX_U_PHI_REF), u_(IDX_U_THETA_REF)); // don't publish if a re_init is necessary
+    t_elapsed = ros::Time::now() - t_last_ctrl_;
+    uint64_t t_ctrl = t_elapsed.toNSec()/1000;
+    t_last_ctrl_ = ros::Time::now(); // record directly after publishing control
 
     // store current nmpc states
-    publishNmpcStates();
+    publishNMPCStates();
 
     // record timing / nmpc info
-    publishNmpcInfo(t_iter_start, t_ctrl, t_ext_obj, t_solve, t_update);
+    publishNMPCInfo(t_iter_start, t_ctrl, t_preeval, t_prep, t_fb);
 
     return 0;
 } // nmpcIteration
 
-void FwNmpc::updateAcadoConstraints()
+void FwNMPC::updateAcadoConstraints()
 {
     // update hard constraints
 
@@ -973,21 +1036,21 @@ void FwNmpc::updateAcadoConstraints()
     // TODO: adapt constraints as necessary, e.g. for landing
 
     for (int i=0; i<N; i++) {
-        acadoVariables.lbValues[NU * i + IDX_U_U_T] = lb_(IDX_U_U_T));
-        acadoVariables.lbValues[NU * i + IDX_U_PHI_REF] = lb_(IDX_U_PHI_REF));
-        acadoVariables.lbValues[NU * i + IDX_U_THETA_REF] = lb_(IDX_U_THETA_REF));
+        acadoVariables.lbValues[NU * i + IDX_U_U_T] = lb_(IDX_U_U_T);
+        acadoVariables.lbValues[NU * i + IDX_U_PHI_REF] = lb_(IDX_U_PHI_REF);
+        acadoVariables.lbValues[NU * i + IDX_U_THETA_REF] = lb_(IDX_U_THETA_REF);
 
-        acadoVariables.ubValues[NU * i + IDX_U_U_T] = ub_(IDX_U_U_T));
-        acadoVariables.ubValues[NU * i + IDX_U_PHI_REF] = ub_(IDX_U_PHI_REF));
-        acadoVariables.ubValues[NU * i + IDX_U_THETA_REF] = ub_(IDX_U_THETA_REF));
+        acadoVariables.ubValues[NU * i + IDX_U_U_T] = ub_(IDX_U_U_T);
+        acadoVariables.ubValues[NU * i + IDX_U_PHI_REF] = ub_(IDX_U_PHI_REF);
+        acadoVariables.ubValues[NU * i + IDX_U_THETA_REF] = ub_(IDX_U_THETA_REF);
     }
 
 } // updateAcadoConstraints
 
-void FwNmpc::updateAcadoOD()
+void FwNMPC::updateAcadoOD()
 {
     // air density
-    od_.block(IDX_OD_RHO, 0, 1, N+1) = Eigen::Matrix<double, 1, N+1>::Ones() * calc_air_density();
+    od_.block(IDX_OD_RHO, 0, 1, N+1) = Eigen::Matrix<double, 1, N+1>::Ones() * calcAirDensity();
 
     // wind
     od_.block(IDX_OD_W, 0, 3, N+1) = x0_wind_ * Eigen::Matrix<double, 1, N+1>::Ones();
@@ -1008,14 +1071,14 @@ void FwNmpc::updateAcadoOD()
     od_.block(IDX_OD_TAU_N, 0, 1, N+1) = Eigen::Matrix<double, 1, N+1>::Ones() * temp_param;
 
     // symmetric flaps setting
-    od_.block(IDX_OD_DELTA_F, 0, 1, N+1) = Eigen::Matrix<double, 1, N+1>::Ones() * flaps_to_rad(flaps_normalized_);
+    od_.block(IDX_OD_DELTA_F, 0, 1, N+1) = Eigen::Matrix<double, 1, N+1>::Ones() * flapsToRad(flaps_normalized_);
 
     // NOTE: pre-evaluated objectives/jacobians set in updateAcadoODObjectives -- this should be run BEFORE this update function
 
     Eigen::Map<Eigen::Matrix<double, NOD, N+1>>(const_cast<double*>(acadoVariables.od)) = od_;
 } // updateAcadoOD
 
-void FwNmpc::updateAcadoW()
+void FwNMPC::updateAcadoW()
 {
     // NOTE: this does not yet include any weight priorities
 
@@ -1063,7 +1126,7 @@ void FwNmpc::updateAcadoW()
 
 } // updateAcadoW
 
-void FwNmpc::updateAcadoX0()
+void FwNMPC::updateAcadoX0()
 {
     /* ASSUMPTIONS:
      * - yaw is assumed = to heading (i.e. no sideslip)
@@ -1077,24 +1140,24 @@ void FwNmpc::updateAcadoX0()
     Eigen::Vector3d airsp_vec = x0_vel_ - x0_wind_;
     const double airsp = airsp_vec.norm();
     double airsp_thres;
-    nmpc_.getParam("/nmpc/veh/airsp_thres", airsp_thres)
+    nmpc_.getParam("/nmpc/veh/airsp_thres", airsp_thres);
     if (airsp < airsp_thres) {
         // airspeed is too low - bound it to minimum value
         x0_(IDX_X_V) = airsp_thres;
         if (airsp < 0.1) { // XXX: magic number
             // if reeeally zero - define airspeed vector in yaw direction with zero flight path angle
             x0_(IDX_X_GAMMA) = 0.0; // flight path angle
-            x0_(IDX_X_XI) = unwrap_heading(x0_euler_(2)); // heading
+            x0_(IDX_X_XI) = unwrapHeading(x0_euler_(2)); // heading
         }
         else {
             x0_(IDX_X_GAMMA) = -asin(airsp_vec(2)/airsp); // flight path angle
-            x0_(IDX_X_XI) = unwrap_heading(atan2(airsp_vec(1),airsp_vec(0))); // heading
+            x0_(IDX_X_XI) = unwrapHeading(atan2(airsp_vec(1),airsp_vec(0))); // heading
         }
     }
     else {
         x0_(IDX_X_V) = airsp; // airspeed
         x0_(IDX_X_GAMMA) = -asin(airsp_vec(2)/airsp); // flight path angle
-        x0_(IDX_X_XI) = unwrap_heading(atan2(airsp_vec(1),airsp_vec(0))); // heading
+        x0_(IDX_X_XI) = unwrapHeading(atan2(airsp_vec(1),airsp_vec(0))); // heading
     }
 
     // attitude
@@ -1104,23 +1167,24 @@ void FwNmpc::updateAcadoX0()
     // prop speed
     if (re_init_horizon_) {
         // take current state
-        const double throt = map_px4_to_throt(px4_throt_, airsp, x0_(IDX_X_THETA) - x0_(IDX_X_GAMMA));
-        n_prop_virt_ = map_throt_to_prop_speed(throt, airsp, x0_(IDX_X_THETA) - x0_(IDX_X_GAMMA));
+        const double throt = mapPX4ToThrot(px4_throt_, airsp, x0_(IDX_X_THETA) - x0_(IDX_X_GAMMA));
+        n_prop_virt_ = mapThrotToPropSpeed(throt, airsp, x0_(IDX_X_THETA) - x0_(IDX_X_GAMMA));
     }
     else {
         // propagate from last state
-        propagate_virt_prop_speed(u_(IDX_U_U_T), acadoVariables.x[IDX_X_V], acadoVariables.x[IDX_X_THETA] - acadoVariables.x[IDX_X_GAMMA]);
+        propagateVirtPropSpeed(u_(IDX_U_U_T), acadoVariables.x[IDX_X_V], acadoVariables.x[IDX_X_THETA] - acadoVariables.x[IDX_X_GAMMA]);
     }
     x0_(IDX_X_NPROP) = n_prop_virt_;
 
     Eigen::Map<Eigen::Matrix<double, NX, 1>>(const_cast<double*>(acadoVariables.x0)) = x0_;
 } // updateAcadoX0
 
-void FwNmpc::updateAcadoY()
+void FwNMPC::updateAcadoY()
 {
     // NOTE: run AFTER pre-evaluation of objectives
 
     // airspeed reference
+    double airsp_ref;
     nmpc_.getParam("/nmpc/y_ref/v",airsp_ref);
     y_.block(IDX_Y_V, 0, 1, N) = Eigen::Matrix<double, 1, N>::Ones() * airsp_ref;
     yN_(IDX_Y_V) = airsp_ref;
@@ -1146,7 +1210,7 @@ void FwNmpc::updateAcadoY()
 /* INITIALIZATION - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 /*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-void FwNmpc::initAcadoVars()
+void FwNMPC::initACADOVars()
 {
     x0_pos_.setZero();
     x0_vel_ << 15.0, 0.0, 0.0;
@@ -1162,21 +1226,18 @@ void FwNmpc::initAcadoVars()
     w_.setZero();
     od_.setZero();
 
-    occ_detect_slw_.setZero();
-    occ_slw_.setZero();
+    for (int i = 0; i < N+LEN_SLIDING_WINDOW_MAX; ++i) occ_detect_slw_[i] = 0;
+    for (int i = 0; i < ((N+LEN_SLIDING_WINDOW_MAX) * NOCC); ++i) occ_slw_[i] = 0.0;
 
     updateAcadoX0();
     updateAcadoConstraints();
     updateAcadoW();
     updateAcadoOD();
     updateAcadoY();
-} // initAcadoVars
+} // initACADOVars
 
-void FwNmpc::initHorizon()
+void FwNMPC::initHorizon()
 {
-    // initialize solver
-    int RET = acado_initializeSolver();
-
     if (re_init_horizon_) {
         // we are re-initializing the horizon possibly in-air, propagate current state measurements forward
 
@@ -1184,7 +1245,7 @@ void FwNmpc::initHorizon()
 
             // propagate position linearly at current ground velocity
             for (int j = IDX_X_POS; j < IDX_X_POS+3; ++j) {
-                acadoVariables.x[NX * i + j] = x0_pos_(j) + x0_vel_(j) * t_step_ * i;
+                acadoVariables.x[NX * i + j] = x0_pos_(j) + x0_vel_(j) * getTimeStep() * i;
             }
 
             // hold velocity axis constant through horizon
@@ -1199,8 +1260,8 @@ void FwNmpc::initHorizon()
             acadoVariables.x[NX * i + IDX_X_THETA] = pitch;
 
             // hold current throttle constant through horizon
-            double throt = map_px4_to_throt(px4_throt_, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
-            double n_prop = map_throt_to_prop_speed(throt, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
+            double throt = mapPX4ToThrot(px4_throt_, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
+            double n_prop = mapThrotToPropSpeed(throt, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
             acadoVariables.x[NX * i + IDX_X_NPROP] = n_prop;
 
             // controls
@@ -1211,7 +1272,7 @@ void FwNmpc::initHorizon()
 
         // propagate position linearly at current ground velocity
         for (int j = IDX_X_POS; j < IDX_X_POS+3; ++j) {
-            acadoVariables.x[NX * N + j] = x0_pos_(j) + x0_vel_(j) * t_step_ * N;
+            acadoVariables.x[NX * N + j] = x0_pos_(j) + x0_vel_(j) * getTimeStep() * N;
         }
 
         // hold velocity axis constant through horizon
@@ -1226,8 +1287,8 @@ void FwNmpc::initHorizon()
         acadoVariables.x[NX * N + IDX_X_THETA] = pitch;
 
         // hold current throttle constant through horizon
-        double throt = map_px4_to_throt(px4_throt_, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
-        double n_prop = map_throt_to_prop_speed(throt, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
+        double throt = mapPX4ToThrot(px4_throt_, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
+        double n_prop = mapThrotToPropSpeed(throt, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
         acadoVariables.x[NX * N + IDX_X_NPROP] = n_prop;
 
         ROS_ERROR("re-init horizon: propagate states with zero attitude reference and constant throttle through horizon");
@@ -1239,7 +1300,7 @@ void FwNmpc::initHorizon()
 
             // propagate position linearly at current ground velocity
             for (int j = IDX_X_POS; j < IDX_X_POS+3; ++j) {
-                acadoVariables.x[NX * i + j] = x0_pos_(j) + x0_vel_(j) * t_step_ * i;
+                acadoVariables.x[NX * i + j] = x0_pos_(j) + x0_vel_(j) * getTimeStep() * i;
             }
 
             // hold velocity axis constant through horizon
@@ -1262,7 +1323,7 @@ void FwNmpc::initHorizon()
 
         // propagate position linearly at current ground velocity
         for (int j = IDX_X_POS; j < IDX_X_POS+3; ++j) {
-            acadoVariables.x[NX * N + j] = x0_pos_(j) + x0_vel_(j) * t_step_ * N;
+            acadoVariables.x[NX * N + j] = x0_pos_(j) + x0_vel_(j) * getTimeStep() * N;
         }
 
         // hold velocity axis constant through horizon
@@ -1282,26 +1343,26 @@ void FwNmpc::initHorizon()
 
 } // initHorizon
 
-int FwNmpc::initNMPC()
+int FwNMPC::initNMPC()
 {
-    nmpc_.getParam("/nmpc/loop_rate", loop_rate_);   // iteration loop rate [Hz]
-    nmpc_.getParam("/nmpc/time_step", t_step_);      // get model discretization step [s]
-
     /* initialize ACADO variables */
-    initAcadoVars();
+    initACADOVars();
     ROS_ERROR("init nmpc: NMPC states initialized");
 
     /* initialize the solver */
+    int RET = acado_initializeSolver();
+
+    /* initialize the horizon */ //XXX: should this be before initializing the solver? will this anyway happen again in the first time through the iteration loop?
     initHorizon();
 
     return RET;
-}
+} // initNMPC
 
 /*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 /* ROS NODE FUNCTIONS - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 /*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
-void FwNmpc::shutdown() {
+void FwNMPC::shutdown() {
     ROS_INFO("Shutting down NMPC...");
     ros::shutdown();
 } // shutdown
@@ -1311,7 +1372,7 @@ int main(int argc, char **argv)
 
     /* initialize node */
     ros::init(argc, argv, "fw_nmpc");
-    fw_nmpc::FwNmpc nmpc;
+    fw_nmpc::FwNMPC nmpc;
 
     ros::spinOnce();
 
@@ -1319,7 +1380,7 @@ int main(int argc, char **argv)
     nmpc.checkSubs();
 
     /* initialize states, params, and solver */
-    int ret = nmpc.initNmpc();
+    int ret = nmpc.initNMPC();
     if (ret != 0) {
         ROS_ERROR("init nmpc: error in qpOASES QP solver.");
         return 1;
@@ -1328,7 +1389,7 @@ int main(int argc, char **argv)
     /*
      * nmpc loop
      */
-    ros::Rate nmpc_rate(loop_rate_);
+    ros::Rate nmpc_rate(nmpc.getLoopRate());
     ROS_ERROR("fw nmpc: entering NMPC loop");
     while (ros::ok()) {
 
