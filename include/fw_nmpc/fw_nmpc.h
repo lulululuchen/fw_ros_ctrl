@@ -57,6 +57,7 @@
 #include <sensor_msgs/Imu.h>
 #include <sensor_msgs/Temperature.h>
 #include <sensor_msgs/FluidPressure.h>
+#include <std_msgs/Float32.h>
 #include <std_msgs/Float64.h>
 #include <std_msgs/Int32.h>
 
@@ -83,6 +84,7 @@
 #define N ACADO_N       // Number of intervals in the horizon
 #define NOCC 6          // Number of stored occlusion attributes
 
+#define MAX_SIZE_TERR_ARRAY 300000      // maximum allowed size of the local terrain map
 #define LEN_SLIDING_WINDOW_MAX ACADO_N  // maximum length of sliding window
 #define MIN_EXPONENTIAL_COST 1.0e-5     // minimum exponential cost at input arg = 1 (for soft constraints)
 
@@ -90,6 +92,7 @@ ACADOvariables acadoVariables;
 ACADOworkspace acadoWorkspace;
 
 #define DEG_TO_RAD 0.017453292519943    // degrees to radians XXX: is there really no other function already built in for this?
+#define EPSILON 0.000001                // used for triangle checks
 
 #define AIR_GAS_CONST 287.1             // [J/(kg*K)]
 #define ABSOLUTE_NULL_CELSIUS -273.15   // [C]
@@ -128,7 +131,7 @@ enum IndexOutputs {
     IDX_Y_U_T,
     IDX_Y_PHI_REF,
     IDX_Y_THETA_REF
-} // outputs
+}; // outputs
 
 enum IndexOnlineData {
     IDX_OD_RHO = 0, // online parameters
@@ -158,7 +161,7 @@ enum IndexRadialOcclusionPriorities {
     IDX_PRIO_R_FWD,
     IDX_PRIO_R_LEFT,
     IDX_PRIO_R_RIGHT
-} // radial occlusion priorities
+}; // radial occlusion priorities
 
 /*
  * @brief fw_nmpc class
@@ -173,7 +176,7 @@ public:
 
     /* callbacks */
     void actCb(const mavros_msgs::ActuatorControl::ConstPtr& msg);
-    void gridMapCb(const grid_map_msgs::GridMap::ConstPtr& msg);
+    void gridMapCb(const grid_map_msgs::GridMap& msg);
     void homePosCb(const mavros_msgs::HomePosition::ConstPtr& msg);
     void imuCb(const sensor_msgs::Imu::ConstPtr& msg);
     void localPosCb(const geometry_msgs::PoseStamped::ConstPtr& msg);
@@ -192,6 +195,8 @@ public:
     double getLoopRate();
     double getTimeStep();
 
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
 private:
 
     /* node handles */
@@ -204,7 +209,7 @@ private:
     ros::Subscriber imu_sub_;
     ros::Subscriber local_pos_sub_;
     ros::Subscriber local_vel_sub_;
-    ros::Subscriber static_pres_sub_
+    ros::Subscriber static_pres_sub_;
     ros::Subscriber sys_status_sub_;
     ros::Subscriber temp_c_sub_;
     ros::Subscriber wind_est_sub_;
@@ -223,8 +228,17 @@ private:
 
     /* functions */
 
+    // math functions //XXX: these are duplicates from lsq_objective.c .. find a way to share.
+    int constrain_int(int x, int xmin, int xmax);
+    double constrain_double(double x, double xmin, double xmax);
+    void cross(double *v, const double v1[3], const double v2[3]);
+    double dot(const double v1[3], const double v2[3]);
+
     // helper functions
     double calcAirDensity();
+    void calculate_speed_states(double *speed_states,
+            const double v, const double gamma, const double xi,
+            const double w_n, const double w_e, const double w_d); //XXX: another duplicate
     double flapsToRad(const double flaps_normalized);
     double mapPropSpeedToThrot(const double n_prop, const double airsp, const double aoa);
     double mapPX4ToThrot(const double px4_throt, const double airsp, const double aoa);
@@ -246,6 +260,59 @@ private:
     void sumOcclusionDetections();
     void evaluateExternalObjectives(const double *terrain_data);
     void prioritizeObjectives();
+    void lookup_terrain_idx(const double pos_n, const double pos_e, const double pos_n_origin,
+                            const double pos_e_origin, const int map_height, const int map_width,
+                            const double map_resolution, int *idx_q, double *dn, double *de);
+    int intersect_triangle(double *d_occ, double *p_occ, double *n_occ,
+                           const double r0[3], const double v_ray[3],
+                           const double p1[3], const double p2[3], const double p3[3], const int v_dir);
+    int castray(double *r_occ, double *p_occ, double *n_occ, double *p1, double *p2, double *p3,
+                const double r0[3], const double r1[3], const double v[3],
+                const double pos_n_origin, const double pos_e_origin, const int map_height,
+                const int map_width, const double map_resolution, const double *terr_map);
+    void calculate_velocity_reference(double *v_ref, double *e_lat, double *e_lon,
+                                      const double *states,
+                                      const double *path_reference,
+                                      const double *guidance_params,
+                                      const double *speed_states,
+                                      const double *jac_sig_r,
+                                      const double prio_r,
+                                      const int path_type);
+    void jacobian_sig_h_lin(double *jac,
+                          const double de, const double delta_h, const double delta_y,
+                          const double  h1, const double h12, const double h2,
+                          const double h3, const double h34, const double h4,
+                          const double log_sqrt_w_over_sig1_h, const double sgn_e,
+                          const double sgn_n, const double map_resolution, const double xi);
+    void jacobian_sig_h_exp(double *jac,
+                          const double de, const double delta_h, const double delta_y,
+                          const double h1, const double h12, const double h2, const double h3,
+                          const double h34, const double h4, const double log_sqrt_w_over_sig1_h,
+                          const double sgn_e, const double sgn_n, const double sig_h,
+                          const double map_resolution, const double xi);
+    void jacobian_r_unit(double *jac,
+                      const double delta_r, const double gamma, const double k_delta_r, const double k_r_offset,
+                      const double n_occ_e, const double n_occ_h, const double n_occ_n,
+                      const double r_unit, const double v,
+                      const double v_ray_e, const double v_ray_h, const double v_ray_n,
+                      const double v_rel, const double xi);
+    void calculate_aoa_objective(double *sig_aoa, double *jac_sig_aoa, double *prio_aoa,
+                                 const double *states, const double *aoa_params);
+    void calculate_height_objective(double *sig_h, double *jac_sig_h, double *prio_h, double *h_terr,
+                                    const double *states, const double *terr_params, const double terr_local_origin_n,
+                                    const double terr_local_origin_e, const int map_height, const int map_width,
+                                    const double map_resolution, const double *terr_map);
+    void calculate_radial_objective(double *sig_r, double *jac_sig_r, double *r_occ,
+                                    double *p_occ, double *n_occ, double *prio_r, int *occ_detected,
+                                    const double *v_ray, const double *states, const double *speed_states,
+                                    const double *terr_params, const double terr_local_origin_n, const double terr_local_origin_e,
+                                    const int map_height, const int map_width, const double map_resolution, const double *terr_map);
+    void add_unit_radial_distance_and_gradient(double *jac_r_unit, double *r_unit_min, bool *f_min, int *occ_count,
+            double *p_occ, double *n_occ, const double *states, const double *speed_states, const double *terr_params);
+    void get_occ_along_gsp_vec(double *p_occ, double *n_occ, double *r_occ, int *occ_detected,
+                               const double *states, const double *speed_states, const double *terr_params,
+                               const double terr_local_origin_n, const double terr_local_origin_e,
+                               const int map_height, const int map_width, const double map_resolution, const double *terr_map);
     void filterControlReference();
     void filterTerrainCostJacobian();
 
@@ -285,6 +352,7 @@ private:
 
     /* grid map */
     grid_map::GridMap terrain_map_;
+    double terr_array_[MAX_SIZE_TERR_ARRAY];
     double terr_local_origin_n_;
     double terr_local_origin_e_;
     int map_height_;
@@ -292,16 +360,16 @@ private:
     double map_resolution_;
 
     /* solver matrices */
-    Eigen::Map<Eigen::Matrix<double, ACADO_NX, 1>> x0_;             // measured states
-    Eigen::Map<Eigen::Matrix<double, ACADO_NU, 1>> u_;              // currently applied controls
-    Eigen::Map<Eigen::Matrix<double, ACADO_NU, ACADO_N>> u_ref_;    // control reference horizon
-    Eigen::Map<Eigen::Matrix<double, ACADO_NY, ACADO_N>> y_;        // objective references
-    Eigen::Map<Eigen::Matrix<double, ACADO_NYN, 1>> yN_;            // end term objective references
-    Eigen::Map<Eigen::Matrix<double, ACADO_NY, 1>> inv_y_scale_sq_; // inverse output scale squared diagonal
-    Eigen::Map<Eigen::Matrix<double, ACADO_NY, 1>> w_;              // weight diagonal
-    Eigen::Map<Eigen::Matrix<double, ACADO_NOD, ACADO_N>> od_;      // online data
-    Eigen::Map<Eigen::Matrix<double, ACADO_NU, 1> > lb_;            // lower bound of control constraints
-    Eigen::Map<Eigen::Matrix<double, ACADO_NU, 1> > ub_;            // upper bound of control constraints
+    Eigen::Matrix<double, ACADO_NX, 1> x0_;             // measured states
+    Eigen::Matrix<double, ACADO_NU, 1> u_;              // currently applied controls
+    Eigen::Matrix<double, ACADO_NU, ACADO_N> u_ref_;    // control reference horizon
+    Eigen::Matrix<double, ACADO_NY, ACADO_N> y_;        // objective references
+    Eigen::Matrix<double, ACADO_NYN, 1> yN_;            // end term objective references
+    Eigen::Matrix<double, ACADO_NY, 1> inv_y_scale_sq_; // inverse output scale squared diagonal
+    Eigen::Matrix<double, ACADO_NY, 1> w_;              // weight diagonal
+    Eigen::Matrix<double, ACADO_NOD, ACADO_N+1> od_;    // online data
+    Eigen::Matrix<double, ACADO_NU, 1> lb_;             // lower bound of control constraints
+    Eigen::Matrix<double, ACADO_NU, 1> ub_;             // upper bound of control constraints
 
     /* sliding window of occlusions */
     int len_sliding_window_;
@@ -322,9 +390,9 @@ private:
     int path_type_;             // 0 = constant altitude loiter, 1 = line
 
     /* objective priorities */
-    Eigen::Map<Eigen::Matrix<double, ACADO_N+1, 1>> prio_aoa_;  // soft angle of attack priority
-    Eigen::Map<Eigen::Matrix<double, ACADO_N+1, 1>> prio_h_;    // soft nadir terrain priority
-    Eigen::Map<Eigen::Matrix<double, ACADO_N+1, 4>> prio_r_;    // soft radial terrain priority
+    Eigen::Matrix<double, ACADO_N+1, 1> prio_aoa_;  // soft angle of attack priority
+    Eigen::Matrix<double, ACADO_N+1, 1> prio_h_;    // soft nadir terrain priority
+    Eigen::Matrix<double, ACADO_N+1, 4> prio_r_;    // soft radial terrain priority
 
     /* timing */
     ros::Time t_last_ctrl_; // time since last control action [s]
