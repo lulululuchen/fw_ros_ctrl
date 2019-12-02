@@ -4,9 +4,9 @@
 
   <arg name="general_topics" value="/mavros/global_position/global /mavros/global_position/local /mavros/aslctrl/data /mavros/aslekf_extended /mavros/aslctrl/debug" />
 
-  <arg name="nmpc_topics" value="/nmpc/acado_vars /nmpc/info /mavros/nmpc_params /nmpc/asl_obctrl" />
+  <arg name="nmpc_topics" value="/nmpc/controls /nmpc/info /nmpc/measurements /nmpc/objN_ref /nmpc/obj_ref /nmpc/online_data /nmpc/states" />
 
-  <arg name="mission_items" value="/mavros/mission/waypoints /mavros/mission/current_wp /mavros/home_position" />
+  <arg name="mission_items" value="/mavros/home_position" />
 
   <arg name="recorded_topics" value="$(arg general_topics) $(arg nmpc_topics) $(arg mission_items)" />
 
