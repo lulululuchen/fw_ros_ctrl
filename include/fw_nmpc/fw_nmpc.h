@@ -78,9 +78,9 @@
 
 #define NX ACADO_NX     // Number of differential state variables
 #define NU ACADO_NU     // Number of control inputs
-#define NOD	ACADO_NOD   // Number of online data values
+#define NOD ACADO_NOD   // Number of online data values
 #define NY ACADO_NY     // Number of measurements/references on nodes 0..N - 1
-#define NYN	ACADO_NYN   // Number of measurements/references on node N
+#define NYN ACADO_NYN   // Number of measurements/references on node N
 #define N ACADO_N       // Number of intervals in the horizon
 #define NOCC 6          // Number of stored occlusion attributes
 
@@ -236,9 +236,7 @@ private:
 
     // helper functions
     double calcAirDensity();
-    void calculate_speed_states(double *speed_states,
-            const double v, const double gamma, const double xi,
-            const double w_n, const double w_e, const double w_d); //XXX: another duplicate
+    void calculate_speed_states(double *speed_states, const double v, const double gamma, const double xi, const double w_n, const double w_e, const double w_d); //XXX: another duplicate
     double flapsToRad(const double flaps_normalized);
     double mapPropSpeedToThrot(const double n_prop, const double airsp, const double aoa);
     double mapPX4ToThrot(const double px4_throt, const double airsp, const double aoa);
@@ -260,59 +258,18 @@ private:
     void sumOcclusionDetections();
     void evaluateExternalObjectives(const double *terrain_data);
     void prioritizeObjectives();
-    void lookup_terrain_idx(const double pos_n, const double pos_e, const double pos_n_origin,
-                            const double pos_e_origin, const int map_height, const int map_width,
-                            const double map_resolution, int *idx_q, double *dn, double *de);
-    int intersect_triangle(double *d_occ, double *p_occ, double *n_occ,
-                           const double r0[3], const double v_ray[3],
-                           const double p1[3], const double p2[3], const double p3[3], const int v_dir);
-    int castray(double *r_occ, double *p_occ, double *n_occ, double *p1, double *p2, double *p3,
-                const double r0[3], const double r1[3], const double v[3],
-                const double pos_n_origin, const double pos_e_origin, const int map_height,
-                const int map_width, const double map_resolution, const double *terr_map);
-    void calculate_velocity_reference(double *v_ref, double *e_lat, double *e_lon,
-                                      const double *states,
-                                      const double *path_reference,
-                                      const double *guidance_params,
-                                      const double *speed_states,
-                                      const double *jac_sig_r,
-                                      const double prio_r,
-                                      const int path_type);
-    void jacobian_sig_h_lin(double *jac,
-                          const double de, const double delta_h, const double delta_y,
-                          const double  h1, const double h12, const double h2,
-                          const double h3, const double h34, const double h4,
-                          const double log_sqrt_w_over_sig1_h, const double sgn_e,
-                          const double sgn_n, const double map_resolution, const double xi);
-    void jacobian_sig_h_exp(double *jac,
-                          const double de, const double delta_h, const double delta_y,
-                          const double h1, const double h12, const double h2, const double h3,
-                          const double h34, const double h4, const double log_sqrt_w_over_sig1_h,
-                          const double sgn_e, const double sgn_n, const double sig_h,
-                          const double map_resolution, const double xi);
-    void jacobian_r_unit(double *jac,
-                      const double delta_r, const double gamma, const double k_delta_r, const double k_r_offset,
-                      const double n_occ_e, const double n_occ_h, const double n_occ_n,
-                      const double r_unit, const double v,
-                      const double v_ray_e, const double v_ray_h, const double v_ray_n,
-                      const double v_rel, const double xi);
-    void calculate_aoa_objective(double *sig_aoa, double *jac_sig_aoa, double *prio_aoa,
-                                 const double *states, const double *aoa_params);
-    void calculate_height_objective(double *sig_h, double *jac_sig_h, double *prio_h, double *h_terr,
-                                    const double *states, const double *terr_params, const double terr_local_origin_n,
-                                    const double terr_local_origin_e, const int map_height, const int map_width,
-                                    const double map_resolution, const double *terr_map);
-    void calculate_radial_objective(double *sig_r, double *jac_sig_r, double *r_occ,
-                                    double *p_occ, double *n_occ, double *prio_r, int *occ_detected,
-                                    const double *v_ray, const double *states, const double *speed_states,
-                                    const double *terr_params, const double terr_local_origin_n, const double terr_local_origin_e,
-                                    const int map_height, const int map_width, const double map_resolution, const double *terr_map);
-    void add_unit_radial_distance_and_gradient(double *jac_r_unit, double *r_unit_min, bool *f_min, int *occ_count,
-            double *p_occ, double *n_occ, const double *states, const double *speed_states, const double *terr_params);
-    void get_occ_along_gsp_vec(double *p_occ, double *n_occ, double *r_occ, int *occ_detected,
-                               const double *states, const double *speed_states, const double *terr_params,
-                               const double terr_local_origin_n, const double terr_local_origin_e,
-                               const int map_height, const int map_width, const double map_resolution, const double *terr_map);
+    void lookup_terrain_idx(const double pos_n, const double pos_e, const double pos_n_origin, const double pos_e_origin, const int map_height, const int map_width, const double map_resolution, int *idx_q, double *dn, double *de);
+    int intersect_triangle(double *d_occ, double *p_occ, double *n_occ, const double r0[3], const double v_ray[3], const double p1[3], const double p2[3], const double p3[3], const int v_dir);
+    int castray(double *r_occ, double *p_occ, double *n_occ, double *p1, double *p2, double *p3, const double r0[3], const double r1[3], const double v[3], const double pos_n_origin, const double pos_e_origin, const int map_height, const int map_width, const double map_resolution, const double *terr_map);
+    void calculate_velocity_reference(double *v_ref, double *e_lat, double *e_lon, const double *states, const double *path_reference, const double *guidance_params, const double *speed_states, const double *jac_sig_r, const double prio_r, const int path_type);
+    void jacobian_sig_h_lin(double *jac, const double de, const double delta_h, const double delta_y, const double  h1, const double h12, const double h2, const double h3, const double h34, const double h4, const double log_sqrt_w_over_sig1_h, const double sgn_e, const double sgn_n, const double map_resolution, const double xi);
+    void jacobian_sig_h_exp(double *jac, const double de, const double delta_h, const double delta_y, const double h1, const double h12, const double h2, const double h3, const double h34, const double h4, const double log_sqrt_w_over_sig1_h, const double sgn_e, const double sgn_n, const double sig_h, const double map_resolution, const double xi);
+    void jacobian_r_unit(double *jac, const double delta_r, const double gamma, const double k_delta_r, const double k_r_offset, const double n_occ_e, const double n_occ_h, const double n_occ_n, const double r_unit, const double v, const double v_ray_e, const double v_ray_h, const double v_ray_n, const double v_rel, const double xi);
+    void calculate_aoa_objective(double *sig_aoa, double *jac_sig_aoa, double *prio_aoa, const double *states, const double *aoa_params);
+    void calculate_height_objective(double *sig_h, double *jac_sig_h, double *prio_h, double *h_terr, const double *states, const double *terr_params, const double terr_local_origin_n, const double terr_local_origin_e, const int map_height, const int map_width, const double map_resolution, const double *terr_map);
+    void calculate_radial_objective(double *sig_r, double *jac_sig_r, double *r_occ, double *p_occ, double *n_occ, double *prio_r, int *occ_detected, const double *v_ray, const double *states, const double *speed_states, const double *terr_params, const double terr_local_origin_n, const double terr_local_origin_e, const int map_height, const int map_width, const double map_resolution, const double *terr_map);
+    void add_unit_radial_distance_and_gradient(double *jac_r_unit, double *r_unit_min, bool *f_min, int *occ_count, double *p_occ, double *n_occ, const double *states, const double *speed_states, const double *terr_params);
+    void get_occ_along_gsp_vec(double *p_occ, double *n_occ, double *r_occ, int *occ_detected, const double *states, const double *speed_states, const double *terr_params, const double terr_local_origin_n, const double terr_local_origin_e, const int map_height, const int map_width, const double map_resolution, const double *terr_map);
     void filterControlReference();
     void filterTerrainCostJacobian();
 
