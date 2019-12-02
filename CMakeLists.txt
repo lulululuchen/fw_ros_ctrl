@@ -6,12 +6,28 @@ set(CMAKE_BUILD_TYPE Release)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -fno-aggressive-loop-optimizations")
 
 find_package(catkin REQUIRED COMPONENTS
-  roscpp std_msgs mavros
+  roscpp std_msgs mavros message_generation grid_map_core grid_map_ros
+)
+
+add_message_files(
+  FILES
+  NMPCControls.msg
+  NMPCInfo.msg
+  NMPCMeasurements.msg
+  NMPCObjNRef.msg
+  NMPCObjRef.msg
+  NMPCOnlineData.msg
+  NMPCStates.msg
+)
+
+generate_messages(
+  DEPENDENCIES
+  std_msgs
 )
 
 catkin_package(
   INCLUDE_DIRS include ${catkin_INCLUDE_DIRS}
-  CATKIN_DEPENDS roscpp std_msgs mavros
+  CATKIN_DEPENDS roscpp std_msgs mavros message_runtime grid_map_core grid_map_ros
 )
 
 include_directories(
@@ -39,27 +55,14 @@ add_library(fw_nmpc_lib
   src/acado_solver/qpoases/SRC/SubjectTo.cpp
   src/acado_solver/qpoases/SRC/Utils.cpp
   src/acado_solver/qpoases/SRC/EXTRAS/SolutionAnalysis.cpp
-)
-
-add_library(fw_sim_lib
-  src/fw_sim.cpp
+  src/acado_solver/lsq_objective.c
 )
 
 add_executable(fw_nmpc
   src/fw_nmpc.cpp
 )
 
-add_executable(fw_sim
-  src/fw_sim.cpp
-)
-
 target_link_libraries(fw_nmpc
   fw_nmpc_lib
-  ${catkin_LIBRARIES} 
+  ${catkin_LIBRARIES}
 )
-
-target_link_libraries(fw_sim
-  fw_sim_lib
-  ${catkin_LIBRARIES} 
-)
-
