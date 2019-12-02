@@ -2631,7 +2631,7 @@ void FwNMPC::updateAcadoConstraints()
 void FwNMPC::updateAcadoOD()
 {
     // air density
-    od_.block(IDX_OD_RHO, 0, 1, N+1) = Eigen::Matrix<double, 1, N+1>::Ones() * calcAirDensity();
+    od_.block(IDX_OD_RHO, 0, 1, N+1).setConstant(calcAirDensity());
 
     // wind
     od_.block(IDX_OD_W, 0, 3, N+1) = x0_wind_ * Eigen::Matrix<double, 1, N+1>::Ones();
@@ -2639,20 +2639,20 @@ void FwNMPC::updateAcadoOD()
     // control-augmented model dynamics
     double temp_param;
     nmpc_.getParam("/nmpc/od/tau_phi", temp_param);
-    od_.block(IDX_OD_TAU_PHI, 0, 1, N+1) = Eigen::Matrix<double, 1, N+1>::Ones() * temp_param;
+    od_.block(IDX_OD_TAU_PHI, 0, 1, N+1).setConstant(temp_param);
     nmpc_.getParam("/nmpc/od/tau_theta", temp_param);
-    od_.block(IDX_OD_TAU_THETA, 0, 1, N+1) = Eigen::Matrix<double, 1, N+1>::Ones() * temp_param;
+    od_.block(IDX_OD_TAU_THETA, 0, 1, N+1).setConstant(temp_param);
     nmpc_.getParam("/nmpc/od/k_phi", temp_param);
-    od_.block(IDX_OD_K_PHI, 0, 1, N+1) = Eigen::Matrix<double, 1, N+1>::Ones() * temp_param;
+    od_.block(IDX_OD_K_PHI, 0, 1, N+1).setConstant(temp_param);
     nmpc_.getParam("/nmpc/od/k_theta", temp_param);
-    od_.block(IDX_OD_K_THETA, 0, 1, N+1) = Eigen::Matrix<double, 1, N+1>::Ones() * temp_param;
+    od_.block(IDX_OD_K_THETA, 0, 1, N+1).setConstant(temp_param);
 
     // prop delay
     nmpc_.getParam("/nmpc/od/tau_n", temp_param);
-    od_.block(IDX_OD_TAU_N, 0, 1, N+1) = Eigen::Matrix<double, 1, N+1>::Ones() * temp_param;
+    od_.block(IDX_OD_TAU_N, 0, 1, N+1).setConstant(temp_param);
 
     // symmetric flaps setting
-    od_.block(IDX_OD_DELTA_F, 0, 1, N+1) = Eigen::Matrix<double, 1, N+1>::Ones() * flapsToRad(flaps_normalized_);
+    od_.block(IDX_OD_DELTA_F, 0, 1, N+1).setConstant(flapsToRad(flaps_normalized_));
 
     // NOTE: pre-evaluated objectives/jacobians set in updateAcadoODObjectives -- this should be run BEFORE this update function
 
@@ -2767,7 +2767,7 @@ void FwNMPC::updateAcadoY()
     // airspeed reference
     double airsp_ref;
     nmpc_.getParam("/nmpc/y_ref/v",airsp_ref);
-    y_.block(IDX_Y_V, 0, 1, N) = Eigen::Matrix<double, 1, N>::Ones() * airsp_ref;
+    y_.block(IDX_Y_V, 0, 1, N).setConstant(airsp_ref);
     yN_(IDX_Y_V) = airsp_ref;
 
     // attitude reference
