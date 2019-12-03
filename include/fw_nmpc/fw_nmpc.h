@@ -54,6 +54,7 @@
 #include <mavros_msgs/ActuatorControl.h>
 #include <mavros_msgs/HomePosition.h>
 #include <mavros_msgs/State.h>
+#include <nav_msgs/Path.h>
 #include <sensor_msgs/Imu.h>
 #include <sensor_msgs/Temperature.h>
 #include <sensor_msgs/FluidPressure.h>
@@ -194,6 +195,7 @@ public:
     /* gets */
     double getLoopRate();
     double getTimeStep();
+    bool getVizEnabled();
 
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
@@ -223,6 +225,7 @@ private:
     ros::Publisher nmpc_online_data_pub_;
     ros::Publisher nmpc_obj_ref_pub_;
     ros::Publisher nmpc_objN_ref_pub_;
+    ros::Publisher nmpc_traj_pred_pub_;
     ros::Publisher obctrl_status_pub_;
     ros::Publisher thrust_pub_;
 
@@ -249,6 +252,7 @@ private:
     void publishControls(const double u_T, const double phi_ref, const double theta_ref);
     void publishNMPCInfo(ros::Time t_iter_start, uint64_t t_ctrl, uint64_t t_preeval, uint64_t t_prep, uint64_t t_fb);
     void publishNMPCStates();
+    void publishNMPCVisualizations();
 
     // objective functions
     void preEvaluateObjectives();

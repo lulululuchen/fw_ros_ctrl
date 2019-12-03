@@ -101,13 +101,14 @@ FwNMPC::FwNMPC() :
 
     /* publishers */
     att_sp_pub_ = nmpc_.advertise<geometry_msgs::PoseStamped>("/mavros/setpoint_attitude/attitude", 1);
-    nmpc_info_pub_ = nmpc_.advertise<fw_ctrl::NMPCInfo>("/nmpc/info",10,true);
-    nmpc_meas_pub_  = nmpc_.advertise<fw_ctrl::NMPCMeasurements>("/nmpc/measurements",10,true);
-    nmpc_states_pub_  = nmpc_.advertise<fw_ctrl::NMPCStates>("/nmpc/states",10,true);
-    nmpc_controls_pub_  = nmpc_.advertise<fw_ctrl::NMPCControls>("/nmpc/controls",10,true);
-    nmpc_online_data_pub_  = nmpc_.advertise<fw_ctrl::NMPCOnlineData>("/nmpc/online_data",10,true);
-    nmpc_obj_ref_pub_  = nmpc_.advertise<fw_ctrl::NMPCObjRef>("/nmpc/obj_ref",10,true);
-    nmpc_objN_ref_pub_  = nmpc_.advertise<fw_ctrl::NMPCObjNRef>("/nmpc/objN_ref",10,true);
+    nmpc_info_pub_ = nmpc_.advertise<fw_ctrl::NMPCInfo>("/nmpc/info",10);
+    nmpc_meas_pub_ = nmpc_.advertise<fw_ctrl::NMPCMeasurements>("/nmpc/measurements",10);
+    nmpc_states_pub_ = nmpc_.advertise<fw_ctrl::NMPCStates>("/nmpc/states",10);
+    nmpc_controls_pub_ = nmpc_.advertise<fw_ctrl::NMPCControls>("/nmpc/controls",10);
+    nmpc_online_data_pub_ = nmpc_.advertise<fw_ctrl::NMPCOnlineData>("/nmpc/online_data",10);
+    nmpc_obj_ref_pub_ = nmpc_.advertise<fw_ctrl::NMPCObjRef>("/nmpc/obj_ref",10);
+    nmpc_objN_ref_pub_ = nmpc_.advertise<fw_ctrl::NMPCObjNRef>("/nmpc/objN_ref",10);
+    nmpc_traj_pred_pub_ = nmpc_.advertise<nav_msgs::Path>("/nmpc/traj_pred",1);
     obctrl_status_pub_ = nmpc_.advertise<std_msgs::Int32>("/nmpc/status", 1);
     thrust_pub_ = nmpc_.advertise<std_msgs::Float32>("/mavros/setpoint_attitude/thrust", 1);
 }
@@ -228,7 +229,7 @@ void FwNMPC::checkSubs()
 double FwNMPC::getLoopRate()
 {
     double loop_rate;
-    nmpc_.getParam("/nmpc/loop_rate", loop_rate);   // iteration loop rate [Hz]
+    nmpc_.getParam("/nmpc/loop_rate", loop_rate); // iteration loop rate [Hz]
 
     return loop_rate;
 } // getLoopRate
@@ -236,9 +237,17 @@ double FwNMPC::getLoopRate()
 double FwNMPC::getTimeStep()
 {
     double t_step;
-    nmpc_.getParam("/nmpc/time_step", t_step);      // get model discretization step [s]
+    nmpc_.getParam("/nmpc/time_step", t_step); // get model discretization step [s]
 
     return t_step;
+} // getTimeStep
+
+bool FwNMPC::getVizEnabled()
+{
+    int en;
+    nmpc_.getParam("/nmpc/viz/enable", en); // get model discretization step [s]
+
+    return en;
 } // getTimeStep
 
 /* / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /*/
@@ -453,41 +462,41 @@ void FwNMPC::publishNMPCStates()
     fw_ctrl::NMPCObjNRef nmpc_objN_ref;
 
     /* measurements */
-    nmpc_measurements.n  = (float)x0_(0);
-    nmpc_measurements.e  = (float)x0_(1);
-    nmpc_measurements.d  = (float)x0_(2);
-    nmpc_measurements.v  = (float)x0_(3);
-    nmpc_measurements.gamma  = (float)x0_(4);
-    nmpc_measurements.xi  = (float)x0_(5);
-    nmpc_measurements.phi  = (float)x0_(6);
-    nmpc_measurements.theta  = (float)x0_(7);
-    nmpc_measurements.n_prop  = (float)x0_(8);
+    nmpc_measurements.n = (float)x0_(0);
+    nmpc_measurements.e = (float)x0_(1);
+    nmpc_measurements.d = (float)x0_(2);
+    nmpc_measurements.v = (float)x0_(3);
+    nmpc_measurements.gamma = (float)x0_(4);
+    nmpc_measurements.xi = (float)x0_(5);
+    nmpc_measurements.phi = (float)x0_(6);
+    nmpc_measurements.theta = (float)x0_(7);
+    nmpc_measurements.n_prop = (float)x0_(8);
 
     /* state/control horizons */
     for (int i=0; i<N; i++) {
-        nmpc_states.n[i]  = (float)acadoVariables.x[NX * i + IDX_X_POS];
-        nmpc_states.e[i]  = (float)acadoVariables.x[NX * i + IDX_X_POS+1];
-        nmpc_states.d[i]  = (float)acadoVariables.x[NX * i + IDX_X_POS+2];
-        nmpc_states.v[i]  = (float)acadoVariables.x[NX * i + IDX_X_V];
+        nmpc_states.n[i] = (float)acadoVariables.x[NX * i + IDX_X_POS];
+        nmpc_states.e[i] = (float)acadoVariables.x[NX * i + IDX_X_POS+1];
+        nmpc_states.d[i] = (float)acadoVariables.x[NX * i + IDX_X_POS+2];
+        nmpc_states.v[i] = (float)acadoVariables.x[NX * i + IDX_X_V];
         nmpc_states.gamma[i]  = (float)acadoVariables.x[NX * i + IDX_X_GAMMA];
-        nmpc_states.xi[i]  = (float)acadoVariables.x[NX * i + IDX_X_XI];
-        nmpc_states.phi[i]  = (float)acadoVariables.x[NX * i + IDX_X_PHI];
-        nmpc_states.theta[i]  = (float)acadoVariables.x[NX * i + IDX_X_THETA];
-        nmpc_states.n_prop[i]  = (float)acadoVariables.x[NX * i + IDX_X_NPROP];
+        nmpc_states.xi[i] = (float)acadoVariables.x[NX * i + IDX_X_XI];
+        nmpc_states.phi[i] = (float)acadoVariables.x[NX * i + IDX_X_PHI];
+        nmpc_states.theta[i] = (float)acadoVariables.x[NX * i + IDX_X_THETA];
+        nmpc_states.n_prop[i] = (float)acadoVariables.x[NX * i + IDX_X_NPROP];
 
         nmpc_controls.u_T[i] = (float)acadoVariables.u[NU * i + IDX_U_U_T];
         nmpc_controls.phi_ref[i] = (float)acadoVariables.u[NU * i + IDX_U_PHI_REF];
         nmpc_controls.theta_ref[i] = (float)acadoVariables.u[NU * i + IDX_U_THETA_REF];
     }
-    nmpc_states.n[N]  = (float)acadoVariables.x[NX * N + IDX_X_POS];
-    nmpc_states.e[N]  = (float)acadoVariables.x[NX * N + IDX_X_POS+1];
-    nmpc_states.d[N]  = (float)acadoVariables.x[NX * N + IDX_X_POS+2];
-    nmpc_states.v[N]  = (float)acadoVariables.x[NX * N + IDX_X_V];
-    nmpc_states.gamma[N]  = (float)acadoVariables.x[NX * N + IDX_X_GAMMA];
-    nmpc_states.xi[N]  = (float)acadoVariables.x[NX * N + IDX_X_XI];
-    nmpc_states.phi[N]  = (float)acadoVariables.x[NX * N + IDX_X_PHI];
-    nmpc_states.theta[N]  = (float)acadoVariables.x[NX * N + IDX_X_THETA];
-    nmpc_states.n_prop[N]  = (float)acadoVariables.x[NX * N + IDX_X_NPROP];
+    nmpc_states.n[N] = (float)acadoVariables.x[NX * N + IDX_X_POS];
+    nmpc_states.e[N] = (float)acadoVariables.x[NX * N + IDX_X_POS+1];
+    nmpc_states.d[N] = (float)acadoVariables.x[NX * N + IDX_X_POS+2];
+    nmpc_states.v[N] = (float)acadoVariables.x[NX * N + IDX_X_V];
+    nmpc_states.gamma[N] = (float)acadoVariables.x[NX * N + IDX_X_GAMMA];
+    nmpc_states.xi[N] = (float)acadoVariables.x[NX * N + IDX_X_XI];
+    nmpc_states.phi[N] = (float)acadoVariables.x[NX * N + IDX_X_PHI];
+    nmpc_states.theta[N] = (float)acadoVariables.x[NX * N + IDX_X_THETA];
+    nmpc_states.n_prop[N] = (float)acadoVariables.x[NX * N + IDX_X_NPROP];
 
     /* online data */
     nmpc_online_data.rho = (float)acadoVariables.od[IDX_OD_RHO];
@@ -552,6 +561,26 @@ void FwNMPC::publishNMPCStates()
     nmpc_obj_ref_pub_.publish(nmpc_obj_ref);
     nmpc_objN_ref_pub_.publish(nmpc_objN_ref);
 } // publishNMPCStates
+
+void FwNMPC::publishNMPCVisualizations()
+{
+    // publish msgs for rviz visualization
+
+    // predicted poses (converted to robotic frame)
+    nav_msgs::Path nmpc_traj_pred;
+    nmpc_traj_pred.header.frame_id = "world";
+    nmpc_traj_pred.poses = std::vector<geometry_msgs::PoseStamped>(N+1);
+    for (int i=0; i<N+1; i++) {
+        nmpc_traj_pred.poses[i].pose.position.x = acadoVariables.x[NX * i + IDX_X_POS];
+        nmpc_traj_pred.poses[i].pose.position.y = -acadoVariables.x[NX * i + IDX_X_POS+1];
+        nmpc_traj_pred.poses[i].pose.position.z = -acadoVariables.x[NX * i + IDX_X_POS+2];
+        Eigen::Quaterniond q = Eigen::AngleAxisd(acadoVariables.x[NX * i + IDX_X_PHI], Eigen::Vector3d::UnitX())
+            * Eigen::AngleAxisd(acadoVariables.x[NX * i + IDX_X_THETA], Eigen::Vector3d::UnitY())
+            * Eigen::AngleAxisd(acadoVariables.x[NX * i + IDX_X_XI], Eigen::Vector3d::UnitZ());
+        tf::quaternionEigenToMsg(q, nmpc_traj_pred.poses[i].pose.orientation);
+    }
+    nmpc_traj_pred_pub_.publish(nmpc_traj_pred);
+} // publishNMPCVisualizations
 
 /* / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /*/
 /* OBJECTIVE PRE-EVALUATION FUNCTIONS  / / / / / / / / / / / / / / / / / / / /*/
@@ -741,7 +770,7 @@ void FwNMPC::castRays(const double *terrain_data)
 void FwNMPC::sumOcclusionDetections()
 {
     /* sum detections on sliding horizon window for each node */
-    for (int i = 0; i < ACADO_N+1; ++i)
+    for (int i = 0; i < N+1; ++i)
     {
         /* init */
         double jac_sig_r_fwd[6] = {0.0,0.0,0.0,0.0,0.0,0.0};
@@ -2592,6 +2621,9 @@ int FwNMPC::nmpcIteration()
 
     // record timing / nmpc info
     publishNMPCInfo(t_iter_start, t_ctrl, t_preeval, t_prep, t_fb);
+
+    // publish visualization msgs
+    if (getVizEnabled()) publishNMPCVisualizations();
 
     return 0;
 } // nmpcIteration

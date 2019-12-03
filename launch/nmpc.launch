@@ -5,6 +5,9 @@
     <param name="/nmpc/loop_rate" type="double" value="10.0" />                    <!-- iteration loop rate [Hz] -->
     <param name="/nmpc/time_step" type="double" value="0.1" />                     <!-- NMPC time step (node discretization) [s] -->
 
+    <!-- visualization parameters -->
+    <param name="/nmpc/viz/enable" type="int" value="0" />                         <!-- enable visualization in rviz (1: enabled, 0: disabled) -->
+
     <!-- path reference parameters -->
     <param name="/nmpc/path/path_type" type="int" value="0" />                     <!-- path type, 0: const. alt. loiter; 1: line -->
     <param name="/nmpc/path/b_n" type="double" value="0.0" />                      <!-- path northing origin [m] -->
