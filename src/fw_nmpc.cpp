@@ -2612,7 +2612,7 @@ int FwNMPC::nmpcIteration()
     ros::Duration t_elapsed;
 
     // initialize returns
-    int RET[2] = {0, 0};
+    int ret[2] = {0, 0};
 
     // check offboard status
     if (!offboard_mode_) re_init_horizon_ = true;
@@ -2625,11 +2625,22 @@ int FwNMPC::nmpcIteration()
     updateAcadoX0(); // new measurements
     updateAcadoW(); // new weights (not including prioritization)
     updateAcadoConstraints(); // new constraints
-    if (!re_init_horizon_)  filterControlReference(); // from previously applied control
 
+    // check if something went wrong..
+    int ret_solver = 0;
     if (re_init_horizon_) {
-        initHorizon();
-        re_init_horizon_ = false;
+        ret_solver = acado_initializeSolver(); // XXX: should this be placed inside the initHorizon function? .. seems initHorizon is only ever used when the solver also needs re-initialization
+        if (ret_solver) {
+            initHorizon();
+            re_init_horizon_ = false;
+        }
+        else {
+            return ret_solver;
+        }
+    }
+    else {
+        // only filter the control reference when we are not re-initializing (i.e. there exists a "previous" control ref to filter)
+        filterControlReference(); // from previously applied control
     }
 
     /* objective pre-evaluation */
@@ -2656,10 +2667,10 @@ int FwNMPC::nmpcIteration()
     // SOLVER: prepare ACADO workspace for next iteration step
     // < -- START preparation step timer
     ros::Time t_prep_start = ros::Time::now();
-    RET[0] = acado_preparationStep();
-    if ( RET[0] != 0 ) {
-        ROS_ERROR("nmpc iteration: preparation step error, code %d", RET[0]);
-        obctrl_status_ = RET[0];
+    ret[0] = acado_preparationStep();
+    if ( ret[0] != 0 ) {
+        ROS_ERROR("nmpc iteration: preparation step error, code %d", ret[0]);
+        obctrl_status_ = ret[0];
         re_init_horizon_ = true;
         first_yaw_received_ = false;
     }
@@ -2670,11 +2681,12 @@ int FwNMPC::nmpcIteration()
     // SOLVER: perform the feedback step
     // < -- START feedback step timer
     ros::Time t_fb_start = ros::Time::now();
-    RET[1] = acado_feedbackStep();
-    if ( RET[1] != 0 ) {
-        ROS_ERROR("nmpc iteration: feedback step error, code %d", RET[1]);
-        obctrl_status_ = RET[1]; //TODO: find a way that doesnt overwrite the other one...
+    ret[1] = acado_feedbackStep();
+    if ( ret[1] != 0 ) {
+        ROS_ERROR("nmpc iteration: feedback step error, code %d", ret[1]);
+        obctrl_status_ = ret[1]; //TODO: find a way that doesnt overwrite the other one...
         re_init_horizon_ = true;
+        first_yaw_received_ = false; //TODO: organize these resets better.. avoid duplication
     }
     t_elapsed = ros::Time::now() - t_fb_start;
     uint64_t t_fb = t_elapsed.toNSec()/1000;
@@ -2698,7 +2710,7 @@ int FwNMPC::nmpcIteration()
     // publish visualization msgs
     if (getVizEnabled()) publishNMPCVisualizations();
 
-    return 0;
+    return ret_solver;
 } // nmpcIteration
 
 void FwNMPC::updateAcadoConstraints()
@@ -3085,7 +3097,7 @@ int main(int argc, char **argv)
         /* nmpc iteration step */
         ret = nmpc.nmpcIteration();
         if (ret != 0) {
-            ROS_ERROR("nmpc iteration: error in qpOASES QP solver.");
+            ROS_ERROR("nmpc iteration: error in qpOASES QP solver."); //TODO: include other failure type (e.g. not a solver problem but maybe time out on others) + more descriptive error message
             return 1;
         }
 
