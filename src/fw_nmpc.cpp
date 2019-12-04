@@ -589,7 +589,7 @@ void FwNMPC::publishNMPCVisualizations()
         int maker_counter = 0;
         for (int i=0; i<(ACADO_N+LEN_SLIDING_WINDOW_MAX) * NOCC; i++) {
             if (occ_detect_slw_[i]>0) {
-                ros::Duration lifetime(getTimeStep());
+                ros::Duration lifetime(getLoopRate());
 
                 // define surface normal marker (arrow)
                 visualization_msgs::Marker surf_normal;
