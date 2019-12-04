@@ -74,6 +74,7 @@ FwNMPC::FwNMPC() :
     lb_(Eigen::Matrix<double, ACADO_NU, 1>::Zero()),
     ub_(Eigen::Matrix<double, ACADO_NU, 1>::Zero()),
     len_sliding_window_(10),
+    occ_count_total_(0),
     log_sqrt_w_over_sig1_r_(1.0),
     one_over_sqrt_w_r_(1.0),
     path_error_lat_(0.0),
@@ -108,6 +109,7 @@ FwNMPC::FwNMPC() :
     nmpc_online_data_pub_ = nmpc_.advertise<fw_ctrl::NMPCOnlineData>("/nmpc/online_data",10);
     nmpc_obj_ref_pub_ = nmpc_.advertise<fw_ctrl::NMPCObjRef>("/nmpc/obj_ref",10);
     nmpc_objN_ref_pub_ = nmpc_.advertise<fw_ctrl::NMPCObjNRef>("/nmpc/objN_ref",10);
+    nmpc_occ_detect_pub_ = nmpc_.advertise<visualization_msgs::MarkerArray>("/nmpc/occ_detect",1);
     nmpc_traj_pred_pub_ = nmpc_.advertise<nav_msgs::Path>("/nmpc/traj_pred",1);
     obctrl_status_pub_ = nmpc_.advertise<std_msgs::Int32>("/nmpc/status", 1);
     thrust_pub_ = nmpc_.advertise<std_msgs::Float32>("/mavros/setpoint_attitude/thrust", 1);
@@ -580,6 +582,74 @@ void FwNMPC::publishNMPCVisualizations()
         tf::quaternionEigenToMsg(q, nmpc_traj_pred.poses[i].pose.orientation);
     }
     nmpc_traj_pred_pub_.publish(nmpc_traj_pred);
+
+    // occlusion detections XXX: for now only forward detections ... TODO: add side detections
+    if (occ_count_total_>0) {
+        visualization_msgs::MarkerArray occ_detections;
+        int maker_counter = 0;
+        for (int i=0; i<(ACADO_N+LEN_SLIDING_WINDOW_MAX) * NOCC; i++) {
+            if (occ_detect_slw_[i]>0) {
+                ros::Duration lifetime(getTimeStep());
+
+                // define surface normal marker (arrow)
+                visualization_msgs::Marker surf_normal;
+                surf_normal.header.frame_id = "world";
+                surf_normal.header.stamp = ros::Time();
+                surf_normal.ns = "surface_normals";
+                surf_normal.id = maker_counter;
+                surf_normal.type = visualization_msgs::Marker::ARROW;
+                surf_normal.action = visualization_msgs::Marker::ADD;
+                surf_normal.pose.position.x = occ_slw_[i * NOCC + IDX_OCC_POS];
+                surf_normal.pose.position.y = -occ_slw_[i * NOCC + IDX_OCC_POS+1];
+                surf_normal.pose.position.z = -occ_slw_[i * NOCC + IDX_OCC_POS+2];
+                Eigen::Vector3d v(occ_slw_[i * NOCC + IDX_OCC_NORMAL+1], -occ_slw_[i * NOCC + IDX_OCC_NORMAL+1], -occ_slw_[i * NOCC + IDX_OCC_NORMAL+2]); // ENU
+                Eigen::Quaterniond q;
+                q.setFromTwoVectors(Eigen::Vector3d::UnitZ(), v);
+                tf::quaternionEigenToMsg(q, surf_normal.pose.orientation);
+                surf_normal.scale.x = 1.0; // marker length
+                surf_normal.scale.y = 0.1; // arrow width
+                surf_normal.scale.z = 0.1; // arrow height
+                surf_normal.color.a = 1.0; // alpha
+                surf_normal.color.r = 1.0;
+                surf_normal.color.g = 0.0;
+                surf_normal.color.b = 0.0;
+                surf_normal.lifetime = lifetime;
+
+                // push back surface normal marker
+                occ_detections.markers.push_back(surf_normal);
+
+                maker_counter++;
+
+                // define surface plane marker (flat cylinder)
+                visualization_msgs::Marker surf_plane;
+                surf_plane.header.frame_id = "world";
+                surf_plane.header.stamp = ros::Time();
+                surf_plane.ns = "surface_normals";
+                surf_plane.id = maker_counter;
+                surf_plane.type = visualization_msgs::Marker::CYLINDER;
+                surf_plane.action = visualization_msgs::Marker::ADD;
+                surf_plane.pose.position.x = occ_slw_[i * NOCC + IDX_OCC_POS];
+                surf_plane.pose.position.y = -occ_slw_[i * NOCC + IDX_OCC_POS+1];
+                surf_plane.pose.position.z = -occ_slw_[i * NOCC + IDX_OCC_POS+2];
+                tf::quaternionEigenToMsg(q, surf_plane.pose.orientation);
+                surf_plane.scale.x = 1.0; // cylinder width
+                surf_plane.scale.y = 1.0; // cylinder width 2
+                surf_plane.scale.z = 0.1; // cylinder height
+                surf_plane.color.a = 1.0; // alpha
+                surf_plane.color.r = 1.0;
+                surf_plane.color.g = 0.0;
+                surf_plane.color.b = 0.0;
+                surf_plane.lifetime = lifetime;
+
+                // push back surface normal marker
+                occ_detections.markers.push_back(surf_plane);
+
+                maker_counter++;
+            }
+        }
+        // TODO: would be nice to use TRIANGLE_LIST and show the actual full triangle detection from the mesh (would need to store the vertices in the obj pre-eval)
+        nmpc_occ_detect_pub_.publish(occ_detections);
+    }
 } // publishNMPCVisualizations
 
 /* / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /*/
@@ -769,6 +839,8 @@ void FwNMPC::castRays(const double *terrain_data)
 
 void FwNMPC::sumOcclusionDetections()
 {
+    occ_count_total_ = 0; // re-init count total
+
     /* sum detections on sliding horizon window for each node */
     for (int i = 0; i < N+1; ++i)
     {
@@ -798,12 +870,13 @@ void FwNMPC::sumOcclusionDetections()
                                                       acadoVariables.x + (i * NX), speed_states, terrain_params_);
             }
         }
+        occ_count_total_ += occ_count;
 
         /* calculate objective/jacobian */ // XXX: should probably have this encapsulated somehow
         double prio_r_fwd = 1.0;
         double sig_r_fwd;
         if (occ_count>0) {
-            if (f_min) {
+            if (f_min) { // TODO: better variable name for f_min ..
                 // linear
                 sig_r_fwd = 1.0 - log_sqrt_w_over_sig1_r_ * r_unit_min;
                 jac_sig_r_fwd[0] = -log_sqrt_w_over_sig1_r_ * jac_r_unit[0] / occ_count;

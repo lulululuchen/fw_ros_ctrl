@@ -61,6 +61,8 @@
 #include <std_msgs/Float32.h>
 #include <std_msgs/Float64.h>
 #include <std_msgs/Int32.h>
+#include <visualization_msgs/Marker.h>
+#include <visualization_msgs/MarkerArray.h>
 
 // Grid map
 #include <grid_map_ros/grid_map_ros.hpp>
@@ -225,6 +227,7 @@ private:
     ros::Publisher nmpc_online_data_pub_;
     ros::Publisher nmpc_obj_ref_pub_;
     ros::Publisher nmpc_objN_ref_pub_;
+    ros::Publisher nmpc_occ_detect_pub_;
     ros::Publisher nmpc_traj_pred_pub_;
     ros::Publisher obctrl_status_pub_;
     ros::Publisher thrust_pub_;
@@ -333,9 +336,10 @@ private:
     Eigen::Matrix<double, ACADO_NU, 1> ub_;             // upper bound of control constraints
 
     /* sliding window of occlusions */
-    int len_sliding_window_;
+    int len_sliding_window_;                                    // sliding window length
     int occ_detect_slw_[ACADO_N+LEN_SLIDING_WINDOW_MAX];        // sliding window of occlusion detections (row-major format)
     double occ_slw_[(ACADO_N+LEN_SLIDING_WINDOW_MAX) * NOCC];   // sliding window of occlusion attributes (row-major format)
+    int occ_count_total_;                                       // total number of occlusion detections
 
     /* parameters */
     double guidance_params_[5];         // guidance parameters
