@@ -197,7 +197,8 @@ public:
     /* gets */
     double getLoopRate();
     double getTimeStep();
-    bool getVizEnabled();
+    bool getVizStatus();
+    bool getGhostStatus();
 
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 

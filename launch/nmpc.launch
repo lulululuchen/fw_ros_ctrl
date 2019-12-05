@@ -1,6 +1,9 @@
 <launch>
     <node name="nmpc" pkg="fw_ctrl" type="fw_nmpc"/>
 
+    <!-- state machine -->
+    <param name="/nmpc/enable_ghost" type="int" value="1" />                       <!-- run nmpc in background (1), or dont (0) -->
+
     <!-- timing parameters -->
     <param name="/nmpc/loop_rate" type="double" value="10.0" />                    <!-- iteration loop rate [Hz] -->
     <param name="/nmpc/time_step" type="double" value="0.1" />                     <!-- NMPC time step (node discretization) [s] -->

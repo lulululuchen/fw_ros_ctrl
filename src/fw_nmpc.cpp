@@ -244,13 +244,21 @@ double FwNMPC::getTimeStep()
     return t_step;
 } // getTimeStep
 
-bool FwNMPC::getVizEnabled()
+bool FwNMPC::getVizStatus()
 {
     int en;
-    nmpc_.getParam("/nmpc/viz/enable", en); // get model discretization step [s]
+    nmpc_.getParam("/nmpc/viz/enable", en); // get visualization status
 
     return en;
-} // getTimeStep
+} // getVizStatus
+
+bool FwNMPC::getGhostStatus()
+{
+    int en;
+    nmpc_.getParam("/nmpc/enable_ghost", en); // get ghost status
+
+    return en;
+} // getGhostStatus
 
 /* / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /*/
 /* MATH FUNCTIONS  / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /*/
@@ -773,7 +781,6 @@ void FwNMPC::updateObjectiveParameters()
     nmpc_.getParam("/nmpc/guidance/gamma_app_max", guidance_params_[2]);
     guidance_params_[2] *= DEG_TO_RAD;
     nmpc_.getParam("/nmpc/guidance/use_occ_as_guidance", guidance_params_[3]);
-
 
     /* path reference */
     nmpc_.getParam("/nmpc/path/path_type", path_type_);
@@ -2615,7 +2622,7 @@ int FwNMPC::nmpcIteration()
     int ret[2] = {0, 0};
 
     // check offboard status
-    if (!offboard_mode_) re_init_horizon_ = true;
+    if (!(offboard_mode_ || getGhostStatus())) re_init_horizon_ = true;
 
     /* updates */
 
@@ -2708,7 +2715,7 @@ int FwNMPC::nmpcIteration()
     publishNMPCInfo(t_iter_start, t_ctrl, t_preeval, t_prep, t_fb);
 
     // publish visualization msgs
-    if (getVizEnabled()) publishNMPCVisualizations();
+    if (getVizStatus()) publishNMPCVisualizations();
 
     return ret_solver;
 } // nmpcIteration
