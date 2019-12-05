@@ -2590,7 +2590,7 @@ void FwNMPC::applyControl()
     double u_T = acadoVariables.u[IDX_U_U_T];
     double phi_ref = acadoVariables.u[IDX_U_PHI_REF];
     double theta_ref = acadoVariables.u[IDX_U_THETA_REF];
-    if (isnan(u_T) || isnan(phi_ref) || isnan(theta_ref)) {
+    if (std::isnan(u_T) || std::isnan(phi_ref) || std::isnan(theta_ref)) {
         // probably solver issue
         u_T = 0.0;
         phi_ref = 0.0;
