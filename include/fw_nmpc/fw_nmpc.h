@@ -54,6 +54,7 @@
 #include <mavros_msgs/ActuatorControl.h>
 #include <mavros_msgs/HomePosition.h>
 #include <mavros_msgs/State.h>
+#include <mavros_msgs/Thrust.h>
 #include <nav_msgs/Path.h>
 #include <sensor_msgs/Imu.h>
 #include <sensor_msgs/Temperature.h>

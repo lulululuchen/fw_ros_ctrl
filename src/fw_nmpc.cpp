@@ -91,13 +91,13 @@ FwNMPC::FwNMPC() :
     /* subscribers */
     act_sub_ = nmpc_.subscribe("/mavros/target_actuator_control", 1, &FwNMPC::actCb, this);
     grid_map_sub_ = nmpc_.subscribe("/elevation_mapper/map_mpc", 1, &FwNMPC::gridMapCb, this);
-    home_pos_sub_ = nmpc_.subscribe("/mavros/home_position", 1, &FwNMPC::homePosCb, this);
+    home_pos_sub_ = nmpc_.subscribe("/mavros/home_position/home", 1, &FwNMPC::homePosCb, this);
     imu_sub_ = nmpc_.subscribe("/mavros/imu/data", 1, &FwNMPC::imuCb, this);
     local_pos_sub_ = nmpc_.subscribe("/mavros/local_position/pose", 1, &FwNMPC::localPosCb, this);
     local_vel_sub_ = nmpc_.subscribe("/mavros/local_position/velocity", 1, &FwNMPC::localVelCb, this);
-    static_pres_sub_ = nmpc_.subscribe("/mavros/static_pressure", 1, &FwNMPC::staticPresCb, this);
+    static_pres_sub_ = nmpc_.subscribe("/mavros/imu/static_pressure", 1, &FwNMPC::staticPresCb, this);
     sys_status_sub_ = nmpc_.subscribe("/mavros/state", 1, &FwNMPC::sysStatusCb, this);
-    temp_c_sub_ = nmpc_.subscribe("/mavros/temperature_baro", 1, &FwNMPC::tempCCb, this);
+    temp_c_sub_ = nmpc_.subscribe("/mavros/imu/temperature_imu", 1, &FwNMPC::tempCCb, this);
     wind_est_sub_ = nmpc_.subscribe("/mavros/wind_estimation", 1, &FwNMPC::windEstCb, this);
 
     /* publishers */
@@ -112,7 +112,7 @@ FwNMPC::FwNMPC() :
     nmpc_occ_detect_pub_ = nmpc_.advertise<visualization_msgs::MarkerArray>("/nmpc/occ_detect",1);
     nmpc_traj_pred_pub_ = nmpc_.advertise<nav_msgs::Path>("/nmpc/traj_pred",1);
     obctrl_status_pub_ = nmpc_.advertise<std_msgs::Int32>("/nmpc/status", 1);
-    thrust_pub_ = nmpc_.advertise<std_msgs::Float32>("/mavros/setpoint_attitude/thrust", 1);
+    thrust_pub_ = nmpc_.advertise<mavros_msgs::Thrust>("/mavros/setpoint_attitude/thrust", 1);
 }
 
 /* / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /*/
