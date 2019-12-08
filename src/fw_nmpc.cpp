@@ -83,7 +83,10 @@ FwNMPC::FwNMPC() :
     prio_aoa_(Eigen::Matrix<double, ACADO_N+1, 1>::Ones()),
     prio_h_(Eigen::Matrix<double, ACADO_N+1, 1>::Ones()),
     prio_r_(Eigen::Matrix<double, ACADO_N+1, 4>::Ones()),
-    obctrl_status_(0),
+    px4_connected_(false),
+    obctrl_status_(OffboardControlStatus::NOMINAL),
+    err_code_preparation_step_(0),
+    err_code_feedback_step_(0),
     re_init_horizon_(false)
 {
     ROS_INFO("Instance of NMPC created");
@@ -194,9 +197,10 @@ void FwNMPC::staticPresCb(const sensor_msgs::FluidPressure::ConstPtr& msg) // st
 
 void FwNMPC::sysStatusCb(const mavros_msgs::State::ConstPtr& msg) // system status msg callback
 {
-    // this message comes at 1 Hz and resets the NMPC if not in OFFBOARD mode
+    // this message comes at 1 Hz and tells us if the nmpc is currently controlling the aircraft
     ROS_INFO_STREAM("Received Pixhawk Mode: " <<  msg->mode);
-    offboard_mode_ = msg->mode == "OFFBOARD";
+    offboard_mode_ = (msg->mode == "OFFBOARD");
+    px4_connected_ = msg->connected;
 } // sysStatusCb
 
 void FwNMPC::tempCCb(const sensor_msgs::Temperature::ConstPtr& msg) // temperature msg callback
@@ -444,6 +448,19 @@ void FwNMPC::publishNMPCInfo(ros::Time t_iter_start, uint64_t t_ctrl, uint64_t t
 
     // obctrl status
     nmpc_info.status = obctrl_status_;
+    switch (obctrl_status_)
+    {
+        case OffboardControlStatus::PREPARATION_STEP_ERROR:
+            nmpc_info.err_code = err_code_preparation_step_;
+            break;
+
+        case OffboardControlStatus::FEEDBACK_STEP_ERROR:
+            nmpc_info.err_code = err_code_feedback_step_;
+            break;
+
+        default:
+            nmpc_info.err_code = 0;
+    }
 
     /* solver info */
     nmpc_info.kkt = (double)acado_getKKT();
@@ -460,6 +477,18 @@ void FwNMPC::publishNMPCInfo(ros::Time t_iter_start, uint64_t t_ctrl, uint64_t t
     nmpc_info.t_iter = (uint64_t)(t_elapsed.toNSec()/1000);
 
     nmpc_info_pub_.publish(nmpc_info);
+
+    // TODO: send offboard status to PX4 (tell PX4 things are broken if necessary..)
+    // mavros_msgs::AslObCtrl obctrl_msg;
+	// obctrl_msg.timestamp = 0;
+	// obctrl_msg.uThrot = 0.0f;
+	// obctrl_msg.uThrot2 = 0.0f;
+	// obctrl_msg.uAilR = 0.0f;
+	// obctrl_msg.uAilL = 0.0f;
+	// obctrl_msg.uElev = 0.0f;
+	// obctrl_msg.obctrl_status = obctrl_status_;
+    // obctrl_status_pub_.publish();
+
 } // publishNMPCInfo
 
 void FwNMPC::publishNMPCStates()
@@ -2590,13 +2619,13 @@ void FwNMPC::applyControl()
     double u_T = acadoVariables.u[IDX_U_U_T];
     double phi_ref = acadoVariables.u[IDX_U_PHI_REF];
     double theta_ref = acadoVariables.u[IDX_U_THETA_REF];
-    if (std::isnan(u_T) || std::isnan(phi_ref) || std::isnan(theta_ref)) {
+    if (std::isnan(u_T) || std::isnan(phi_ref) || std::isnan(theta_ref)) { // XXX: should probably also check for nans in state array
         // probably solver issue
         u_T = 0.0;
         phi_ref = 0.0;
         theta_ref = 0.0;
         re_init_horizon_ = true;
-        obctrl_status_ = 11; // 11 (arbitrarily) for NaNs -- TODO: enumerate
+        obctrl_status_ = OffboardControlStatus::BAD_SOLUTION;
     }
     else {
         // constrain to bounds XXX: adapt these if necessary once we start playing with the constraints
@@ -2608,21 +2637,18 @@ void FwNMPC::applyControl()
     u_(IDX_U_U_T) = u_T;
     u_(IDX_U_PHI_REF) = phi_ref;
     u_(IDX_U_THETA_REF) = theta_ref;
-}
+} // applyControl
 
 int FwNMPC::nmpcIteration()
 {
     // < -- START objective pre-evaluation timer
     ros::Time t_iter_start = ros::Time::now();
 
-    obctrl_status_ = 0;
+    obctrl_status_ = OffboardControlStatus::NOMINAL;
     ros::Duration t_elapsed;
 
-    // initialize returns
-    int ret[2] = {0, 0};
-
-    // check offboard status
-    if (!(offboard_mode_ || getGhostStatus())) re_init_horizon_ = true;
+    // check if ghost operation is enabled, else constantly re-initialize horizon
+    if (!getGhostStatus()) re_init_horizon_ = true;
 
     /* updates */
 
@@ -2638,10 +2664,12 @@ int FwNMPC::nmpcIteration()
     if (re_init_horizon_) {
         ret_solver = acado_initializeSolver(); // XXX: should this be placed inside the initHorizon function? .. seems initHorizon is only ever used when the solver also needs re-initialization
         if (ret_solver) {
+            first_yaw_received_ = false; // reset yaw unwrapping
             initHorizon();
             re_init_horizon_ = false;
         }
         else {
+            // something else is quite wrong if we can't even prime the solver... kill
             return ret_solver;
         }
     }
@@ -2674,12 +2702,11 @@ int FwNMPC::nmpcIteration()
     // SOLVER: prepare ACADO workspace for next iteration step
     // < -- START preparation step timer
     ros::Time t_prep_start = ros::Time::now();
-    ret[0] = acado_preparationStep();
-    if ( ret[0] != 0 ) {
-        ROS_ERROR("nmpc iteration: preparation step error, code %d", ret[0]);
-        obctrl_status_ = ret[0];
+    err_code_preparation_step_ = acado_preparationStep();
+    if ( err_code_preparation_step_ != 0 ) {
+        ROS_ERROR("nmpc iteration: preparation step error, code %d", err_code_preparation_step_);
+        obctrl_status_ = OffboardControlStatus::PREPARATION_STEP_ERROR;
         re_init_horizon_ = true;
-        first_yaw_received_ = false;
     }
     t_elapsed = ros::Time::now() - t_prep_start;
     uint64_t t_prep = t_elapsed.toNSec()/1000;
@@ -2688,12 +2715,11 @@ int FwNMPC::nmpcIteration()
     // SOLVER: perform the feedback step
     // < -- START feedback step timer
     ros::Time t_fb_start = ros::Time::now();
-    ret[1] = acado_feedbackStep();
-    if ( ret[1] != 0 ) {
-        ROS_ERROR("nmpc iteration: feedback step error, code %d", ret[1]);
-        obctrl_status_ = ret[1]; //TODO: find a way that doesnt overwrite the other one...
+    err_code_feedback_step_ = acado_feedbackStep();
+    if ( err_code_feedback_step_ != 0 ) {
+        ROS_ERROR("nmpc iteration: feedback step error, code %d", err_code_feedback_step_);
+        obctrl_status_ = OffboardControlStatus::FEEDBACK_STEP_ERROR;
         re_init_horizon_ = true;
-        first_yaw_received_ = false; //TODO: organize these resets better.. avoid duplication
     }
     t_elapsed = ros::Time::now() - t_fb_start;
     uint64_t t_fb = t_elapsed.toNSec()/1000;
@@ -3087,7 +3113,7 @@ int main(int argc, char **argv)
     /* initialize states, params, and solver */
     int ret = nmpc.initNMPC();
     if (ret != 0) {
-        ROS_ERROR("init nmpc: error in qpOASES QP solver.");
+        ROS_ERROR("init nmpc: failed to prime solver.");
         return 1;
     }
 
@@ -3104,7 +3130,7 @@ int main(int argc, char **argv)
         /* nmpc iteration step */
         ret = nmpc.nmpcIteration();
         if (ret != 0) {
-            ROS_ERROR("nmpc iteration: error in qpOASES QP solver."); //TODO: include other failure type (e.g. not a solver problem but maybe time out on others) + more descriptive error message
+            ROS_ERROR("nmpc iteration: failed to prime solver.");
             return 1;
         }
 

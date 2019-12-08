@@ -3,6 +3,7 @@
 
 # offboard control status
 int32 status
+int32 err_code
 
 # solver info
 float64 kkt

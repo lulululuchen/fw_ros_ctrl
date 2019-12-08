@@ -167,6 +167,14 @@ enum IndexRadialOcclusionPriorities {
     IDX_PRIO_R_RIGHT
 }; // radial occlusion priorities
 
+enum OffboardControlStatus {
+    NOMINAL = 0,                // nmpc is running as expected
+    INITIALIZATION_ERROR = 1,   // ACADO solver initialization failure
+    PREPARATION_STEP_ERROR = 2, // failure in ACADO preparation step (model simulation function)
+    FEEDBACK_STEP_ERROR = 3,    // failure in ACADO feedback step (qp solver -- qpOASES)
+    BAD_SOLUTION = 4            // most often NaNs in solution - but could add high KKT value condition as well
+}; // offboard control statuses
+
 /*
  * @brief fw_nmpc class
  *
@@ -365,8 +373,11 @@ private:
     ros::Time t_last_ctrl_; // time since last control action [s]
 
     /* state machine */
-    int obctrl_status_;     // offboard control status
-    bool re_init_horizon_;  // re-initialize the horizon
+    bool px4_connected_;                    // PX4 FCU is connected
+    OffboardControlStatus obctrl_status_;   // offboard control status
+    int err_code_preparation_step_;         // detailed error code for ACADO preparation step
+    int err_code_feedback_step_;            // detailed error code for ACADO feedback step
+    bool re_init_horizon_;                  // re-initialize the horizon
 };
 
 } // namespace fw_nmpc
