@@ -2664,13 +2664,13 @@ int FwNMPC::nmpcIteration()
     if (re_init_horizon_) {
         ret_solver = acado_initializeSolver(); // XXX: should this be placed inside the initHorizon function? .. seems initHorizon is only ever used when the solver also needs re-initialization
         if (ret_solver) {
+            // something else is quite wrong if we can't even prime the solver... kill
+            return ret_solver;
+        }
+        else {
             first_yaw_received_ = false; // reset yaw unwrapping
             initHorizon();
             re_init_horizon_ = false;
-        }
-        else {
-            // something else is quite wrong if we can't even prime the solver... kill
-            return ret_solver;
         }
     }
     else {
