@@ -52,6 +52,7 @@
 #include <geometry_msgs/TwistStamped.h>
 #include <geometry_msgs/TwistWithCovarianceStamped.h>
 #include <mavros_msgs/ActuatorControl.h>
+#include <mavros_msgs/ExtendedState.h>
 #include <mavros_msgs/HomePosition.h>
 #include <mavros_msgs/State.h>
 #include <mavros_msgs/Thrust.h>
@@ -189,6 +190,7 @@ public:
     /* callbacks */
     void actCb(const mavros_msgs::ActuatorControl::ConstPtr& msg);
     void gridMapCb(const grid_map_msgs::GridMap& msg);
+    void sysStatusExtCb(const mavros_msgs::ExtendedState::ConstPtr& msg);
     void homePosCb(const mavros_msgs::HomePosition::ConstPtr& msg);
     void imuCb(const sensor_msgs::Imu::ConstPtr& msg);
     void localPosCb(const geometry_msgs::PoseStamped::ConstPtr& msg);
@@ -225,6 +227,7 @@ private:
     ros::Subscriber local_vel_sub_;
     ros::Subscriber static_pres_sub_;
     ros::Subscriber sys_status_sub_;
+    ros::Subscriber sys_status_ext_sub_;
     ros::Subscriber temp_c_sub_;
     ros::Subscriber wind_est_sub_;
 
@@ -310,8 +313,10 @@ private:
     double home_lat_;           // home position latitude [deg]
     double home_lon_;           // home position longitude [deg]
     double home_alt_;           // home position altitude (absolute) [m]
+    uint8_t landed_state_;      // landed state
     bool offboard_mode_;        // system is in offboard control mode
     double px4_throt_;          // throttle from pixhawk
+    std::string px4_mode_;      // current mode received from PX4
     double static_pres_;        // static pressure [Pa]
     double temp_c_;             // temperature [C]
     Eigen::Vector3d x0_pos_;    // local position (ned) [m]

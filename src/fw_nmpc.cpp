@@ -47,7 +47,9 @@ FwNMPC::FwNMPC() :
     home_lat_(0),
     home_lon_(0),
     home_alt_(0),
+    landed_state_(0), // 0=undefined
     offboard_mode_(false),
+    px4_mode_("MANUAL"),
     px4_throt_(0.0),
     static_pres_(101325.0),
     temp_c_(25.0),
@@ -100,6 +102,7 @@ FwNMPC::FwNMPC() :
     local_vel_sub_ = nmpc_.subscribe("/mavros/local_position/velocity", 1, &FwNMPC::localVelCb, this);
     static_pres_sub_ = nmpc_.subscribe("/mavros/imu/static_pressure", 1, &FwNMPC::staticPresCb, this);
     sys_status_sub_ = nmpc_.subscribe("/mavros/state", 1, &FwNMPC::sysStatusCb, this);
+    sys_status_ext_sub_ = nmpc_.subscribe("/mavros/extended_state", 1, &FwNMPC::sysStatusExtCb, this);
     temp_c_sub_ = nmpc_.subscribe("/mavros/imu/temperature_imu", 1, &FwNMPC::tempCCb, this);
     wind_est_sub_ = nmpc_.subscribe("/mavros/wind_estimation", 1, &FwNMPC::windEstCb, this);
 
@@ -198,10 +201,19 @@ void FwNMPC::staticPresCb(const sensor_msgs::FluidPressure::ConstPtr& msg) // st
 void FwNMPC::sysStatusCb(const mavros_msgs::State::ConstPtr& msg) // system status msg callback
 {
     // this message comes at 1 Hz and tells us if the nmpc is currently controlling the aircraft
-    ROS_INFO_STREAM("Received Pixhawk Mode: " <<  msg->mode);
+    std::string mode = msg->mode;
+    if (mode != px4_mode_) {
+        ROS_INFO_STREAM("Received Pixhawk Mode: " <<  mode);
+        px4_mode_ = mode;
+    }
     offboard_mode_ = (msg->mode == "OFFBOARD");
     px4_connected_ = msg->connected;
 } // sysStatusCb
+
+void FwNMPC::sysStatusExtCb(const mavros_msgs::ExtendedState::ConstPtr& msg) // system status msg callback
+{
+    landed_state_ = msg->landed_state;
+} // sysStatusExtCb
 
 void FwNMPC::tempCCb(const sensor_msgs::Temperature::ConstPtr& msg) // temperature msg callback
 {
@@ -1068,6 +1080,18 @@ void FwNMPC::evaluateExternalObjectives(const double *terrain_data)
 void FwNMPC::prioritizeObjectives()
 {
     // prioritizes select objectives by adapting specific weights (external to the model jacobian)
+
+    // if still on ground (landed), do not consider terrain
+    if ((landed_state_ == mavros_msgs::ExtendedState::LANDED_STATE_ON_GROUND) || (landed_state_ == mavros_msgs::ExtendedState::LANDED_STATE_UNDEFINED)) { //TODO: check when, if ever, the undefined state is set by pixhawk
+        prio_h_.setOnes();
+        prio_r_.setOnes();
+
+        // terrain objective weighting through horizon (row-major array)
+        for (int i=0; i<N; i++) {
+            acadoVariables.W[NY*NY*i+NY*IDX_Y_SOFT_H+IDX_Y_SOFT_H] = 0.0;
+            acadoVariables.W[NY*NY*i+NY*IDX_Y_SOFT_R+IDX_Y_SOFT_R] = 0.0;
+        }
+    }
 
     // objective weighting through horizon (row-major array)
     for (int i=0; i<N; i++) {
