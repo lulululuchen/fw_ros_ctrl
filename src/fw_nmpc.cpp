@@ -3023,7 +3023,7 @@ void FwNMPC::initHorizon()
         double n_prop = mapThrotToPropSpeed(throt, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
         acadoVariables.x[NX * N + IDX_X_NPROP] = n_prop;
 
-        ROS_ERROR("re-init horizon: propagate states with zero attitude reference and constant throttle through horizon");
+        ROS_ERROR("initHorizon: re-initializing, possibly in-air, propagate current state measurements forward");
     }
     else {
         // this is the first initialization, the values don't really matter here...
@@ -3070,7 +3070,7 @@ void FwNMPC::initHorizon()
         // prop off
         acadoVariables.x[NX * N + IDX_X_NPROP] = 0.0;
 
-        ROS_ERROR("init horizon: hold states and controls constant through horizon");
+        ROS_ERROR("initHorizon: initialized");
     }
 
 } // initHorizon
@@ -3079,7 +3079,7 @@ int FwNMPC::initNMPC()
 {
     /* initialize ACADO variables */
     initACADOVars();
-    ROS_ERROR("init nmpc: NMPC states initialized");
+    ROS_ERROR("initNMPC: NMPC states initialized");
 
     /* initialize the solver */
     int RET = acado_initializeSolver();
