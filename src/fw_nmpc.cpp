@@ -172,9 +172,15 @@ void FwNMPC::homePosCb(const mavros_msgs::HomePosition::ConstPtr& msg) // home p
 
 void FwNMPC::imuCb(const sensor_msgs::Imu::ConstPtr& msg) // imu msg callback
 {
-    Eigen::Quaterniond q;
-    tf::quaternionMsgToEigen(msg->orientation, q);
-    x0_euler_ = q.toRotationMatrix().eulerAngles(0, 1, 2);
+    tf::Quaternion q;
+    tf::quaternionMsgToTF(msg->orientation, q);
+
+    double roll, pitch, yaw;
+    tf::Matrix3x3(q).getRPY(roll, pitch, yaw);
+
+    x0_euler_(0) = roll;
+    x0_euler_(1) = pitch;
+    x0_euler_(2) = yaw;
 } // imuCb
 
 void FwNMPC::localPosCb(const geometry_msgs::PoseStamped::ConstPtr& msg) // local position msg callback
@@ -386,7 +392,7 @@ double FwNMPC::mapThrotToPropSpeed(const double throt, const double airsp, const
     nmpc_.getParam("/nmpc/prop/n_T0_vmax", n_T0_vmax);   // zero-thrust prop speed at maximum airspeed [rps]
     nmpc_.getParam("/nmpc/prop/n_max", n_max);           // maximum prop speed [rps]
     nmpc_.getParam("/nmpc/prop/epsilon_T", epsilon_T);   // thrust incidence [deg]
-    epsilon_T *= DEG_TO_RAD;                            // thrust incidence [rad]
+    epsilon_T *= DEG_TO_RAD;                             // thrust incidence [rad]
 
     const double vp = airsp * cos(aoa - epsilon_T); // inflow at propeller
     const double sig_vp = constrain_double((vp - vpmin) / (vpmax - vpmin), 0.0, 1.0); // prop inflow linear interpolater
@@ -407,8 +413,8 @@ double FwNMPC::mapThrotToPX4(const double throt, const double airsp, const doubl
 void FwNMPC::propagateVirtPropSpeed(const double throt, const double airsp, const double aoa)
 {
     double tau_n_prop;
-    nmpc_.getParam("/nmpc/od/tau_n_prop", tau_n_prop);
-    n_prop_virt_ = (mapThrotToPropSpeed(throt, airsp, aoa) - n_prop_virt_) / tau_n_prop / getLoopRate() + n_prop_virt_;
+    nmpc_.getParam("/nmpc/od/tau_n", tau_n_prop);
+    n_prop_virt_ += (mapThrotToPropSpeed(throt, airsp, aoa) - n_prop_virt_) / tau_n_prop / getLoopRate();
 } // propagateVirtPropSpeed
 
 double FwNMPC::unwrapHeading(double yaw)
