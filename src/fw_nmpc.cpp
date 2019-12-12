@@ -107,7 +107,7 @@ FwNMPC::FwNMPC() :
     wind_est_sub_ = nmpc_.subscribe("/mavros/wind_estimation", 1, &FwNMPC::windEstCb, this);
 
     /* publishers */
-    att_sp_pub_ = nmpc_.advertise<geometry_msgs::PoseStamped>("/mavros/setpoint_attitude/attitude", 1);
+    att_sp_pub_ = nmpc_.advertise<geometry_msgs::PoseStamped>("/mavros/setpoint_attitude/target_attitude", 1);
     nmpc_info_pub_ = nmpc_.advertise<fw_ctrl::NMPCInfo>("/nmpc/info",10);
     nmpc_meas_pub_ = nmpc_.advertise<fw_ctrl::NMPCMeasurements>("/nmpc/measurements",10);
     nmpc_states_pub_ = nmpc_.advertise<fw_ctrl::NMPCStates>("/nmpc/states",10);
@@ -437,20 +437,20 @@ double FwNMPC::unwrapHeading(double yaw)
 void FwNMPC::publishControls(const double u_T, const double phi_ref, const double theta_ref)
 {
     // thrust sp
-    std_msgs::Float32 thrust_sp;
-    thrust_sp.data = constrain_double(mapThrotToPX4(u_T, acadoVariables.x[IDX_X_V], acadoVariables.x[IDX_X_THETA] - acadoVariables.x[IDX_X_GAMMA]), 0.0, 1.0);
-
+    mavros_msgs::Thrust thrust_sp;
+    thrust_sp.header.stamp = ros::Time::now();
+    thrust_sp.thrust = (float)constrain_double(mapThrotToPX4(u_T, acadoVariables.x[IDX_X_V], acadoVariables.x[IDX_X_THETA] - acadoVariables.x[IDX_X_GAMMA]), 0.0, 1.0);
     thrust_pub_.publish(thrust_sp);
 
     // attitude setpoint
     geometry_msgs::PoseStamped att_sp;
     att_sp.header.frame_id = "world";
-    Eigen::AngleAxisd rollAngle(phi_ref, Eigen::Vector3d::UnitX());
-    Eigen::AngleAxisd pitchAngle(theta_ref, Eigen::Vector3d::UnitY());
-    Eigen::AngleAxisd yawAngle(0.0, Eigen::Vector3d::UnitZ());
-    Eigen::Quaterniond att_sp_quat_eigen = yawAngle * pitchAngle * rollAngle;
-    tf::quaternionEigenToMsg(att_sp_quat_eigen, att_sp.pose.orientation);
-
+    att_sp.header.stamp = ros::Time::now();
+    tf::Quaternion q_tf;
+    q_tf.setRPY(phi_ref, theta_ref, 0.0);
+    geometry_msgs::Quaternion q_msg;
+    quaternionTFToMsg(q_tf, q_msg);
+    att_sp.pose.orientation = q_msg;
     att_sp_pub_.publish(att_sp);
 } // publishControls
 
