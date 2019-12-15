@@ -3,6 +3,7 @@
 
     <!-- state machine -->
     <param name="/nmpc/enable_ghost" type="int" value="1" />                       <!-- run nmpc in background (1), or dont (0) -->
+    <param name="/nmpc/enable_terrain_feedback" type="int" value="0" />            <!-- enable terrain feedback from gridmap (1), or dont (0) -->
 
     <!-- timing parameters -->
     <param name="/nmpc/loop_rate" type="double" value="10.0" />                    <!-- iteration loop rate [Hz] -->

@@ -87,6 +87,7 @@ FwNMPC::FwNMPC() :
     prio_r_(Eigen::Matrix<double, ACADO_N+1, 4>::Ones()),
     px4_connected_(false),
     obctrl_status_(OffboardControlStatus::NOMINAL),
+    en_terr_fb_(false),
     err_code_preparation_step_(0),
     err_code_feedback_step_(0),
     re_init_horizon_(false)
@@ -723,10 +724,10 @@ void FwNMPC::preEvaluateObjectives()
 
     /* sliding window operations */
     shiftOcclusionSlidingWindow();
-    castRays(terr_array_); //XXX: dont really need to pass this, as the variable is global within the class
+    if (en_terr_fb_) castRays(terr_array_); //XXX: dont really need to pass this, as the variable is global within the class
 
     /* external objectives */
-    sumOcclusionDetections();
+    if (en_terr_fb_) sumOcclusionDetections();
     evaluateExternalObjectives(terr_array_);
 } // preEvaluateObjectives
 
@@ -738,6 +739,9 @@ void FwNMPC::updateObjectiveParameters()
     // FOR the weight-dependent cost shaping params: log_sqrt_w_over_sig1_XXX, one_over_sqrt_w_XXX
     // NOTE: depends on the current (un-modulated) weighting - evaluate PRIOR to updating current weighting priorities
     // NOTE: if soft constraints become dependent on weighting of other soft constraints, this will need some re-working
+
+    // enable terrain feedback
+    nmpc_.getParam("/nmpc/enable_terrain_feedback", en_terr_fb_);
 
     // sliding occlusion window
     nmpc_.getParam("/nmpc/len_slw", len_sliding_window_);
@@ -970,7 +974,7 @@ void FwNMPC::evaluateExternalObjectives(const double *terrain_data)
 {
     /* evaluate external objectives */
     double v_ray[3];
-    for (int i = 0; i < ACADO_N +1; ++i)
+    for (int i = 0; i < ACADO_N+1; ++i)
     {
         /* soft aoa constraint */
         double sig_aoa, prio_aoa;
@@ -984,18 +988,29 @@ void FwNMPC::evaluateExternalObjectives(const double *terrain_data)
         prio_aoa_(i) = prio_aoa;
 
         /* soft height constraint */
-        double sig_h, prio_h, h_terr;
-        double jac_sig_h[4];
-        calculate_height_objective(&sig_h, jac_sig_h, &prio_h, &h_terr, acadoVariables.x + (i * ACADO_NX), terrain_params_,
-                                   terr_local_origin_n_, terr_local_origin_e_, map_height_, map_width_, map_resolution_, terrain_data);
+        if (en_terr_fb_) { //XXX: shouldnt need to do this.. but NaNs are currently unhandled and could screw things up  in the following calculations when not using the terrain feedback
+            double sig_h, prio_h, h_terr;
+            double jac_sig_h[4];
+            calculate_height_objective(&sig_h, jac_sig_h, &prio_h, &h_terr, acadoVariables.x + (i * ACADO_NX), terrain_params_,
+                                       terr_local_origin_n_, terr_local_origin_e_, map_height_, map_width_, map_resolution_, terrain_data);
 
-        od_(IDX_OD_SOFT_H, i) = sig_h;
-        od_(IDX_OD_JAC_SOFT_H, i) = jac_sig_h[0];
-        od_(IDX_OD_JAC_SOFT_H+1, i) = jac_sig_h[1];
-        od_(IDX_OD_JAC_SOFT_H+2, i) = jac_sig_h[2];
-        od_(IDX_OD_JAC_SOFT_H+3, i) = jac_sig_h[3];
+            od_(IDX_OD_SOFT_H, i) = sig_h;
+            od_(IDX_OD_JAC_SOFT_H, i) = jac_sig_h[0];
+            od_(IDX_OD_JAC_SOFT_H+1, i) = jac_sig_h[1];
+            od_(IDX_OD_JAC_SOFT_H+2, i) = jac_sig_h[2];
+            od_(IDX_OD_JAC_SOFT_H+3, i) = jac_sig_h[3];
 
-        prio_h_(i) = prio_h;
+            prio_h_(i) = prio_h;
+        }
+        else {
+            od_(IDX_OD_SOFT_H, i) = 0.0;
+            od_(IDX_OD_JAC_SOFT_H, i) = 0.0;
+            od_(IDX_OD_JAC_SOFT_H+1, i) = 0.0;
+            od_(IDX_OD_JAC_SOFT_H+2, i) = 0.0;
+            od_(IDX_OD_JAC_SOFT_H+3, i) = 0.0;
+
+            prio_h_(i) = 1.0;
+        }
 
         /* calculate speed states */
         const double v = acadoVariables.x[i * ACADO_NX + IDX_X_V];
@@ -1008,67 +1023,81 @@ void FwNMPC::evaluateExternalObjectives(const double *terrain_data)
         calculate_speed_states(speed_states, v, gamma, xi, w_n, w_e, w_d);
 
         /* soft radial constraint */
+        double jac_sig_r[6] = {0.0};
+        if (en_terr_fb_) { //XXX: shouldnt need to do this.. but NaNs are currently unhandled and could screw things up  in the following calculations when not using the terrain feedback
+            double dummy_pos[3];
+            double dummy_normal[3];
 
-        double dummy_pos[3];
-        double dummy_normal[3];
+            /* left ray */
+            double sig_r_left, r_occ_left, prio_r_left;
+            int occ_detected_left;
+            double jac_sig_r_left[6];
+            v_ray[0] = -speed_states[9];
+            v_ray[1] = speed_states[10];
+            v_ray[2] = 0.0;
+            calculate_radial_objective(&sig_r_left, jac_sig_r_left, &r_occ_left, dummy_pos, dummy_normal, &prio_r_left, &occ_detected_left,
+                                       v_ray, acadoVariables.x + (i * ACADO_NX), speed_states, terrain_params_, terr_local_origin_n_, terr_local_origin_e_,
+                                       map_height_, map_width_, map_resolution_, terrain_data);
 
-        /* left ray */
-        double sig_r_left, r_occ_left, prio_r_left;
-        int occ_detected_left;
-        double jac_sig_r_left[6];
-        v_ray[0] = -speed_states[9];
-        v_ray[1] = speed_states[10];
-        v_ray[2] = 0.0;
-        calculate_radial_objective(&sig_r_left, jac_sig_r_left, &r_occ_left, dummy_pos, dummy_normal, &prio_r_left, &occ_detected_left,
-                                   v_ray, acadoVariables.x + (i * ACADO_NX), speed_states, terrain_params_, terr_local_origin_n_, terr_local_origin_e_,
-                                   map_height_, map_width_, map_resolution_, terrain_data);
+            /* right ray */
+            double sig_r_right, r_occ_right, prio_r_right;
+            int occ_detected_right;
+            double jac_sig_r_right[6];
+            v_ray[0] = speed_states[9];
+            v_ray[1] = -speed_states[10];
+            v_ray[2] = 0.0;
+            calculate_radial_objective(&sig_r_right, jac_sig_r_right, &r_occ_right, dummy_pos, dummy_normal, &prio_r_right, &occ_detected_right,
+                                       v_ray, acadoVariables.x + (i * ACADO_NX), speed_states, terrain_params_, terr_local_origin_n_, terr_local_origin_e_,
+                                       map_height_, map_width_, map_resolution_, terrain_data);
 
-        /* right ray */
-        double sig_r_right, r_occ_right, prio_r_right;
-        int occ_detected_right;
-        double jac_sig_r_right[6];
-        v_ray[0] = speed_states[9];
-        v_ray[1] = -speed_states[10];
-        v_ray[2] = 0.0;
-        calculate_radial_objective(&sig_r_right, jac_sig_r_right, &r_occ_right, dummy_pos, dummy_normal, &prio_r_right, &occ_detected_right,
-                                   v_ray, acadoVariables.x + (i * ACADO_NX), speed_states, terrain_params_, terr_local_origin_n_, terr_local_origin_e_,
-                                   map_height_, map_width_, map_resolution_, terrain_data);
+            /* sum left, right, and forward detections */
+            jac_sig_r[0] = jac_sig_r_left[0] + jac_sig_r_right[0];
+            jac_sig_r[1] = jac_sig_r_left[1] + jac_sig_r_right[1];
+            jac_sig_r[2] = jac_sig_r_left[2] + jac_sig_r_right[2];
+            jac_sig_r[3] = jac_sig_r_left[3] + jac_sig_r_right[3];
+            jac_sig_r[4] = jac_sig_r_left[4] + jac_sig_r_right[4];
+            jac_sig_r[5] = jac_sig_r_left[5] + jac_sig_r_right[5];
 
-        /* sum left, right, and forward detections */
-        double jac_sig_r[6];
-        jac_sig_r[0] = jac_sig_r_left[0] + jac_sig_r_right[0];
-        jac_sig_r[1] = jac_sig_r_left[1] + jac_sig_r_right[1];
-        jac_sig_r[2] = jac_sig_r_left[2] + jac_sig_r_right[2];
-        jac_sig_r[3] = jac_sig_r_left[3] + jac_sig_r_right[3];
-        jac_sig_r[4] = jac_sig_r_left[4] + jac_sig_r_right[4];
-        jac_sig_r[5] = jac_sig_r_left[5] + jac_sig_r_right[5];
+            /* add to objective cost / jacobian */
+            od_(IDX_OD_SOFT_R, i) += sig_r_left + sig_r_right;
+            od_(IDX_OD_JAC_SOFT_R, i) += jac_sig_r[0];
+            od_(IDX_OD_JAC_SOFT_R+1, i) += jac_sig_r[1];
+            od_(IDX_OD_JAC_SOFT_R+2, i) += jac_sig_r[2];
+            od_(IDX_OD_JAC_SOFT_R+3, i) += jac_sig_r[3];
+            od_(IDX_OD_JAC_SOFT_R+4, i) += jac_sig_r[4];
+            od_(IDX_OD_JAC_SOFT_R+5, i) += jac_sig_r[5];
 
-        /* add to objective cost / jacobian */
-        od_(IDX_OD_SOFT_R, i) += sig_r_left + sig_r_right;
-        od_(IDX_OD_JAC_SOFT_R, i) += jac_sig_r[0];
-        od_(IDX_OD_JAC_SOFT_R+1, i) += jac_sig_r[1];
-        od_(IDX_OD_JAC_SOFT_R+2, i) += jac_sig_r[2];
-        od_(IDX_OD_JAC_SOFT_R+3, i) += jac_sig_r[3];
-        od_(IDX_OD_JAC_SOFT_R+4, i) += jac_sig_r[4];
-        od_(IDX_OD_JAC_SOFT_R+5, i) += jac_sig_r[5];
+            /* prioritization */
+            int occ_detected_fwd = occ_detect_slw_[len_sliding_window_-1+i];
+            double prio_r = 1.0;
+            if (!(one_over_sqrt_w_r_<0.0) && (occ_detected_fwd + occ_detected_left + occ_detected_right>0)) {
 
-        /* prioritization */
-        int occ_detected_fwd = occ_detect_slw_[len_sliding_window_-1+i];
-        double prio_r = 1.0;
-        if (!(one_over_sqrt_w_r_<0.0) && (occ_detected_fwd + occ_detected_left + occ_detected_right>0)) {
-
-            /* take minimum unit radial distance */
-            prio_r = (prio_r_(i, IDX_PRIO_R_FWD) < prio_r_left) ? prio_r_(i, IDX_PRIO_R_FWD) : prio_r_left;
-            prio_r = (prio_r < prio_r_right) ? prio_r : prio_r_right;
+                /* take minimum unit radial distance */
+                prio_r = (prio_r_(i, IDX_PRIO_R_FWD) < prio_r_left) ? prio_r_(i, IDX_PRIO_R_FWD) : prio_r_left;
+                prio_r = (prio_r < prio_r_right) ? prio_r : prio_r_right;
+            }
+            prio_r_(i, IDX_PRIO_R_MAX) = prio_r; //XXX: this "priority" definition is backwards.. could definitely cause some confusion later (i.e. if keeping the backwards convention.. IDX_PRIO_R_MAX should actually be MIN, otherwise all prios need to be inverted)
+            prio_r_(i, IDX_PRIO_R_LEFT) = prio_r_left;
+            prio_r_(i, IDX_PRIO_R_RIGHT) = prio_r_right;
         }
-        prio_r_(i, IDX_PRIO_R_MAX) = prio_r;
-        prio_r_(i, IDX_PRIO_R_LEFT) = prio_r_left;
-        prio_r_(i, IDX_PRIO_R_RIGHT) = prio_r_right;
+        else {
+            od_(IDX_OD_SOFT_R, i) = 0.0;
+            od_(IDX_OD_JAC_SOFT_R, i) = 0.0;
+            od_(IDX_OD_JAC_SOFT_R+1, i) = 0.0;
+            od_(IDX_OD_JAC_SOFT_R+2, i) = 0.0;
+            od_(IDX_OD_JAC_SOFT_R+3, i) = 0.0;
+            od_(IDX_OD_JAC_SOFT_R+4, i) = 0.0;
+            od_(IDX_OD_JAC_SOFT_R+5, i) = 0.0;
+
+            prio_r_(i, IDX_PRIO_R_MAX) = 1.0;
+            prio_r_(i, IDX_PRIO_R_LEFT) = 1.0;
+            prio_r_(i, IDX_PRIO_R_RIGHT) = 1.0;
+        }
 
         /* velocity reference */
         double v_ref[3];
         calculate_velocity_reference(v_ref, &path_error_lat_, &path_error_lon_, acadoVariables.x + (i * NX), path_reference_, guidance_params_,
-                                     speed_states, jac_sig_r, prio_r, path_type_);
+                                     speed_states, jac_sig_r, prio_r_(i, IDX_PRIO_R_MAX), path_type_);
 
         if (i < N) {
             acadoVariables.y[i * NY + IDX_Y_VN] = v_ref[0];
@@ -1088,7 +1117,9 @@ void FwNMPC::prioritizeObjectives()
     // prioritizes select objectives by adapting specific weights (external to the model jacobian)
 
     // if still on ground (landed), do not consider terrain
-    if ((landed_state_ == mavros_msgs::ExtendedState::LANDED_STATE_ON_GROUND) || (landed_state_ == mavros_msgs::ExtendedState::LANDED_STATE_UNDEFINED)) { //TODO: check when, if ever, the undefined state is set by pixhawk
+    if ((landed_state_ == mavros_msgs::ExtendedState::LANDED_STATE_ON_GROUND)
+        || (landed_state_ == mavros_msgs::ExtendedState::LANDED_STATE_UNDEFINED)
+        || !en_terr_fb_) { //TODO: check when, if ever, the undefined state is set by pixhawk
         prio_h_.setOnes();
         prio_r_.setOnes();
 

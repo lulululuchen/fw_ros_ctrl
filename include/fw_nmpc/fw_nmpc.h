@@ -380,6 +380,7 @@ private:
     /* state machine */
     bool px4_connected_;                    // PX4 FCU is connected
     OffboardControlStatus obctrl_status_;   // offboard control status
+    bool en_terr_fb_;                       // enable terrain feedback
     int err_code_preparation_step_;         // detailed error code for ACADO preparation step
     int err_code_feedback_step_;            // detailed error code for ACADO feedback step
     bool re_init_horizon_;                  // re-initialize the horizon
