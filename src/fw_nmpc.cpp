@@ -81,7 +81,7 @@ FwNMPC::FwNMPC() :
     one_over_sqrt_w_r_(1.0),
     path_error_lat_(0.0),
     path_error_lon_(0.0),
-    path_type_(0),
+    path_type_(GuidancePathTypes::LOITER),
     prio_aoa_(Eigen::Matrix<double, ACADO_N+1, 1>::Ones()),
     prio_h_(Eigen::Matrix<double, ACADO_N+1, 1>::Ones()),
     prio_r_(Eigen::Matrix<double, ACADO_N+1, 4>::Ones()),
@@ -113,6 +113,7 @@ FwNMPC::FwNMPC() :
     nmpc_meas_pub_ = nmpc_.advertise<fw_ctrl::NMPCMeasurements>("/nmpc/measurements",10);
     nmpc_states_pub_ = nmpc_.advertise<fw_ctrl::NMPCStates>("/nmpc/states",10);
     nmpc_controls_pub_ = nmpc_.advertise<fw_ctrl::NMPCControls>("/nmpc/controls",10);
+    nmpc_guidance_path_pub_ = nmpc_.advertise<nav_msgs::Path>("/nmpc/guidance_path",1);
     nmpc_online_data_pub_ = nmpc_.advertise<fw_ctrl::NMPCOnlineData>("/nmpc/online_data",10);
     nmpc_obj_ref_pub_ = nmpc_.advertise<fw_ctrl::NMPCObjRef>("/nmpc/obj_ref",10);
     nmpc_objN_ref_pub_ = nmpc_.advertise<fw_ctrl::NMPCObjNRef>("/nmpc/objN_ref",10);
@@ -624,9 +625,23 @@ void FwNMPC::publishNMPCVisualizations()
 {
     // publish msgs for rviz visualization
 
+    // path references (converted to robotic frame)
+    if (path_type_ == GuidancePathTypes::LOITER) {
+        nav_msgs::Path guidance_path;
+        guidance_path.header.frame_id = "map";
+        int num_pts = 50;
+        guidance_path.poses = std::vector<geometry_msgs::PoseStamped>(num_pts+1);
+        for (int i=0; i<num_pts+1; i++) {
+            guidance_path.poses[i].pose.position.x = path_reference_[0] + fabs(path_reference_[4])*cos(double(i)/double(num_pts)*M_PI*2.0);
+            guidance_path.poses[i].pose.position.y = -(path_reference_[1] + fabs(path_reference_[4])*sin(double(i)/double(num_pts)*M_PI*2.0));
+            guidance_path.poses[i].pose.position.z = -path_reference_[2];
+        }
+        nmpc_guidance_path_pub_.publish(guidance_path);
+    }
+
     // predicted poses (converted to robotic frame)
     nav_msgs::Path nmpc_traj_pred;
-    nmpc_traj_pred.header.frame_id = "world";
+    nmpc_traj_pred.header.frame_id = "map";
     nmpc_traj_pred.poses = std::vector<geometry_msgs::PoseStamped>(N+1);
     for (int i=0; i<N+1; i++) {
         nmpc_traj_pred.poses[i].pose.position.x = acadoVariables.x[NX * i + IDX_X_POS];
@@ -649,7 +664,7 @@ void FwNMPC::publishNMPCVisualizations()
 
                 // define surface normal marker (arrow)
                 visualization_msgs::Marker surf_normal;
-                surf_normal.header.frame_id = "world";
+                surf_normal.header.frame_id = "map";
                 surf_normal.header.stamp = ros::Time();
                 surf_normal.ns = "surface_normals";
                 surf_normal.id = maker_counter;
@@ -841,7 +856,7 @@ void FwNMPC::updateObjectiveParameters()
     nmpc_.getParam("/nmpc/path/Gamma_p", path_reference_[3]);
     path_reference_[3] *= DEG_TO_RAD;
     nmpc_.getParam("/nmpc/path/chi_p", path_reference_[4]);
-    path_reference_[4] *= DEG_TO_RAD;
+    if (path_type_ != GuidancePathTypes::LOITER) path_reference_[4] *= DEG_TO_RAD;
 
 } // updateObjectiveParameters
 

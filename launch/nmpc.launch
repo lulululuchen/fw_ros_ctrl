@@ -16,9 +16,9 @@
     <param name="/nmpc/path/path_type" type="int" value="0" />                     <!-- path type, 0: const. alt. loiter; 1: line -->
     <param name="/nmpc/path/b_n" type="double" value="0.0" />                      <!-- path northing origin [m] -->
     <param name="/nmpc/path/b_e" type="double" value="0.0" />                      <!-- path easting origin [m] -->
-    <param name="/nmpc/path/b_d" type="double" value="0.0" />                      <!-- path down origin [m] -->
+    <param name="/nmpc/path/b_d" type="double" value="-100.0" />                   <!-- path down origin [m] -->
     <param name="/nmpc/path/Gamma_p" type="double" value="0.0" />                  <!-- path ground-relative flight path angle [deg] -->
-    <param name="/nmpc/path/chi_p" type="double" value="0.0" />                    <!-- path course [deg] (when path_type=0, signed radius of loiter [m]) -->
+    <param name="/nmpc/path/chi_p" type="double" value="100.0" />                  <!-- path course [deg] (when path_type=0, signed radius of loiter [m]) -->
 
     <!-- guidance parameters -->
     <param name="/nmpc/guidance/T_lat" type="double" value="5.0" />                <!-- lateral-directional guidance time constant [s] -->

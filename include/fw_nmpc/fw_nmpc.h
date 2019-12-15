@@ -176,6 +176,11 @@ enum OffboardControlStatus {
     BAD_SOLUTION = 4            // most often NaNs in solution - but could add high KKT value condition as well
 }; // offboard control statuses
 
+enum GuidancePathTypes {
+    LOITER = 0,
+    LINE
+}; // guidance path types
+
 /*
  * @brief fw_nmpc class
  *
@@ -237,6 +242,7 @@ private:
     ros::Publisher nmpc_meas_pub_;
     ros::Publisher nmpc_states_pub_;
     ros::Publisher nmpc_controls_pub_;
+    ros::Publisher nmpc_guidance_path_pub_;
     ros::Publisher nmpc_online_data_pub_;
     ros::Publisher nmpc_obj_ref_pub_;
     ros::Publisher nmpc_objN_ref_pub_;
