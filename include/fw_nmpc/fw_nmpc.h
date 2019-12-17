@@ -81,6 +81,12 @@
 #include "acado_common.h"
 #include "acado_auxiliary_functions.h"
 
+// dynamic reconfigure
+#include <dynamic_reconfigure/server.h>
+#include <fw_ctrl/fw_ctrlConfig.h>
+#include <fw_ctrl/controlConfig.h>
+#include <fw_ctrl/guidanceConfig.h>
+
 #define NX ACADO_NX     // Number of differential state variables
 #define NU ACADO_NU     // Number of control inputs
 #define NOD ACADO_NOD   // Number of online data values
@@ -221,7 +227,9 @@ public:
 private:
 
     /* node handles */
-    ros::NodeHandle nmpc_;
+    ros::NodeHandle nmpc_;                  // nmpc node handle
+    ros::NodeHandle control_config_nh_;     // node handle for dynamic reconfig of control params
+    ros::NodeHandle guidance_config_nh_;    // node handle for dynamic reconfig of guidance params
 
     /* subscribers */
     ros::Subscriber act_sub_;
@@ -250,6 +258,19 @@ private:
     ros::Publisher nmpc_traj_pred_pub_;
     ros::Publisher obctrl_status_pub_;
     ros::Publisher thrust_pub_;
+
+    /* dynamic reconfigure */
+
+    // The dynamic reconfigure server + callback for control parameters
+    dynamic_reconfigure::Server<fw_ctrl::controlConfig> serverControl;
+    dynamic_reconfigure::Server<fw_ctrl::controlConfig>::CallbackType f_control;
+
+    // The dynamic reconfigure server + callback for guidance parameters
+    dynamic_reconfigure::Server<fw_ctrl::guidanceConfig> serverGuidance;
+    dynamic_reconfigure::Server<fw_ctrl::guidanceConfig>::CallbackType f_guidance;
+
+    void parametersCallbackControl(const fw_ctrl::controlConfig &config, const uint32_t& level);
+    void parametersCallbackGuidance(const fw_ctrl::guidanceConfig &config, const uint32_t& level);
 
     /* functions */
 
@@ -351,7 +372,7 @@ private:
     Eigen::Matrix<double, ACADO_NY, ACADO_N> y_;        // objective references
     Eigen::Matrix<double, ACADO_NYN, 1> yN_;            // end term objective references
     Eigen::Matrix<double, ACADO_NY, 1> inv_y_scale_sq_; // inverse output scale squared diagonal
-    Eigen::Matrix<double, ACADO_NY, 1> w_;              // weight diagonal
+    Eigen::Matrix<double, ACADO_NY, 1> w_;              // weight diagonal (before scaling / prioritization)
     Eigen::Matrix<double, ACADO_NOD, ACADO_N+1> od_;    // online data
     Eigen::Matrix<double, ACADO_NU, 1> lb_;             // lower bound of control constraints
     Eigen::Matrix<double, ACADO_NU, 1> ub_;             // upper bound of control constraints

@@ -20,12 +20,6 @@
     <param name="/nmpc/path/Gamma_p" type="double" value="0.0" />                  <!-- path ground-relative flight path angle [deg] -->
     <param name="/nmpc/path/chi_p" type="double" value="100.0" />                  <!-- path course [deg] (when path_type=0, signed radius of loiter [m]) -->
 
-    <!-- guidance parameters -->
-    <param name="/nmpc/guidance/T_lat" type="double" value="5.0" />                <!-- lateral-directional guidance time constant [s] -->
-    <param name="/nmpc/guidance/T_lon" type="double" value="3.0" />                <!-- longitudinal guidance time constant [s] -->
-    <param name="/nmpc/guidance/gamma_app_max" type="double" value="20.0" />       <!-- maximum approach flight path angle [deg] -->
-    <param name="/nmpc/guidance/use_occ_as_guidance" type="double" value="0.0" />  <!-- use occlusion gradient as guidance. 0=no, 1=yes -->
-
     <!-- propeller parameters -->
     <param name="/nmpc/prop/n_0" type="double" value="2.3926" />                   <!-- prop speed at zero inflow and zero input [rps] -->
     <param name="/nmpc/prop/n_max" type="double" value="163.6667" />               <!-- maximum prop speed [rps] -->
@@ -91,20 +85,6 @@
     <param name="/nmpc/inv_y_scale_sq/u_T" type="double" value="1e2" />            <!-- 1/0.1^2 -->
     <param name="/nmpc/inv_y_scale_sq/phi_ref" type="double" value="3.2828e3" />   <!-- 1/deg2rad(1)^2 -->
     <param name="/nmpc/inv_y_scale_sq/theta_ref" type="double" value="3.2828e3" /> <!-- 1/deg2rad(1)^2 -->
-
-    <!-- objective weights -->
-    <param name="/nmpc/w/vn" type="double" value="1e4" />                          <!--  -->
-    <param name="/nmpc/w/ve" type="double" value="1e4" />                          <!--  -->
-    <param name="/nmpc/w/vd" type="double" value="1e6" />                          <!--  -->
-    <param name="/nmpc/w/v" type="double" value="1e3" />                           <!--  -->
-    <param name="/nmpc/w/phi" type="double" value="0.0" />                         <!--  -->
-    <param name="/nmpc/w/theta" type="double" value="0.0" />                       <!--  -->
-    <param name="/nmpc/w/soft_aoa" type="double" value="1e8" />                    <!--  -->
-    <param name="/nmpc/w/soft_h" type="double" value="1e7" />                      <!--  -->
-    <param name="/nmpc/w/soft_r" type="double" value="1e7" />                      <!--  -->
-    <param name="/nmpc/w/u_T" type="double" value="1e3" />                         <!--  -->
-    <param name="/nmpc/w/phi_ref" type="double" value="1e1" />                     <!--  -->
-    <param name="/nmpc/w/theta_ref" type="double" value="1e3" />                   <!--  -->
 
     <!-- filter time constants -->
     <param name="/nmpc/filt/tau_u" type="double" value="0.5" />                    <!-- control reference horizon filter time constant [s] -->

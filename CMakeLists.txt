@@ -6,7 +6,13 @@ set(CMAKE_BUILD_TYPE Release)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -fno-aggressive-loop-optimizations")
 
 find_package(catkin REQUIRED COMPONENTS
-  roscpp std_msgs mavros message_generation grid_map_core grid_map_ros
+  roscpp std_msgs mavros message_generation grid_map_core grid_map_ros dynamic_reconfigure
+)
+
+generate_dynamic_reconfigure_options(
+  cfg/fw_ctrl.cfg
+  cfg/control.cfg
+  cfg/guidance.cfg
 )
 
 add_message_files(
@@ -61,6 +67,8 @@ add_library(fw_nmpc_lib
 add_executable(fw_nmpc
   src/fw_nmpc.cpp
 )
+
+add_dependencies(fw_nmpc ${PROJECT_NAME}_gencfg)
 
 target_link_libraries(fw_nmpc
   fw_nmpc_lib

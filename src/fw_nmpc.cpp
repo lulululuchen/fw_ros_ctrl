@@ -43,6 +43,10 @@
 using namespace fw_nmpc;
 
 FwNMPC::FwNMPC() :
+    control_config_nh_("~/control"),
+    serverControl(control_config_nh_),
+    guidance_config_nh_("~/guidance"),
+    serverGuidance(guidance_config_nh_),
     flaps_normalized_(0.0),
     home_lat_(0),
     home_lon_(0),
@@ -121,6 +125,14 @@ FwNMPC::FwNMPC() :
     nmpc_traj_pred_pub_ = nmpc_.advertise<nav_msgs::Path>("/nmpc/traj_pred",1);
     obctrl_status_pub_ = nmpc_.advertise<std_msgs::Int32>("/nmpc/status", 1);
     thrust_pub_ = nmpc_.advertise<mavros_msgs::Thrust>("/mavros/setpoint_attitude/thrust", 1);
+
+    /* dynamic reconfigure */
+
+    // The dynamic reconfigure server for control parameters
+    serverControl.setCallback(boost::bind(&FwNMPC::parametersCallbackControl, this, _1, _2));
+
+    // The dynamic reconfigure server for guidance parameters
+    serverGuidance.setCallback(boost::bind(&FwNMPC::parametersCallbackGuidance, this, _1, _2));
 }
 
 /* / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /*/
@@ -285,9 +297,39 @@ bool FwNMPC::getGhostStatus()
 } // getGhostStatus
 
 /* / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /*/
+/* DYNAMIC RECONFIGURE / / / / / / / / / / / / / / / / / / / / / / / / / / / /*/
+
+void FwNMPC::parametersCallbackControl(const fw_ctrl::controlConfig &config, const uint32_t& level)
+{
+    // state weights
+    w_(IDX_Y_VN) = config.q_vne;
+    w_(IDX_Y_VE) = config.q_vne;
+    w_(IDX_Y_VD) = config.q_vd;
+    w_(IDX_Y_V) = config.q_v;
+    w_(IDX_Y_PHI) = config.q_roll;
+    w_(IDX_Y_THETA) = config.q_pitch;
+    w_(IDX_Y_SOFT_AOA) = config.q_soft_aoa;
+    w_(IDX_Y_SOFT_H) = config.q_soft_h;
+    w_(IDX_Y_SOFT_R) = config.q_soft_r;
+    // control weights
+    w_(IDX_Y_U_T) = config.r_throt;
+    w_(IDX_Y_PHI_REF) = config.r_roll_ref;
+    w_(IDX_Y_THETA_REF) = config.r_pitch_ref;
+} // parametersCallbackControl
+
+void FwNMPC::parametersCallbackGuidance(const fw_ctrl::guidanceConfig &config, const uint32_t& level)
+{
+    guidance_params_[0] = config.T_lat;
+    guidance_params_[1] = config.T_lon;
+    guidance_params_[2] = config.gamma_app_max * DEG_TO_RAD;
+    guidance_params_[3] = (config.use_occ_as_guidance) ? 1.0 : 0.0; // TODO: keep as bool, modifiy input to pre-eval functions
+} // parametersCallbackGuidance
+
+/* / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /*/
 /* MATH FUNCTIONS  / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /*/
 
-int FwNMPC::constrain_int(int x, int xmin, int xmax) {
+int FwNMPC::constrain_int(int x, int xmin, int xmax)
+{
     return (x < xmin) ? xmin : ((x > xmax) ? xmax : x);
 } // constrain_int
 
@@ -840,13 +882,6 @@ void FwNMPC::updateObjectiveParameters()
     // XXX: these two are currently the only ones needed outside the lsq_objective.c file..
     log_sqrt_w_over_sig1_r_ = log_sqrt_w_over_sig1_r;
     one_over_sqrt_w_r_ = one_over_sqrt_w_r;
-
-    /* guidance parameters */
-    nmpc_.getParam("/nmpc/guidance/T_lat", guidance_params_[0]);
-    nmpc_.getParam("/nmpc/guidance/T_lon", guidance_params_[1]);
-    nmpc_.getParam("/nmpc/guidance/gamma_app_max", guidance_params_[2]);
-    guidance_params_[2] *= DEG_TO_RAD;
-    nmpc_.getParam("/nmpc/guidance/use_occ_as_guidance", guidance_params_[3]);
 
     /* path reference */
     nmpc_.getParam("/nmpc/path/path_type", path_type_);
@@ -2903,21 +2938,6 @@ void FwNMPC::updateAcadoW()
     nmpc_.getParam("/nmpc/inv_y_scale_sq/u_T", inv_y_scale_sq_(IDX_Y_U_T));
     nmpc_.getParam("/nmpc/inv_y_scale_sq/phi_ref", inv_y_scale_sq_(IDX_Y_PHI_REF));
     nmpc_.getParam("/nmpc/inv_y_scale_sq/theta_ref", inv_y_scale_sq_(IDX_Y_THETA_REF));
-
-    // state weights
-    nmpc_.getParam("/nmpc/w/vn", w_(IDX_Y_VN));
-    nmpc_.getParam("/nmpc/w/ve", w_(IDX_Y_VE));
-    nmpc_.getParam("/nmpc/w/vd", w_(IDX_Y_VD));
-    nmpc_.getParam("/nmpc/w/v", w_(IDX_Y_V));
-    nmpc_.getParam("/nmpc/w/phi", w_(IDX_Y_PHI));
-    nmpc_.getParam("/nmpc/w/theta", w_(IDX_Y_THETA));
-    nmpc_.getParam("/nmpc/w/soft_aoa", w_(IDX_Y_SOFT_AOA));
-    nmpc_.getParam("/nmpc/w/soft_h", w_(IDX_Y_SOFT_H));
-    nmpc_.getParam("/nmpc/w/soft_r", w_(IDX_Y_SOFT_R));
-    // control weights
-    nmpc_.getParam("/nmpc/w/u_T", w_(IDX_Y_U_T));
-    nmpc_.getParam("/nmpc/w/phi_ref", w_(IDX_Y_PHI_REF));
-    nmpc_.getParam("/nmpc/w/theta_ref", w_(IDX_Y_THETA_REF));
 
     // objective weighting through horizon (row-major array)
     for (int i=0; i<N; i++) {
