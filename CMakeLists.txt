@@ -13,6 +13,7 @@ generate_dynamic_reconfigure_options(
   cfg/fw_ctrl.cfg
   cfg/control.cfg
   cfg/guidance.cfg
+  cfg/soft_constraints.cfg
 )
 
 add_message_files(

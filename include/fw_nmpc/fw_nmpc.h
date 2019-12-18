@@ -86,6 +86,7 @@
 #include <fw_ctrl/fw_ctrlConfig.h>
 #include <fw_ctrl/controlConfig.h>
 #include <fw_ctrl/guidanceConfig.h>
+#include <fw_ctrl/soft_constraintsConfig.h>
 
 #define NX ACADO_NX     // Number of differential state variables
 #define NU ACADO_NU     // Number of control inputs
@@ -217,19 +218,17 @@ public:
     int initNMPC();
 
     /* gets */
-    double getLoopRate();
-    double getTimeStep();
-    bool getVizStatus();
-    bool getGhostStatus();
+    double getLoopRate() const { return node_params_.nmpc_iteration_rate; }
 
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
 private:
 
     /* node handles */
-    ros::NodeHandle nmpc_;                  // nmpc node handle
-    ros::NodeHandle control_config_nh_;     // node handle for dynamic reconfig of control params
-    ros::NodeHandle guidance_config_nh_;    // node handle for dynamic reconfig of guidance params
+    ros::NodeHandle nmpc_;                          // nmpc node handle
+    ros::NodeHandle control_config_nh_;             // node handle for dynamic reconfig of control params
+    ros::NodeHandle guidance_config_nh_;            // node handle for dynamic reconfig of guidance params
+    ros::NodeHandle soft_constraints_config_nh_;    // node handle for dynamic reconfig of soft constraints params
 
     /* subscribers */
     ros::Subscriber act_sub_;
@@ -259,6 +258,68 @@ private:
     ros::Publisher obctrl_status_pub_;
     ros::Publisher thrust_pub_;
 
+    /* server parameteres */
+
+    // node parameters
+    struct node_params {
+        double nmpc_iteration_rate;
+        double nmpc_discretization;
+        bool viz_en;
+        bool ghost_en;
+    };
+    node_params node_params_;
+
+    // vehicle parameters
+    struct vehicle_params {
+        double airsp_thres;
+        double flaps_lim_rad;
+    };
+    vehicle_params vehicle_params_;
+
+    // propeller parameters
+    struct prop_params {
+        double n_0;
+        double n_max;
+        double n_delta;
+        double vp_min;
+        double vp_max;
+        double n_T0_vmin;
+        double n_T0_vmax;
+        double epsilon_T_rad;
+    };
+    prop_params prop_params_;
+
+    // control-augmented model dynamics
+    struct model_params {
+        double tau_roll;
+        double tau_pitch;
+        double k_roll;
+        double k_pitch;
+        double tau_n_prop;
+    };
+    model_params model_params_;
+
+    // control parameters
+    struct control_params {
+        double roll_lim_rad;
+        double airsp_ref;
+        bool enable_terrain_feedback;
+        int len_slw;
+        double tau_u;
+        double tau_terr;
+    };
+    control_params control_params_;
+
+    // soft constraint parameters
+    struct soft_params {
+        double sig_aoa_1;
+        double sig_h_1;
+        double k_r_offset;
+        double k_delta_r;
+        double sig_r_1;
+    };
+    soft_params soft_params_;
+
     /* dynamic reconfigure */
 
     // The dynamic reconfigure server + callback for control parameters
@@ -269,8 +330,13 @@ private:
     dynamic_reconfigure::Server<fw_ctrl::guidanceConfig> serverGuidance;
     dynamic_reconfigure::Server<fw_ctrl::guidanceConfig>::CallbackType f_guidance;
 
+    // The dynamic reconfigure server + callback for soft constraint parameters
+    dynamic_reconfigure::Server<fw_ctrl::soft_constraintsConfig> serverSoftConstraints;
+    dynamic_reconfigure::Server<fw_ctrl::soft_constraintsConfig>::CallbackType f_soft_constraints;
+
     void parametersCallbackControl(const fw_ctrl::controlConfig &config, const uint32_t& level);
     void parametersCallbackGuidance(const fw_ctrl::guidanceConfig &config, const uint32_t& level);
+    void parametersCallbackSoftConstraints(const fw_ctrl::soft_constraintsConfig &config, const uint32_t& level);
 
     /* functions */
 
@@ -331,6 +397,7 @@ private:
     // initialization
     void initACADOVars();
     void initHorizon();
+    int initParameters();
 
     // ros node functions
     void shutdown();
@@ -407,7 +474,6 @@ private:
     /* state machine */
     bool px4_connected_;                    // PX4 FCU is connected
     OffboardControlStatus obctrl_status_;   // offboard control status
-    bool en_terr_fb_;                       // enable terrain feedback
     int err_code_preparation_step_;         // detailed error code for ACADO preparation step
     int err_code_feedback_step_;            // detailed error code for ACADO feedback step
     bool re_init_horizon_;                  // re-initialize the horizon
