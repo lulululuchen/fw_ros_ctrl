@@ -104,7 +104,7 @@ FwNMPC::FwNMPC() :
     home_pos_sub_ = nmpc_.subscribe("/mavros/home_position/home", 1, &FwNMPC::homePosCb, this);
     imu_sub_ = nmpc_.subscribe("/mavros/imu/data", 1, &FwNMPC::imuCb, this);
     local_pos_sub_ = nmpc_.subscribe("/mavros/local_position/pose", 1, &FwNMPC::localPosCb, this);
-    local_vel_sub_ = nmpc_.subscribe("/mavros/local_position/velocity", 1, &FwNMPC::localVelCb, this);
+    local_vel_sub_ = nmpc_.subscribe("/mavros/local_position/velocity_local", 1, &FwNMPC::localVelCb, this);
     static_pres_sub_ = nmpc_.subscribe("/mavros/imu/static_pressure", 1, &FwNMPC::staticPresCb, this);
     sys_status_sub_ = nmpc_.subscribe("/mavros/state", 1, &FwNMPC::sysStatusCb, this);
     sys_status_ext_sub_ = nmpc_.subscribe("/mavros/extended_state", 1, &FwNMPC::sysStatusExtCb, this);
