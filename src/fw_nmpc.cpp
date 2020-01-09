@@ -90,6 +90,7 @@ FwNMPC::FwNMPC() :
     prio_aoa_(Eigen::Matrix<double, ACADO_N+1, 1>::Ones()),
     prio_h_(Eigen::Matrix<double, ACADO_N+1, 1>::Ones()),
     prio_r_(Eigen::Matrix<double, ACADO_N+1, 4>::Ones()),
+    home_pos_valid_(false),
     px4_connected_(false),
     obctrl_status_(OffboardControlStatus::NOMINAL),
     err_code_preparation_step_(0),
@@ -184,6 +185,36 @@ void FwNMPC::homePosCb(const mavros_msgs::HomePosition::ConstPtr& msg) // home p
     home_lat_ = (double)msg->geo.latitude;
     home_lon_ = (double)msg->geo.longitude;
     home_alt_ = (double)msg->geo.altitude;
+
+    /* check if we are feeding mapping pipeline with ground truth from simulation and need to broadcast the appropriate transform */
+    int broadcast_world_map_tf;
+    nmpc_.getParam("/nmpc/mapping_with_ground_truth", broadcast_world_map_tf);
+    if (home_pos_valid_ && broadcast_world_map_tf) {
+        // we've received the home position and can now broadcast a transform from gazebo "world" to "map" frame
+        // only executed if feeding mapping pipeline with ground truth sim
+
+        double lat_world_origin, lon_world_origin, alt_world_origin;
+        nmpc_.getParam("/nmpc/sim/lat", lat_world_origin);
+        nmpc_.getParam("/nmpc/sim/lon", lon_world_origin);
+        nmpc_.getParam("/nmpc/sim/alt", alt_world_origin);
+
+        double north, east;
+        ll2NE(north, east, home_lat_, home_lon_, lat_world_origin, lon_world_origin);
+
+        static tf::TransformBroadcaster br; // static broadcaster
+        tf::Transform transform; // redefine transform each time home position (possibly) changes
+        transform.setOrigin( tf::Vector3(east, north, home_alt_ - alt_world_origin) );
+        tf::Quaternion q;
+        q.setRPY(0, 0, 0);
+        transform.setRotation(q);
+        br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "world", "map"));
+
+        static bool first_broadcast = true;
+        if (first_broadcast) {
+            ROS_ERROR("home position callback: broadcasting world to map tf with translation offset (%.3f, %.3f, %.3f)", east, north, home_alt_ - alt_world_origin);
+            first_broadcast = false;
+        }
+    }
 } // homePosCb
 
 void FwNMPC::imuCb(const sensor_msgs::Imu::ConstPtr& msg) // imu msg callback
@@ -201,7 +232,7 @@ void FwNMPC::imuCb(const sensor_msgs::Imu::ConstPtr& msg) // imu msg callback
 
 void FwNMPC::localPosCb(const nav_msgs::Odometry::ConstPtr& msg) // local position msg callback
 {
-    // NOTE: local positions referenced to home position origin in "map" frame
+    // NOTE: local positions referenced to home position origin in "map" parent frame
 
     // ENU -> NED
     x0_pos_(0) = msg->pose.pose.position.y;
@@ -256,6 +287,7 @@ void FwNMPC::checkSubs()
         ROS_INFO ("check subs: waiting for home position");
         sleep(1.0);
     }
+    home_pos_valid_ = true;
     ROS_ERROR("check subs: received home position");
 
     // XXX: should have checks (and/or timeouts) for the rest of the required state estimates
@@ -397,6 +429,40 @@ double FwNMPC::flapsToRad(const double flaps_normalized)
     // for now, assuming that a full normalized signal corresponds to full actuation .. need to check this with px4 convention
     return vehicle_params_.flaps_lim_rad * constrain_double(flaps_normalized, -1.0, 1.0);
 } // flapsToRad
+
+void FwNMPC::ll2NE(double &north, double &east, const double lat, const double lon, const double lat_origin, const double lon_origin)
+{
+    // hopefully can get rid of this once mapping pipeline is properly referenced..
+    // if not -- would be better to get this functionality from e.g. geographic lib
+    // NOTE: this may not totally sync with what MAVROS is doing.. as they apparently use ECEF..
+
+    /* convert lat/lon to N/E, about some lla origin */
+
+	/* From MATLAB lla2flat function:
+	 *
+	 * Copyright 2010-2011 The MathWorks, Inc.
+	 *
+	 * References:
+	 * [1] Etkin, B., Dynamics of Atmospheric Flight, John Wiley & Sons, New
+	 *     York, 1972.
+	 * [2] Stevens, B. L., and F. L. Lewis, Aircraft Control and Simulation,
+	 *     Second Edition, John Wiley & Sons, New York, 2003.
+	 */
+
+	const double f = 1/298.257223563; // WGS-84
+	const double R = 6378137.0; // equatorial radius
+
+	const double rlat0 = lat_origin*0.017453292519943;
+
+	const double dlat = (lat-lat_origin)*0.017453292519943;
+	const double dlon = (lon-lon_origin)*0.017453292519943;
+
+	const double Rn = R/sqrt(1-(2*f-f*f)*sin(rlat0)*sin(rlat0));
+	const double Rm = Rn*((1-(2*f-f*f))/(1-(2*f-f*f)*sin(rlat0)*sin(rlat0)));
+
+	north = dlat/atan2(1,Rm);
+	east = dlon/atan2(1,Rn*cos(rlat0));
+} // ll2NE
 
 double FwNMPC::mapPropSpeedToThrot(const double n_prop, const double airsp, const double aoa)
 {
@@ -646,8 +712,8 @@ void FwNMPC::publishNMPCVisualizations()
         int num_pts = 50;
         guidance_path.poses = std::vector<geometry_msgs::PoseStamped>(num_pts+1);
         for (int i=0; i<num_pts+1; i++) {
-            guidance_path.poses[i].pose.position.x = path_reference_[0] + fabs(path_reference_[4])*cos(double(i)/double(num_pts)*M_PI*2.0);
-            guidance_path.poses[i].pose.position.y = -(path_reference_[1] + fabs(path_reference_[4])*sin(double(i)/double(num_pts)*M_PI*2.0));
+            guidance_path.poses[i].pose.position.x = path_reference_[1] + fabs(path_reference_[4])*sin(double(i)/double(num_pts)*M_PI*2.0);
+            guidance_path.poses[i].pose.position.y = path_reference_[0] + fabs(path_reference_[4])*cos(double(i)/double(num_pts)*M_PI*2.0);
             guidance_path.poses[i].pose.position.z = -path_reference_[2];
         }
         nmpc_guidance_path_pub_.publish(guidance_path);
@@ -658,8 +724,8 @@ void FwNMPC::publishNMPCVisualizations()
     nmpc_traj_pred.header.frame_id = "map";
     nmpc_traj_pred.poses = std::vector<geometry_msgs::PoseStamped>(N+1);
     for (int i=0; i<N+1; i++) {
-        nmpc_traj_pred.poses[i].pose.position.x = acadoVariables.x[NX * i + IDX_X_POS];
-        nmpc_traj_pred.poses[i].pose.position.y = -acadoVariables.x[NX * i + IDX_X_POS+1];
+        nmpc_traj_pred.poses[i].pose.position.x = acadoVariables.x[NX * i + IDX_X_POS+1];
+        nmpc_traj_pred.poses[i].pose.position.y = acadoVariables.x[NX * i + IDX_X_POS];
         nmpc_traj_pred.poses[i].pose.position.z = -acadoVariables.x[NX * i + IDX_X_POS+2];
         Eigen::Quaterniond q = Eigen::AngleAxisd(acadoVariables.x[NX * i + IDX_X_PHI], Eigen::Vector3d::UnitX())
             * Eigen::AngleAxisd(acadoVariables.x[NX * i + IDX_X_THETA], Eigen::Vector3d::UnitY())
@@ -684,10 +750,10 @@ void FwNMPC::publishNMPCVisualizations()
                 surf_normal.id = maker_counter;
                 surf_normal.type = visualization_msgs::Marker::ARROW;
                 surf_normal.action = visualization_msgs::Marker::ADD;
-                surf_normal.pose.position.x = occ_slw_[i * NOCC + IDX_OCC_POS];
-                surf_normal.pose.position.y = -occ_slw_[i * NOCC + IDX_OCC_POS+1];
+                surf_normal.pose.position.x = occ_slw_[i * NOCC + IDX_OCC_POS+1];
+                surf_normal.pose.position.y = occ_slw_[i * NOCC + IDX_OCC_POS];
                 surf_normal.pose.position.z = -occ_slw_[i * NOCC + IDX_OCC_POS+2];
-                Eigen::Vector3d v(occ_slw_[i * NOCC + IDX_OCC_NORMAL+1], -occ_slw_[i * NOCC + IDX_OCC_NORMAL+1], -occ_slw_[i * NOCC + IDX_OCC_NORMAL+2]); // ENU
+                Eigen::Vector3d v(occ_slw_[i * NOCC + IDX_OCC_NORMAL+1], occ_slw_[i * NOCC + IDX_OCC_NORMAL], -occ_slw_[i * NOCC + IDX_OCC_NORMAL+2]); // ENU
                 Eigen::Quaterniond q;
                 q.setFromTwoVectors(Eigen::Vector3d::UnitZ(), v);
                 tf::quaternionEigenToMsg(q, surf_normal.pose.orientation);
@@ -707,14 +773,14 @@ void FwNMPC::publishNMPCVisualizations()
 
                 // define surface plane marker (flat cylinder)
                 visualization_msgs::Marker surf_plane;
-                surf_plane.header.frame_id = "world";
+                surf_plane.header.frame_id = "map";
                 surf_plane.header.stamp = ros::Time();
                 surf_plane.ns = "surface_normals";
                 surf_plane.id = maker_counter;
                 surf_plane.type = visualization_msgs::Marker::CYLINDER;
                 surf_plane.action = visualization_msgs::Marker::ADD;
-                surf_plane.pose.position.x = occ_slw_[i * NOCC + IDX_OCC_POS];
-                surf_plane.pose.position.y = -occ_slw_[i * NOCC + IDX_OCC_POS+1];
+                surf_plane.pose.position.x = occ_slw_[i * NOCC + IDX_OCC_POS+1];
+                surf_plane.pose.position.y = occ_slw_[i * NOCC + IDX_OCC_POS];
                 surf_plane.pose.position.z = -occ_slw_[i * NOCC + IDX_OCC_POS+2];
                 tf::quaternionEigenToMsg(q, surf_plane.pose.orientation);
                 surf_plane.scale.x = 1.0; // cylinder width

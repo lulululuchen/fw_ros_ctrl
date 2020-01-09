@@ -73,6 +73,7 @@
 // tf
 #include <tf/tf.h>
 #include <tf_conversions/tf_eigen.h>
+#include <tf/transform_broadcaster.h>
 
 // Eigen
 #include <Eigen/Eigen>
@@ -350,6 +351,7 @@ private:
     double calcAirDensity();
     void calculate_speed_states(double *speed_states, const double v, const double gamma, const double xi, const double w_n, const double w_e, const double w_d); //XXX: another duplicate
     double flapsToRad(const double flaps_normalized);
+    void ll2NE(double &north, double &east, const double lat, const double lon, const double lat_origin, const double lon_origin);
     double mapPropSpeedToThrot(const double n_prop, const double airsp, const double aoa);
     double mapPX4ToThrot(const double px4_throt, const double airsp, const double aoa);
     double mapThrotToPropSpeed(const double throt, const double airsp, const double aoa);
@@ -472,6 +474,7 @@ private:
     ros::Time t_last_ctrl_; // time since last control action [s]
 
     /* state machine */
+    bool home_pos_valid_;                   // received valid home position
     bool px4_connected_;                    // PX4 FCU is connected
     OffboardControlStatus obctrl_status_;   // offboard control status
     int err_code_preparation_step_;         // detailed error code for ACADO preparation step

@@ -6,6 +6,7 @@
     <param name="/nmpc/time_step" type="double" value="0.1" />                     <!-- NMPC time step (node discretization) [s] -->
     <param name="/nmpc/viz/enable" type="int" value="0" />                         <!-- enable visualization in rviz (1: enabled, 0: disabled) -->
     <param name="/nmpc/enable_ghost" type="int" value="1" />                       <!-- run nmpc in background (1), or dont (0) -->
+    <param name="/nmpc/mapping_with_ground_truth" type="int" value="0" />          <!-- mapping pipeline is being fed with simulation ground truth -->
 
     <!-- vehicle parameters -->
     <param name="/nmpc/veh/airsp_thres" type="double" value="4.0" />               <!-- airspeed measurement threshold [m/s] -->
@@ -53,4 +54,9 @@
     <param name="/nmpc/path/b_d" type="double" value="-100.0" />                   <!-- path down origin [m] -->
     <param name="/nmpc/path/Gamma_p" type="double" value="0.0" />                  <!-- path ground-relative flight path angle [deg] -->
     <param name="/nmpc/path/chi_p" type="double" value="100.0" />                  <!-- path course [deg] (when path_type=0, signed radius of loiter [m]) -->
+
+    <!-- world parameters (ground truth simulation) -->
+    <param name="/nmpc/sim/lat" type="double" value="47.31081" />                  <!-- world (hinwil) origin latitude [deg] -->
+    <param name="/nmpc/sim/lon" type="double" value="8.81142" />                   <!-- world (hinwil) origin longitude [deg] -->
+    <param name="/nmpc/sim/alt" type="double" value="535.0" />                     <!-- world (hinwil) origin altitude [m] -->
 </launch>
