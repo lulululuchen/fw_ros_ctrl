@@ -136,6 +136,18 @@ FwNMPC::FwNMPC() :
 
     // The dynamic reconfigure server for soft constraints parameters
     serverSoftConstraints.setCallback(boost::bind(&FwNMPC::parametersCallbackSoftConstraints, this, _1, _2));
+
+    /*
+     * <taken from ftf frame conversions in MAVROS>
+     *
+     * Static quaternions needed for rotating between ENU and NED frames
+     * NED to ENU: +PI/2 rotation about Z (Down) followed by a +PI rotation around X (old North/new East)
+     * ENU to NED: +PI/2 rotation about Z (Up) followed by a +PI rotation about X (old East/new North)
+     * aircraft and base_link: +PI rotation around X (Forward) axis transforms from Forward, Right, Down (aircraft)
+     * aircraft and base_link: Fto Forward, Left, Up (base_link) frames.
+     */
+    ned_enu_q_.setRPY(M_PI, 0.0, M_PI_2);
+    aircraft_baselink_q_.setRPY(M_PI, 0.0, 0.0);
 }
 
 /* / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /*/
@@ -219,11 +231,14 @@ void FwNMPC::homePosCb(const mavros_msgs::HomePosition::ConstPtr& msg) // home p
 
 void FwNMPC::imuCb(const sensor_msgs::Imu::ConstPtr& msg) // imu msg callback
 {
-    tf::Quaternion q;
-    tf::quaternionMsgToTF(msg->orientation, q);
+    tf::Quaternion q_enu;
+    tf::quaternionMsgToTF(msg->orientation, q_enu); // MAVROS only publishes ENU orientation
+
+    // convert to NED
+    tf::Quaternion q_ned = ned_enu_q_ * q_enu * aircraft_baselink_q_; // XXX: maybe should just add a publisher for the ned quaternion already stored in MAVROS?
 
     double roll, pitch, yaw;
-    tf::Matrix3x3(q).getRPY(roll, pitch, yaw);
+    tf::Matrix3x3(q_ned).getRPY(roll, pitch, yaw);
 
     x0_euler_(0) = roll;
     x0_euler_(1) = pitch;

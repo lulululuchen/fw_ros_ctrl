@@ -404,6 +404,10 @@ private:
     // ros node functions
     void shutdown();
 
+    /* conversions */
+    tf::Quaternion ned_enu_q_;              // ned to enu (or visa versa) quaternion
+    tf::Quaternion aircraft_baselink_q_;    // aircraft to baselink (or visa versa) quaternion
+
     /* pixhawk states / estimates */
     double flaps_normalized_;   // normalized flaps setting
     double home_lat_;           // home position latitude [deg]
