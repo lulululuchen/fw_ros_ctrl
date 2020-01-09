@@ -103,8 +103,7 @@ FwNMPC::FwNMPC() :
     grid_map_sub_ = nmpc_.subscribe("/elevation_mapper/map_mpc", 1, &FwNMPC::gridMapCb, this);
     home_pos_sub_ = nmpc_.subscribe("/mavros/home_position/home", 1, &FwNMPC::homePosCb, this);
     imu_sub_ = nmpc_.subscribe("/mavros/imu/data", 1, &FwNMPC::imuCb, this);
-    local_pos_sub_ = nmpc_.subscribe("/mavros/local_position/pose", 1, &FwNMPC::localPosCb, this);
-    local_vel_sub_ = nmpc_.subscribe("/mavros/local_position/velocity_local", 1, &FwNMPC::localVelCb, this);
+    local_pos_sub_ = nmpc_.subscribe("/mavros/global_position/local", 1, &FwNMPC::localPosCb, this);
     static_pres_sub_ = nmpc_.subscribe("/mavros/imu/static_pressure", 1, &FwNMPC::staticPresCb, this);
     sys_status_sub_ = nmpc_.subscribe("/mavros/state", 1, &FwNMPC::sysStatusCb, this);
     sys_status_ext_sub_ = nmpc_.subscribe("/mavros/extended_state", 1, &FwNMPC::sysStatusExtCb, this);
@@ -200,21 +199,21 @@ void FwNMPC::imuCb(const sensor_msgs::Imu::ConstPtr& msg) // imu msg callback
     x0_euler_(2) = yaw;
 } // imuCb
 
-void FwNMPC::localPosCb(const geometry_msgs::PoseStamped::ConstPtr& msg) // local position msg callback
+void FwNMPC::localPosCb(const nav_msgs::Odometry::ConstPtr& msg) // local position msg callback
 {
-    // ENU -> NED
-    x0_pos_(0) = msg->pose.position.y;
-    x0_pos_(1) = msg->pose.position.x;
-    x0_pos_(2) = -msg->pose.position.z;
-} // localPosCb
+    // NOTE: local positions referenced to home position origin in "map" frame
 
-void FwNMPC::localVelCb(const geometry_msgs::TwistStamped::ConstPtr& msg) // local velocity msg callback
-{
     // ENU -> NED
-    x0_vel_(0) = msg->twist.linear.y;
-    x0_vel_(1) = msg->twist.linear.x;
-    x0_vel_(2) = -msg->twist.linear.z;
-} // localVelCb
+    x0_pos_(0) = msg->pose.pose.position.y;
+    x0_pos_(1) = msg->pose.pose.position.x;
+    x0_pos_(2) = -msg->pose.pose.position.z;
+
+    // ENU -> NED
+    x0_vel_(0) = msg->twist.twist.linear.y;
+    x0_vel_(1) = msg->twist.twist.linear.x;
+    x0_vel_(2) = -msg->twist.twist.linear.z;
+
+} // localPosCb
 
 void FwNMPC::staticPresCb(const sensor_msgs::FluidPressure::ConstPtr& msg) // static pressure msg callback
 {

@@ -56,6 +56,7 @@
 #include <mavros_msgs/HomePosition.h>
 #include <mavros_msgs/State.h>
 #include <mavros_msgs/Thrust.h>
+#include <nav_msgs/Odometry.h>
 #include <nav_msgs/Path.h>
 #include <sensor_msgs/Imu.h>
 #include <sensor_msgs/Temperature.h>
@@ -205,8 +206,7 @@ public:
     void sysStatusExtCb(const mavros_msgs::ExtendedState::ConstPtr& msg);
     void homePosCb(const mavros_msgs::HomePosition::ConstPtr& msg);
     void imuCb(const sensor_msgs::Imu::ConstPtr& msg);
-    void localPosCb(const geometry_msgs::PoseStamped::ConstPtr& msg);
-    void localVelCb(const geometry_msgs::TwistStamped::ConstPtr& msg);
+    void localPosCb(const nav_msgs::Odometry::ConstPtr& msg);
     void staticPresCb(const sensor_msgs::FluidPressure::ConstPtr& msg);
     void sysStatusCb(const mavros_msgs::State::ConstPtr& msg);
     void tempCCb(const sensor_msgs::Temperature::ConstPtr& msg);
