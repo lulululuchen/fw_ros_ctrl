@@ -239,10 +239,10 @@ void FwNMPC::localPosCb(const nav_msgs::Odometry::ConstPtr& msg) // local positi
     x0_pos_(1) = msg->pose.pose.position.x;
     x0_pos_(2) = -msg->pose.pose.position.z;
 
-    // ENU -> NED
+    // END (XXX: this is a MAVROS error .. probably to do with PX4 vs adrupilot sending different MAVLINK data) -> NED
     x0_vel_(0) = msg->twist.twist.linear.y;
     x0_vel_(1) = msg->twist.twist.linear.x;
-    x0_vel_(2) = -msg->twist.twist.linear.z;
+    x0_vel_(2) = msg->twist.twist.linear.z;
 
 } // localPosCb
 
@@ -2714,7 +2714,7 @@ void FwNMPC::filterTerrainCostJacobian()
             acadoVariables.od[NOD * i + j] = (od_(j, i) - acadoVariables.od[NOD * i + j]) / control_params_.tau_terr / node_params_.nmpc_iteration_rate + acadoVariables.od[NOD * i + j];
         }
     }
-} // filterControlReference
+} // filterTerrainCostJacobian
 
 /* / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /*/
 /* NMPC FUNCTIONS  / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /*/
@@ -2835,7 +2835,7 @@ int FwNMPC::nmpcIteration()
 
     // send controls to vehicle
     applyControl();
-    if (!re_init_horizon_) publishControls(u_(IDX_U_U_T), u_(IDX_U_PHI_REF), u_(IDX_U_THETA_REF)); // don't publish if a re_init is necessary
+    if (!re_init_horizon_) publishControls(u_(IDX_U_U_T), u_(IDX_U_PHI_REF), u_(IDX_U_THETA_REF)); // don't publish if a re_init is necessary (XXX: might put a timeout here at some point..)
     t_elapsed = ros::Time::now() - t_last_ctrl_;
     uint64_t t_ctrl = t_elapsed.toNSec()/1000;
     t_last_ctrl_ = ros::Time::now(); // record directly after publishing control
