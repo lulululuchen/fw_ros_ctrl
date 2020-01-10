@@ -482,39 +482,41 @@ void FwNMPC::ll2NE(double &north, double &east, const double lat, const double l
 	east = dlon/atan2(1,Rn*cos(rlat0));
 } // ll2NE
 
-double FwNMPC::mapPropSpeedToThrot(const double n_prop, const double airsp, const double aoa)
+double FwNMPC::mapPropSpeedToNormalizedThrot(const double n_prop, const double airsp, const double aoa)
 {
     // prop speed input (converted from throttle input considering inflow and zero thrusting conditions)
-
     const double vp = airsp * cos(aoa - prop_params_.epsilon_T_rad); // inflow at propeller
     const double sig_vp = constrain_double((vp - prop_params_.vp_min) / (prop_params_.vp_max - prop_params_.vp_min), 0.0, 1.0); // prop inflow linear interpolater
+    const double n_min = prop_params_.n_T0_vmin * (1.0 - sig_vp) + prop_params_.n_T0_vmax * sig_vp; // airspeed dependent min prop speed for linear interpolation
+    return constrain_double((n_prop - n_min)/(prop_params_.n_max - n_min), 0.0, 1.0); // interpolate normalized throttle
+} // mapPropSpeedToNormalizedThrot
 
-    return (n_prop - prop_params_.n_T0_vmin * (1.0 - sig_vp) - prop_params_.n_T0_vmax * sig_vp)/(prop_params_.n_max - prop_params_.n_T0_vmin);
-} // mapPropSpeedToThrot
-
-double FwNMPC::mapPX4ToThrot(const double px4_throt, const double airsp, const double aoa)
+double FwNMPC::mapPX4ThrotToNormalizedThrot(const double px4_throt, const double airsp, const double aoa)
 {
-    return mapPropSpeedToThrot(px4_throt * prop_params_.n_delta + prop_params_.n_0, airsp, aoa);
-} // mapPX4ToThrot
+    // px4_throt [0,1] -> propeller speed in static condition [rps] (linear fit)
+    double n_prop_static = constrain_double(px4_throt * prop_params_.n_delta + prop_params_.n_0, 0.0, prop_params_.n_max);
 
-double FwNMPC::mapThrotToPropSpeed(const double throt, const double airsp, const double aoa)
+    // n_prop_static -> normalized (with airspeed and zero thrust bounds) throttle input used in NMPC
+    return mapPropSpeedToNormalizedThrot(n_prop_static, airsp, aoa);
+} // mapPX4ThrotToNormalizedThrot
+
+double FwNMPC::mapNormalizedThrotToPropSpeed(const double throt, const double airsp, const double aoa)
 {
     // prop speed input (converted from throttle input considering inflow and zero thrusting conditions)
-
     const double vp = airsp * cos(aoa - prop_params_.epsilon_T_rad); // inflow at propeller
     const double sig_vp = constrain_double((vp - prop_params_.vp_min) / (prop_params_.vp_max - prop_params_.vp_min), 0.0, 1.0); // prop inflow linear interpolater
-
     return (prop_params_.n_T0_vmin + throt * (prop_params_.n_max - prop_params_.n_T0_vmin)) * (1.0 - sig_vp) + (prop_params_.n_T0_vmax + throt * (prop_params_.n_max - prop_params_.n_T0_vmax)) * sig_vp;
-} // mapThrotToPropSpeed
+} // mapNormalizedThrotToPropSpeed
 
-double FwNMPC::mapThrotToPX4(const double throt, const double airsp, const double aoa)
+double FwNMPC::mapNormalizedThrotToPX4Throt(const double throt, const double airsp, const double aoa)
 {
-    return (mapThrotToPropSpeed(throt, airsp, aoa) - prop_params_.n_0) / prop_params_.n_delta; // NOTE: this does not include dead-zone or true zero (prop may slowly spin at zero input)
-} // mapThrotToPX4
+    double n_prop = mapNormalizedThrotToPropSpeed(throt, airsp, aoa);
+    return (n_prop - prop_params_.n_0) / prop_params_.n_delta; // NOTE: this does not include dead-zone or true zero (prop may slowly spin at zero input)
+} // mapNormalizedThrotToPX4Throt
 
 void FwNMPC::propagateVirtPropSpeed(const double throt, const double airsp, const double aoa)
 {
-    n_prop_virt_ += (mapThrotToPropSpeed(throt, airsp, aoa) - n_prop_virt_) / model_params_.tau_n_prop / node_params_.nmpc_iteration_rate;
+    n_prop_virt_ += (mapNormalizedThrotToPropSpeed(throt, airsp, aoa) - n_prop_virt_) / model_params_.tau_n_prop / node_params_.nmpc_iteration_rate;
 } // propagateVirtPropSpeed
 
 double FwNMPC::unwrapHeading(const double yaw_meas)
@@ -555,7 +557,7 @@ void FwNMPC::publishControls(const double u_T, const double phi_ref, const doubl
     // thrust sp
     mavros_msgs::Thrust thrust_sp;
     thrust_sp.header.stamp = ros::Time::now();
-    thrust_sp.thrust = (float)constrain_double(mapThrotToPX4(u_T, acadoVariables.x[IDX_X_V], acadoVariables.x[IDX_X_THETA] - acadoVariables.x[IDX_X_GAMMA]), 0.0, 1.0);
+    thrust_sp.thrust = (float)constrain_double(mapNormalizedThrotToPX4Throt(u_T, acadoVariables.x[IDX_X_V], acadoVariables.x[IDX_X_THETA] - acadoVariables.x[IDX_X_GAMMA]), 0.0, 1.0);
     thrust_pub_.publish(thrust_sp);
 
     // attitude setpoint
@@ -2980,12 +2982,16 @@ void FwNMPC::updateAcadoX0()
     // prop speed
     if (re_init_horizon_) {
         // take current state
-        const double throt = mapPX4ToThrot(px4_throt_, airsp, x0_(IDX_X_THETA) - x0_(IDX_X_GAMMA));
-        n_prop_virt_ = mapThrotToPropSpeed(throt, airsp, x0_(IDX_X_THETA) - x0_(IDX_X_GAMMA));
+        const double throt = mapPX4ThrotToNormalizedThrot(px4_throt_, airsp, x0_(IDX_X_THETA) - x0_(IDX_X_GAMMA));
+        n_prop_virt_ = mapNormalizedThrotToPropSpeed(throt, airsp, x0_(IDX_X_THETA) - x0_(IDX_X_GAMMA));
+    }
+    else if (offboard_mode_) {
+        // the MPC is in control, propagate from last state
+        propagateVirtPropSpeed(u_(IDX_U_U_T), acadoVariables.x[IDX_X_V], acadoVariables.x[IDX_X_THETA] - acadoVariables.x[IDX_X_GAMMA]);
     }
     else {
-        // propagate from last state
-        propagateVirtPropSpeed(u_(IDX_U_U_T), acadoVariables.x[IDX_X_V], acadoVariables.x[IDX_X_THETA] - acadoVariables.x[IDX_X_GAMMA]);
+        // PX4 is commanding the vehicle
+        propagateVirtPropSpeed(mapPX4ThrotToNormalizedThrot(px4_throt_, airsp, x0_(IDX_X_THETA) - x0_(IDX_X_GAMMA)), acadoVariables.x[IDX_X_V], acadoVariables.x[IDX_X_THETA] - acadoVariables.x[IDX_X_GAMMA]);
     }
     x0_(IDX_X_NPROP) = n_prop_virt_;
 
@@ -3072,8 +3078,8 @@ void FwNMPC::initHorizon()
             acadoVariables.x[NX * i + IDX_X_THETA] = pitch;
 
             // hold current throttle constant through horizon
-            double throt = mapPX4ToThrot(px4_throt_, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
-            double n_prop = mapThrotToPropSpeed(throt, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
+            double throt = mapPX4ThrotToNormalizedThrot(px4_throt_, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
+            double n_prop = mapNormalizedThrotToPropSpeed(throt, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
             acadoVariables.x[NX * i + IDX_X_NPROP] = n_prop;
 
             // controls
@@ -3099,8 +3105,8 @@ void FwNMPC::initHorizon()
         acadoVariables.x[NX * N + IDX_X_THETA] = pitch;
 
         // hold current throttle constant through horizon
-        double throt = mapPX4ToThrot(px4_throt_, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
-        double n_prop = mapThrotToPropSpeed(throt, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
+        double throt = mapPX4ThrotToNormalizedThrot(px4_throt_, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
+        double n_prop = mapNormalizedThrotToPropSpeed(throt, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
         acadoVariables.x[NX * N + IDX_X_NPROP] = n_prop;
 
         ROS_ERROR("initHorizon: re-initializing, possibly in-air, propagate current state measurements forward");

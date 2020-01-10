@@ -352,10 +352,10 @@ private:
     void calculate_speed_states(double *speed_states, const double v, const double gamma, const double xi, const double w_n, const double w_e, const double w_d); //XXX: another duplicate
     double flapsToRad(const double flaps_normalized);
     void ll2NE(double &north, double &east, const double lat, const double lon, const double lat_origin, const double lon_origin);
-    double mapPropSpeedToThrot(const double n_prop, const double airsp, const double aoa);
-    double mapPX4ToThrot(const double px4_throt, const double airsp, const double aoa);
-    double mapThrotToPropSpeed(const double throt, const double airsp, const double aoa);
-    double mapThrotToPX4(const double throt, const double airsp, const double aoa);
+    double mapPropSpeedToNormalizedThrot(const double n_prop, const double airsp, const double aoa);
+    double mapPX4ThrotToNormalizedThrot(const double px4_throt, const double airsp, const double aoa);
+    double mapNormalizedThrotToPropSpeed(const double throt, const double airsp, const double aoa);
+    double mapNormalizedThrotToPX4Throt(const double throt, const double airsp, const double aoa);
     void propagateVirtPropSpeed(const double throt, const double airsp, const double aoa);
     double unwrapHeading(const double yaw_meas);
 
