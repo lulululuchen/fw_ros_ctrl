@@ -290,8 +290,10 @@ void FwNMPC::tempCCb(const sensor_msgs::Temperature::ConstPtr& msg) // temperatu
 
 void FwNMPC::windEstCb(const geometry_msgs::TwistWithCovarianceStamped::ConstPtr& msg) // wind estimation msg callback
 {
-    // ACTUALLY one that is in NED already
-    tf::vectorMsgToEigen(msg->twist.twist.linear, x0_wind_);
+    // ENU->NED
+    x0_wind_(0) = msg->twist.twist.linear.y;
+    x0_wind_(1) = msg->twist.twist.linear.x;
+    x0_wind_(2) = -msg->twist.twist.linear.z;
 } // windEstCb
 
 void FwNMPC::checkSubs()
