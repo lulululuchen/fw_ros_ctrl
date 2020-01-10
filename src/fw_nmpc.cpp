@@ -65,7 +65,8 @@ FwNMPC::FwNMPC() :
     x0_wind_(Eigen::Vector3d::Zero()),
     n_prop_virt_(0.0),
     first_yaw_received_(false),
-    last_yaw_msg_(0.0),
+    last_unwrapped_yaw_(0.0),
+    wrap_counter_(0),
     terr_local_origin_n_(0.0),
     terr_local_origin_e_(0.0),
     map_height_(100),
@@ -516,24 +517,34 @@ void FwNMPC::propagateVirtPropSpeed(const double throt, const double airsp, cons
     n_prop_virt_ += (mapThrotToPropSpeed(throt, airsp, aoa) - n_prop_virt_) / model_params_.tau_n_prop / node_params_.nmpc_iteration_rate;
 } // propagateVirtPropSpeed
 
-double FwNMPC::unwrapHeading(double yaw)
+double FwNMPC::unwrapHeading(const double yaw_meas)
 {
     // XXX: once slip is included.. need to disambiguate heading (xi) vs yaw notation abuse here..
 
+    // XXX: need a catch here to reset horizon yaw states once the wrap counter gets too high
+
     if (!first_yaw_received_) {
-        last_yaw_msg_ = yaw;
-        first_yaw_received_ = true;
-        return yaw;
+      first_yaw_received_ = true;
+      last_unwrapped_yaw_ = yaw_meas;
+      wrap_counter_ = 0; // this first measurement should always be wrapped in [-pi,pi] (ATM it is coming from an atan2)
+      return yaw_meas;
     }
 
-    float delta_yaw = yaw - last_yaw_msg_;
-    if ( delta_yaw < -M_PI ) delta_yaw = delta_yaw + 2.0 * M_PI;
-    if ( delta_yaw > M_PI ) delta_yaw = delta_yaw - 2.0 * M_PI;
+    double delta_yaw = yaw_meas - (last_unwrapped_yaw_ - wrap_counter_ * 2.0 * M_PI); // re-wrap last yaw to find delta
+    // NOTE: this assumes we aren't making more than one revolution between one update..
+    //       should be a reasonable assumption..
 
-    yaw = yaw + delta_yaw;
+    if ( delta_yaw < -M_PI ) {
+       wrap_counter_++;
+       delta_yaw = delta_yaw + 2.0 * M_PI;
+    }
+    if ( delta_yaw > M_PI ) {
+       wrap_counter_--;
+       delta_yaw = delta_yaw - 2.0 * M_PI;
+    }
 
-    last_yaw_msg_ = yaw;
-    return yaw;
+    last_unwrapped_yaw_ += delta_yaw;
+    return last_unwrapped_yaw_;
 } // unwrapHeading
 
 /* / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /*/

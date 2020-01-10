@@ -357,7 +357,7 @@ private:
     double mapThrotToPropSpeed(const double throt, const double airsp, const double aoa);
     double mapThrotToPX4(const double throt, const double airsp, const double aoa);
     void propagateVirtPropSpeed(const double throt, const double airsp, const double aoa);
-    double unwrapHeading(double yaw);
+    double unwrapHeading(const double yaw_meas);
 
     // publishers
     void publishControls(const double u_T, const double phi_ref, const double theta_ref);
@@ -427,7 +427,8 @@ private:
     /* virtual states */
     double n_prop_virt_;        // virtual propeller speed state [rps]
     bool first_yaw_received_;   // a yaw estimate was received (used for yaw unwrapping) [rad]
-    float last_yaw_msg_;        // the last yaw estimate (used for yaw unwrapping) [rad]
+    float last_unwrapped_yaw_;  // the last unwrapped yaw estimate [rad]
+    int wrap_counter_;          // counts the number of times we've wrapped the yaw angle (and in which direction -- signed)
 
     /* grid map */
     grid_map::GridMap terrain_map_;
