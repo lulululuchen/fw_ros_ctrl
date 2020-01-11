@@ -64,7 +64,6 @@ FwNMPC::FwNMPC() :
     x0_euler_(Eigen::Vector3d::Zero()),
     x0_wind_(Eigen::Vector3d::Zero()),
     n_prop_virt_(0.0),
-    first_yaw_received_(false),
     last_unwrapped_yaw_(0.0),
     wrap_counter_(0),
     terr_local_origin_n_(0.0),
@@ -525,8 +524,10 @@ double FwNMPC::unwrapHeading(const double yaw_meas)
 
     // XXX: need a catch here to reset horizon yaw states once the wrap counter gets too high
 
-    if (!first_yaw_received_) {
-      first_yaw_received_ = true;
+    static bool first_yaw_received = false;
+
+    if (!first_yaw_received || re_init_horizon_) {
+      first_yaw_received = true;
       last_unwrapped_yaw_ = yaw_meas;
       wrap_counter_ = 0; // this first measurement should always be wrapped in [-pi,pi] (ATM it is coming from an atan2)
       return yaw_meas;
@@ -1183,14 +1184,14 @@ void FwNMPC::evaluateExternalObjectives(const double *terrain_data)
                                      speed_states, jac_sig_r, prio_r_(i, IDX_PRIO_R_MAX), path_type_);
 
         if (i < N) {
-            acadoVariables.y[i * NY + IDX_Y_VN] = v_ref[0];
-            acadoVariables.y[i * NY + IDX_Y_VE] = v_ref[1];
-            acadoVariables.y[i * NY + IDX_Y_VD] = v_ref[2];
+            y_(IDX_Y_VN, i) = v_ref[0];
+            y_(IDX_Y_VE, i) = v_ref[1];
+            y_(IDX_Y_VD, i) = v_ref[2];
         }
         else {
-            acadoVariables.yN[IDX_Y_VN] = v_ref[0];
-            acadoVariables.yN[IDX_Y_VE] = v_ref[1];
-            acadoVariables.yN[IDX_Y_VD] = v_ref[2];
+            yN_(IDX_Y_VN) = v_ref[0];
+            yN_(IDX_Y_VE) = v_ref[1];
+            yN_(IDX_Y_VD) = v_ref[2];
         }
     }
 } // evaluateExternalObjectives
@@ -2777,37 +2778,29 @@ void FwNMPC::applyControl()
 
 int FwNMPC::nmpcIteration()
 {
-    // < -- START objective pre-evaluation timer
+    // < -- START iteration timer
     ros::Time t_iter_start = ros::Time::now();
 
     obctrl_status_ = OffboardControlStatus::NOMINAL;
     ros::Duration t_elapsed;
 
-    // check if ghost operation is enabled, else constantly re-initialize horizon
+    // check if ghost operation is enabled, else constantly re-initialize horizon //XXX: do we really even need this? could just always ghost run the mpc..
     if (!node_params_.ghost_en) re_init_horizon_ = true;
-
-    /* updates */
 
     // < -- START objective pre-evaluation timer
     ros::Time t_preeval_start = ros::Time::now();
 
+    /* updates */
     updateAcadoX0(); // new measurements
     updateAcadoW(); // new weights (not including prioritization)
     updateAcadoConstraints(); // new constraints
 
     // check if something went wrong..
-    int ret_solver = 0;
+    int ret_solver = 0; // XXX: need to add timeout here with check on how long we are constantly trying to re-initialize (if this happens)
     if (re_init_horizon_) {
-        ret_solver = acado_initializeSolver(); // XXX: should this be placed inside the initHorizon function? .. seems initHorizon is only ever used when the solver also needs re-initialization
-        if (ret_solver) {
-            // something else is quite wrong if we can't even prime the solver... kill
-            return ret_solver;
-        }
-        else {
-            first_yaw_received_ = false; // reset yaw unwrapping
-            initHorizon();
-            re_init_horizon_ = false;
-        }
+        initHorizon();
+        ROS_ERROR("initHorizon: re-initializing, possibly in-air, propagate current state measurements forward");
+        re_init_horizon_ = false;
     }
     else {
         // only filter the control reference when we are not re-initializing (i.e. there exists a "previous" control ref to filter)
@@ -3040,8 +3033,6 @@ void FwNMPC::initACADOVars()
     u_ref_.setZero();
     y_.setZero();
     yN_.setZero();
-    inv_y_scale_sq_.setZero();
-    w_.setZero();
     od_.setZero();
 
     for (int i = 0; i < N+LEN_SLIDING_WINDOW_MAX; ++i) occ_detect_slw_[i] = 0;
@@ -3056,134 +3047,85 @@ void FwNMPC::initACADOVars()
 
 void FwNMPC::initHorizon()
 {
-    if (re_init_horizon_) {
-        // we are re-initializing the horizon possibly in-air, propagate current state measurements forward
-
-        for (int i = 0; i < N; ++i) {
-
-            // propagate position linearly at current ground velocity
-            for (int j = IDX_X_POS; j < IDX_X_POS+3; ++j) {
-                acadoVariables.x[NX * i + j] = x0_pos_(j) + x0_vel_(j) * node_params_.nmpc_discretization * i;
-            }
-
-            // hold velocity axis constant through horizon
-            acadoVariables.x[NX * i + IDX_X_V] = x0_(IDX_X_V);
-            acadoVariables.x[NX * i + IDX_X_GAMMA] = x0_(IDX_X_GAMMA);
-            acadoVariables.x[NX * i + IDX_X_XI] = x0_(IDX_X_XI);
-
-            // hold attitude constant (within bounds) through horizon
-            double roll = constrain_double(x0_(IDX_X_PHI), lb_(IDX_U_PHI_REF), ub_(IDX_U_PHI_REF));
-            double pitch = constrain_double(x0_(IDX_X_THETA), lb_(IDX_U_THETA_REF), ub_(IDX_U_THETA_REF));
-            acadoVariables.x[NX * i + IDX_X_PHI] = roll;
-            acadoVariables.x[NX * i + IDX_X_THETA] = pitch;
-
-            // hold current throttle constant through horizon
-            double throt = mapPX4ThrotToNormalizedThrot(px4_throt_, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
-            double n_prop = mapNormalizedThrotToPropSpeed(throt, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
-            acadoVariables.x[NX * i + IDX_X_NPROP] = n_prop;
-
-            // controls
-            acadoVariables.u[NU * i + IDX_U_U_T] = throt;
-            acadoVariables.u[NU * i + IDX_U_PHI_REF] = 0.0;
-            acadoVariables.u[NU * i + IDX_U_THETA_REF] = 0.0;
-        }
+    for (int i = 0; i < N; ++i) {
 
         // propagate position linearly at current ground velocity
         for (int j = IDX_X_POS; j < IDX_X_POS+3; ++j) {
-            acadoVariables.x[NX * N + j] = x0_pos_(j) + x0_vel_(j) * node_params_.nmpc_discretization * N;
+            acadoVariables.x[NX * i + j] = x0_pos_(j) + x0_vel_(j) * node_params_.nmpc_discretization * i;
         }
 
         // hold velocity axis constant through horizon
-        acadoVariables.x[NX * N + IDX_X_V] = x0_(IDX_X_V);
-        acadoVariables.x[NX * N + IDX_X_GAMMA] = x0_(IDX_X_GAMMA);
-        acadoVariables.x[NX * N + IDX_X_XI] = x0_(IDX_X_XI);
+        acadoVariables.x[NX * i + IDX_X_V] = x0_(IDX_X_V);
+        acadoVariables.x[NX * i + IDX_X_GAMMA] = x0_(IDX_X_GAMMA);
+        acadoVariables.x[NX * i + IDX_X_XI] = x0_(IDX_X_XI);
 
         // hold attitude constant (within bounds) through horizon
         double roll = constrain_double(x0_(IDX_X_PHI), lb_(IDX_U_PHI_REF), ub_(IDX_U_PHI_REF));
         double pitch = constrain_double(x0_(IDX_X_THETA), lb_(IDX_U_THETA_REF), ub_(IDX_U_THETA_REF));
-        acadoVariables.x[NX * N + IDX_X_PHI] = roll;
-        acadoVariables.x[NX * N + IDX_X_THETA] = pitch;
+        acadoVariables.x[NX * i + IDX_X_PHI] = roll;
+        acadoVariables.x[NX * i + IDX_X_THETA] = pitch;
 
         // hold current throttle constant through horizon
         double throt = mapPX4ThrotToNormalizedThrot(px4_throt_, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
         double n_prop = mapNormalizedThrotToPropSpeed(throt, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
-        acadoVariables.x[NX * N + IDX_X_NPROP] = n_prop;
+        acadoVariables.x[NX * i + IDX_X_NPROP] = n_prop;
 
-        ROS_ERROR("initHorizon: re-initializing, possibly in-air, propagate current state measurements forward");
-    }
-    else {
-        // this is the first initialization, the values don't really matter here...
-
-        for (int i = 0; i < N; ++i) {
-
-            // propagate position linearly at current ground velocity
-            for (int j = IDX_X_POS; j < IDX_X_POS+3; ++j) {
-                acadoVariables.x[NX * i + j] = x0_pos_(j) + x0_vel_(j) * node_params_.nmpc_discretization * i;
-            }
-
-            // hold velocity axis constant through horizon
-            acadoVariables.x[NX * i + IDX_X_V] = x0_(IDX_X_V);
-            acadoVariables.x[NX * i + IDX_X_GAMMA] = x0_(IDX_X_GAMMA);
-            acadoVariables.x[NX * i + IDX_X_XI] = x0_(IDX_X_XI);
-
-            // zero roll, assume zero angle of attack, and hold pitch constant
-            acadoVariables.x[NX * i + IDX_X_PHI] = 0.0;
-            acadoVariables.x[NX * i + IDX_X_THETA] = x0_(IDX_X_GAMMA);
-
-            // prop off
-            acadoVariables.x[NX * i + IDX_X_NPROP] = 0.0;
-
-            // controls
-            acadoVariables.u[NU * i + IDX_U_U_T] = 0.0;
-            acadoVariables.u[NU * i + IDX_U_PHI_REF] = 0.0;
-            acadoVariables.u[NU * i + IDX_U_THETA_REF] = 0.0;
-        }
-
-        // propagate position linearly at current ground velocity
-        for (int j = IDX_X_POS; j < IDX_X_POS+3; ++j) {
-            acadoVariables.x[NX * N + j] = x0_pos_(j) + x0_vel_(j) * node_params_.nmpc_discretization * N;
-        }
-
-        // hold velocity axis constant through horizon
-        acadoVariables.x[NX * N + IDX_X_V] = x0_(IDX_X_V);
-        acadoVariables.x[NX * N + IDX_X_GAMMA] = x0_(IDX_X_GAMMA);
-        acadoVariables.x[NX * N + IDX_X_XI] = x0_(IDX_X_XI);
-
-        // zero roll, assume zero angle of attack, and hold pitch constant
-        acadoVariables.x[NX * N + IDX_X_PHI] = 0.0;
-        acadoVariables.x[NX * N + IDX_X_THETA] = x0_(IDX_X_GAMMA);
-
-        // prop off
-        acadoVariables.x[NX * N + IDX_X_NPROP] = 0.0;
-
-        ROS_ERROR("initHorizon: initialized");
+        // controls
+        acadoVariables.u[NU * i + IDX_U_U_T] = throt;
+        acadoVariables.u[NU * i + IDX_U_PHI_REF] = 0.0;
+        acadoVariables.u[NU * i + IDX_U_THETA_REF] = 0.0;
     }
 
+    // propagate position linearly at current ground velocity
+    for (int j = IDX_X_POS; j < IDX_X_POS+3; ++j) {
+        acadoVariables.x[NX * N + j] = x0_pos_(j) + x0_vel_(j) * node_params_.nmpc_discretization * N;
+    }
+
+    // hold velocity axis constant through horizon
+    acadoVariables.x[NX * N + IDX_X_V] = x0_(IDX_X_V);
+    acadoVariables.x[NX * N + IDX_X_GAMMA] = x0_(IDX_X_GAMMA);
+    acadoVariables.x[NX * N + IDX_X_XI] = x0_(IDX_X_XI);
+
+    // hold attitude constant (within bounds) through horizon
+    double roll = constrain_double(x0_(IDX_X_PHI), lb_(IDX_U_PHI_REF), ub_(IDX_U_PHI_REF));
+    double pitch = constrain_double(x0_(IDX_X_THETA), lb_(IDX_U_THETA_REF), ub_(IDX_U_THETA_REF));
+    acadoVariables.x[NX * N + IDX_X_PHI] = roll;
+    acadoVariables.x[NX * N + IDX_X_THETA] = pitch;
+
+    // hold current throttle constant through horizon
+    double throt = mapPX4ThrotToNormalizedThrot(px4_throt_, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
+    double n_prop = mapNormalizedThrotToPropSpeed(throt, x0_(IDX_X_V), pitch - x0_(IDX_X_GAMMA));
+    acadoVariables.x[NX * N + IDX_X_NPROP] = n_prop;
 } // initHorizon
 
 int FwNMPC::initNMPC()
 {
     int ret = 0;
 
+    /* initialize the solver */
+    ret = acado_initializeSolver();
+    if (ret) {
+        ROS_ERROR("initNMPC: failed to initialize acado solver");
+        return ret;
+    }
+
     /* initialize fixed parameters */
     ret = initParameters();
     if (ret) {
-        ROS_ERROR("initNMPC: NMPC parameters failed to initialize");
+        ROS_ERROR("initNMPC: failed to initialize parameters");
         return ret;
     }
     else {
-        ROS_ERROR("initNMPC: NMPC parameters initialized");
+        ROS_ERROR("initNMPC: parameters initialized");
     }
 
     /* initialize ACADO variables */
     initACADOVars();
-    ROS_ERROR("initNMPC: NMPC states initialized");
+    ROS_ERROR("initNMPC: states initialized");
 
-    /* initialize the solver */
-    ret = acado_initializeSolver();
-
-    /* initialize the horizon */ //XXX: should this be before initializing the solver? will this anyway happen again in the first time through the iteration loop?
+    /* initialize the horizon */
     initHorizon();
+    ROS_ERROR("initNMPC: horizon initialized");
 
     return ret;
 } // initNMPC
@@ -3379,7 +3321,7 @@ int main(int argc, char **argv)
     /* initialize states, params, and solver */
     int ret = nmpc.initNMPC();
     if (ret != 0) {
-        ROS_ERROR("init nmpc: failed to prime solver.");
+        ROS_ERROR("initNMPC: failed to prime solver.");
         return 1;
     }
 
