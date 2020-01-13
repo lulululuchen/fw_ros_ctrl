@@ -565,10 +565,15 @@ void FwNMPC::publishControls(const double u_T, const double phi_ref, const doubl
     geometry_msgs::PoseStamped att_sp;
     att_sp.header.frame_id = "map";
     att_sp.header.stamp = ros::Time::now();
-    tf::Quaternion q_tf;
-    q_tf.setRPY(phi_ref, theta_ref, 0.0);
+
+    tf::Quaternion q_ned;
+    q_ned.setRPY(phi_ref, theta_ref, 0.0);
+
+    // convert to ENU
+    tf::Quaternion q_enu = ned_enu_q_ * q_ned * aircraft_baselink_q_; // XXX: again.. should probably just make a param to publish and receive ned vs enu on mavros (could even push upstream)
+
     geometry_msgs::Quaternion q_msg;
-    quaternionTFToMsg(q_tf, q_msg);
+    quaternionTFToMsg(q_enu, q_msg);
     att_sp.pose.orientation = q_msg;
     att_sp_pub_.publish(att_sp);
 } // publishControls
