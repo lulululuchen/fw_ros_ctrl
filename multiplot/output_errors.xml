@@ -26,7 +26,7 @@
                         <curve_0>
                             <axes>
                                 <x_axis>
-                                    <field>vn/0</field>
+                                    <field>err_v_n_unit</field>
                                     <field_type>1</field_type>
                                     <scale>
                                         <absolute_maximum>1000</absolute_maximum>
@@ -35,25 +35,25 @@
                                         <relative_minimum>-1000</relative_minimum>
                                         <type>0</type>
                                     </scale>
-                                    <topic>/nmpc/obj_ref</topic>
-                                    <type>fw_ctrl/NMPCObjRef</type>
+                                    <topic>/nmpc/aux_out</topic>
+                                    <type>fw_ctrl/NMPCAuxOut</type>
                                 </x_axis>
                                 <y_axis>
-                                    <field>vn/0</field>
+                                    <field>err_v_n_unit</field>
                                     <field_type>0</field_type>
                                     <scale>
-                                        <absolute_maximum>1000</absolute_maximum>
-                                        <absolute_minimum>0</absolute_minimum>
+                                        <absolute_maximum>1</absolute_maximum>
+                                        <absolute_minimum>-1</absolute_minimum>
                                         <relative_maximum>0</relative_maximum>
                                         <relative_minimum>-1000</relative_minimum>
-                                        <type>0</type>
+                                        <type>1</type>
                                     </scale>
-                                    <topic>/nmpc/obj_ref</topic>
-                                    <type>fw_ctrl/NMPCObjRef</type>
+                                    <topic>/nmpc/aux_out</topic>
+                                    <type>fw_ctrl/NMPCAuxOut</type>
                                 </y_axis>
                             </axes>
                             <color>
-                                <custom_color>#729fcf</custom_color>
+                                <custom_color>#204a87</custom_color>
                                 <type>1</type>
                             </color>
                             <data>
@@ -72,12 +72,12 @@
                                 <type>0</type>
                             </style>
                             <subscriber_queue_size>100</subscriber_queue_size>
-                            <title>v_n_unit</title>
+                            <title>err_v_n_unit</title>
                         </curve_0>
                         <curve_1>
                             <axes>
                                 <x_axis>
-                                    <field>ve/0</field>
+                                    <field>err_v_e_unit</field>
                                     <field_type>1</field_type>
                                     <scale>
                                         <absolute_maximum>1000</absolute_maximum>
@@ -86,25 +86,25 @@
                                         <relative_minimum>-1000</relative_minimum>
                                         <type>0</type>
                                     </scale>
-                                    <topic>/nmpc/obj_ref</topic>
-                                    <type>fw_ctrl/NMPCObjRef</type>
+                                    <topic>/nmpc/aux_out</topic>
+                                    <type>fw_ctrl/NMPCAuxOut</type>
                                 </x_axis>
                                 <y_axis>
-                                    <field>ve/0</field>
+                                    <field>err_v_e_unit</field>
                                     <field_type>0</field_type>
                                     <scale>
-                                        <absolute_maximum>1000</absolute_maximum>
-                                        <absolute_minimum>0</absolute_minimum>
+                                        <absolute_maximum>1</absolute_maximum>
+                                        <absolute_minimum>-1</absolute_minimum>
                                         <relative_maximum>0</relative_maximum>
                                         <relative_minimum>-1000</relative_minimum>
-                                        <type>0</type>
+                                        <type>1</type>
                                     </scale>
-                                    <topic>/nmpc/obj_ref</topic>
-                                    <type>fw_ctrl/NMPCObjRef</type>
+                                    <topic>/nmpc/aux_out</topic>
+                                    <type>fw_ctrl/NMPCAuxOut</type>
                                 </y_axis>
                             </axes>
                             <color>
-                                <custom_color>#8ae234</custom_color>
+                                <custom_color>#4e9a06</custom_color>
                                 <type>1</type>
                             </color>
                             <data>
@@ -123,14 +123,65 @@
                                 <type>0</type>
                             </style>
                             <subscriber_queue_size>100</subscriber_queue_size>
-                            <title>v_e_unit</title>
+                            <title>err_v_e_unit</title>
                         </curve_1>
+                        <curve_2>
+                            <axes>
+                                <x_axis>
+                                    <field>err_v_d_unit</field>
+                                    <field_type>1</field_type>
+                                    <scale>
+                                        <absolute_maximum>1000</absolute_maximum>
+                                        <absolute_minimum>0</absolute_minimum>
+                                        <relative_maximum>0</relative_maximum>
+                                        <relative_minimum>-1000</relative_minimum>
+                                        <type>0</type>
+                                    </scale>
+                                    <topic>/nmpc/aux_out</topic>
+                                    <type>fw_ctrl/NMPCAuxOut</type>
+                                </x_axis>
+                                <y_axis>
+                                    <field>err_v_d_unit</field>
+                                    <field_type>0</field_type>
+                                    <scale>
+                                        <absolute_maximum>1</absolute_maximum>
+                                        <absolute_minimum>-1</absolute_minimum>
+                                        <relative_maximum>0</relative_maximum>
+                                        <relative_minimum>-1000</relative_minimum>
+                                        <type>1</type>
+                                    </scale>
+                                    <topic>/nmpc/aux_out</topic>
+                                    <type>fw_ctrl/NMPCAuxOut</type>
+                                </y_axis>
+                            </axes>
+                            <color>
+                                <custom_color>#a40000</custom_color>
+                                <type>1</type>
+                            </color>
+                            <data>
+                                <circular_buffer_capacity>1000</circular_buffer_capacity>
+                                <time_frame_length>10</time_frame_length>
+                                <type>3</type>
+                            </data>
+                            <style>
+                                <lines_interpolate>false</lines_interpolate>
+                                <pen_style>1</pen_style>
+                                <pen_width>2</pen_width>
+                                <render_antialias>false</render_antialias>
+                                <steps_invert>false</steps_invert>
+                                <sticks_baseline>0</sticks_baseline>
+                                <sticks_orientation>2</sticks_orientation>
+                                <type>0</type>
+                            </style>
+                            <subscriber_queue_size>100</subscriber_queue_size>
+                            <title>err_v_d_unit</title>
+                        </curve_2>
                     </curves>
                     <legend>
                         <visible>true</visible>
                     </legend>
                     <plot_rate>30</plot_rate>
-                    <title>Unit Ground Velocity Reference (Lateral-directional)</title>
+                    <title>Unit Ground Velocity Errors</title>
                 </column_0>
             </row_0>
             <row_1>
@@ -153,7 +204,7 @@
                         <curve_0>
                             <axes>
                                 <x_axis>
-                                    <field>vd/0</field>
+                                    <field>path_error_lat</field>
                                     <field_type>1</field_type>
                                     <scale>
                                         <absolute_maximum>1000</absolute_maximum>
@@ -162,11 +213,11 @@
                                         <relative_minimum>-1000</relative_minimum>
                                         <type>0</type>
                                     </scale>
-                                    <topic>/nmpc/obj_ref</topic>
-                                    <type>fw_ctrl/NMPCObjRef</type>
+                                    <topic>/nmpc/aux_out</topic>
+                                    <type>fw_ctrl/NMPCAuxOut</type>
                                 </x_axis>
                                 <y_axis>
-                                    <field>vd/0</field>
+                                    <field>path_error_lat</field>
                                     <field_type>0</field_type>
                                     <scale>
                                         <absolute_maximum>1000</absolute_maximum>
@@ -175,12 +226,12 @@
                                         <relative_minimum>-1000</relative_minimum>
                                         <type>0</type>
                                     </scale>
-                                    <topic>/nmpc/obj_ref</topic>
-                                    <type>fw_ctrl/NMPCObjRef</type>
+                                    <topic>/nmpc/aux_out</topic>
+                                    <type>fw_ctrl/NMPCAuxOut</type>
                                 </y_axis>
                             </axes>
                             <color>
-                                <custom_color>#ef2929</custom_color>
+                                <custom_color>#204a87</custom_color>
                                 <type>1</type>
                             </color>
                             <data>
@@ -199,14 +250,65 @@
                                 <type>0</type>
                             </style>
                             <subscriber_queue_size>100</subscriber_queue_size>
-                            <title>v_d_unit</title>
+                            <title>Lateral-directional Path Error</title>
                         </curve_0>
+                        <curve_1>
+                            <axes>
+                                <x_axis>
+                                    <field>path_error_lon</field>
+                                    <field_type>1</field_type>
+                                    <scale>
+                                        <absolute_maximum>1000</absolute_maximum>
+                                        <absolute_minimum>0</absolute_minimum>
+                                        <relative_maximum>0</relative_maximum>
+                                        <relative_minimum>-1000</relative_minimum>
+                                        <type>0</type>
+                                    </scale>
+                                    <topic>/nmpc/aux_out</topic>
+                                    <type>fw_ctrl/NMPCAuxOut</type>
+                                </x_axis>
+                                <y_axis>
+                                    <field>path_error_lon</field>
+                                    <field_type>0</field_type>
+                                    <scale>
+                                        <absolute_maximum>1000</absolute_maximum>
+                                        <absolute_minimum>0</absolute_minimum>
+                                        <relative_maximum>0</relative_maximum>
+                                        <relative_minimum>-1000</relative_minimum>
+                                        <type>0</type>
+                                    </scale>
+                                    <topic>/nmpc/aux_out</topic>
+                                    <type>fw_ctrl/NMPCAuxOut</type>
+                                </y_axis>
+                            </axes>
+                            <color>
+                                <custom_color>#a40000</custom_color>
+                                <type>1</type>
+                            </color>
+                            <data>
+                                <circular_buffer_capacity>1000</circular_buffer_capacity>
+                                <time_frame_length>10</time_frame_length>
+                                <type>3</type>
+                            </data>
+                            <style>
+                                <lines_interpolate>false</lines_interpolate>
+                                <pen_style>1</pen_style>
+                                <pen_width>2</pen_width>
+                                <render_antialias>false</render_antialias>
+                                <steps_invert>false</steps_invert>
+                                <sticks_baseline>0</sticks_baseline>
+                                <sticks_orientation>2</sticks_orientation>
+                                <type>0</type>
+                            </style>
+                            <subscriber_queue_size>100</subscriber_queue_size>
+                            <title>Longitudinal Path Error</title>
+                        </curve_1>
                     </curves>
                     <legend>
                         <visible>true</visible>
                     </legend>
                     <plot_rate>30</plot_rate>
-                    <title>Unit Ground Velocity Reference (Vertical)</title>
+                    <title>Path Position Errors</title>
                 </column_0>
             </row_1>
         </plots>

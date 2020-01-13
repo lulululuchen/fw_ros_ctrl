@@ -84,8 +84,6 @@ FwNMPC::FwNMPC() :
     occ_count_total_(0),
     log_sqrt_w_over_sig1_r_(1.0),
     one_over_sqrt_w_r_(1.0),
-    path_error_lat_(0.0),
-    path_error_lon_(0.0),
     path_type_(GuidancePathTypes::LOITER),
     prio_aoa_(Eigen::Matrix<double, ACADO_N+1, 1>::Ones()),
     prio_h_(Eigen::Matrix<double, ACADO_N+1, 1>::Ones()),
@@ -113,15 +111,16 @@ FwNMPC::FwNMPC() :
 
     /* publishers */
     att_sp_pub_ = nmpc_.advertise<geometry_msgs::PoseStamped>("/mavros/setpoint_attitude/attitude", 1);
-    nmpc_info_pub_ = nmpc_.advertise<fw_ctrl::NMPCInfo>("/nmpc/info",10);
-    nmpc_meas_pub_ = nmpc_.advertise<fw_ctrl::NMPCMeasurements>("/nmpc/measurements",10);
-    nmpc_states_pub_ = nmpc_.advertise<fw_ctrl::NMPCStates>("/nmpc/states",10);
+    nmpc_aux_out_pub_ = nmpc_.advertise<fw_ctrl::NMPCAuxOut>("/nmpc/aux_out",10);
     nmpc_controls_pub_ = nmpc_.advertise<fw_ctrl::NMPCControls>("/nmpc/controls",10);
     nmpc_guidance_path_pub_ = nmpc_.advertise<nav_msgs::Path>("/nmpc/guidance_path",1);
-    nmpc_online_data_pub_ = nmpc_.advertise<fw_ctrl::NMPCOnlineData>("/nmpc/online_data",10);
+    nmpc_info_pub_ = nmpc_.advertise<fw_ctrl::NMPCInfo>("/nmpc/info",10);
+    nmpc_meas_pub_ = nmpc_.advertise<fw_ctrl::NMPCMeasurements>("/nmpc/measurements",10);
     nmpc_obj_ref_pub_ = nmpc_.advertise<fw_ctrl::NMPCObjRef>("/nmpc/obj_ref",10);
     nmpc_objN_ref_pub_ = nmpc_.advertise<fw_ctrl::NMPCObjNRef>("/nmpc/objN_ref",10);
     nmpc_occ_detect_pub_ = nmpc_.advertise<visualization_msgs::MarkerArray>("/nmpc/occ_detect",1);
+    nmpc_online_data_pub_ = nmpc_.advertise<fw_ctrl::NMPCOnlineData>("/nmpc/online_data",10);
+    nmpc_states_pub_ = nmpc_.advertise<fw_ctrl::NMPCStates>("/nmpc/states",10);
     nmpc_traj_pred_pub_ = nmpc_.advertise<nav_msgs::Path>("/nmpc/traj_pred",1);
     obctrl_status_pub_ = nmpc_.advertise<std_msgs::Int32>("/nmpc/status", 1);
     thrust_pub_ = nmpc_.advertise<mavros_msgs::Thrust>("/mavros/setpoint_attitude/thrust", 1);
@@ -635,6 +634,7 @@ void FwNMPC::publishNMPCStates()
     fw_ctrl::NMPCOnlineData nmpc_online_data;
     fw_ctrl::NMPCObjRef nmpc_obj_ref;
     fw_ctrl::NMPCObjNRef nmpc_objN_ref;
+    fw_ctrl::NMPCAuxOut nmpc_aux_output;
 
     /* measurements */
     nmpc_measurements.n = (float)x0_(0);
@@ -728,13 +728,35 @@ void FwNMPC::publishNMPCStates()
     nmpc_objN_ref.soft_h = (float)acadoVariables.yN[IDX_Y_SOFT_H];
     nmpc_objN_ref.soft_r = (float)acadoVariables.yN[IDX_Y_SOFT_R];
 
-    // publish
+    /* auxiliary outputs */
+    double v_ref[3];
+    double path_error_lat, path_error_lon;
+    double speed_states[12];
+    calculate_speed_states(speed_states, acadoVariables.x0[3], acadoVariables.x0[4], acadoVariables.x0[5], od_(1,1), od_(2,1), od_(3,1));
+    double jac_sig_r[6];
+    jac_sig_r[0] = od_(IDX_OD_JAC_SOFT_R, 1);
+    jac_sig_r[1] = od_(IDX_OD_JAC_SOFT_R+1, 1);
+    jac_sig_r[2] = od_(IDX_OD_JAC_SOFT_R+2, 1);
+    jac_sig_r[3] = od_(IDX_OD_JAC_SOFT_R+3, 1);
+    jac_sig_r[4] = od_(IDX_OD_JAC_SOFT_R+4, 1);
+    jac_sig_r[5] = od_(IDX_OD_JAC_SOFT_R+5, 1);
+    calculate_velocity_reference(v_ref, &path_error_lat, &path_error_lon, acadoVariables.x0, path_reference_, guidance_params_,
+                                 speed_states, jac_sig_r, prio_r_(1, IDX_PRIO_R_MAX), path_type_);
+    // at current measured states
+    nmpc_aux_output.path_error_lat = path_error_lat; // lateral-directional path error [m]
+    nmpc_aux_output.path_error_lon = path_error_lon; // longitudinal path error [m]
+    nmpc_aux_output.err_v_n_unit = v_ref[0] - speed_states[9]; // unit northing ground velocity error [~]
+    nmpc_aux_output.err_v_e_unit = v_ref[1] - speed_states[10]; // unit easting ground velocity error [~]
+    nmpc_aux_output.err_v_d_unit = v_ref[2] - speed_states[11]; // unit downing ground velocity error [~]
+
+    /* publish */
     nmpc_meas_pub_.publish(nmpc_measurements);
     nmpc_states_pub_.publish(nmpc_states);
     nmpc_controls_pub_.publish(nmpc_controls);
     nmpc_online_data_pub_.publish(nmpc_online_data);
     nmpc_obj_ref_pub_.publish(nmpc_obj_ref);
     nmpc_objN_ref_pub_.publish(nmpc_objN_ref);
+    nmpc_aux_out_pub_.publish(nmpc_aux_output);
 } // publishNMPCStates
 
 void FwNMPC::publishNMPCVisualizations()
@@ -1185,7 +1207,9 @@ void FwNMPC::evaluateExternalObjectives(const double *terrain_data)
 
         /* velocity reference */
         double v_ref[3];
-        calculate_velocity_reference(v_ref, &path_error_lat_, &path_error_lon_, acadoVariables.x + (i * NX), path_reference_, guidance_params_,
+        double dummy_err_lat;
+        double dummy_err_lon;
+        calculate_velocity_reference(v_ref, &dummy_err_lat, &dummy_err_lon, acadoVariables.x + (i * NX), path_reference_, guidance_params_,
                                      speed_states, jac_sig_r, prio_r_(i, IDX_PRIO_R_MAX), path_type_);
 
         if (i < N) {

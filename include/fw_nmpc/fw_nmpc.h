@@ -40,6 +40,7 @@
 #include <ros/console.h>
 
 // messages
+#include <fw_ctrl/NMPCAuxOut.h>
 #include <fw_ctrl/NMPCControls.h>
 #include <fw_ctrl/NMPCInfo.h>
 #include <fw_ctrl/NMPCMeasurements.h>
@@ -246,15 +247,16 @@ private:
 
     /* publishers */
     ros::Publisher att_sp_pub_;
-    ros::Publisher nmpc_info_pub_;
-    ros::Publisher nmpc_meas_pub_;
-    ros::Publisher nmpc_states_pub_;
+    ros::Publisher nmpc_aux_out_pub_;
     ros::Publisher nmpc_controls_pub_;
     ros::Publisher nmpc_guidance_path_pub_;
-    ros::Publisher nmpc_online_data_pub_;
+    ros::Publisher nmpc_info_pub_;
+    ros::Publisher nmpc_meas_pub_;
     ros::Publisher nmpc_obj_ref_pub_;
     ros::Publisher nmpc_objN_ref_pub_;
     ros::Publisher nmpc_occ_detect_pub_;
+    ros::Publisher nmpc_online_data_pub_;
+    ros::Publisher nmpc_states_pub_;
     ros::Publisher nmpc_traj_pred_pub_;
     ros::Publisher obctrl_status_pub_;
     ros::Publisher thrust_pub_;
@@ -464,8 +466,6 @@ private:
     double one_over_sqrt_w_r_;          // XXX: these two are the only ones currently needed outside the lsq_objective.c file..
 
     /* path */
-    double path_error_lat_;     // lateral-directional path following error
-    double path_error_lon_;     // longitudinal path following error
     double path_reference_[5];  // path reference parameters
     int path_type_;             // 0 = constant altitude loiter, 1 = line
 
