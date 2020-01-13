@@ -58,5 +58,5 @@
     <!-- world parameters (ground truth simulation) -->
     <param name="/nmpc/sim/lat" type="double" value="47.31081" />                  <!-- world (hinwil) origin latitude [deg] -->
     <param name="/nmpc/sim/lon" type="double" value="8.81142" />                   <!-- world (hinwil) origin longitude [deg] -->
-    <param name="/nmpc/sim/alt" type="double" value="535.0" />                     <!-- world (hinwil) origin altitude [m] -->
+    <param name="/nmpc/sim/alt" type="double" value="581.9016" />                  <!-- world (hinwil) origin altitude (AMSL) [m] -->
 </launch>

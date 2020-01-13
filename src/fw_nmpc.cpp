@@ -170,7 +170,7 @@ void FwNMPC::gridMapCb(const grid_map_msgs::GridMap& msg) // grid map msg callba
 
     // grid map center (assuming constant level-northing orientation in world frame)
     double map_center_north = msg.info.pose.position.x; // N (inertial frame) = x (grid map frame) [m]
-    double map_center_east = -msg.info.pose.position.y; // E (inertial frame) = -y (grid map frame) [m]
+    double map_center_east = msg.info.pose.position.y; // E (inertial frame) = y (grid map frame) [m]
 
     // get local terrain map origin (top-right corner of array)
     terr_local_origin_n_ = map_center_north - msg.info.length_x / 2.0;
@@ -178,11 +178,13 @@ void FwNMPC::gridMapCb(const grid_map_msgs::GridMap& msg) // grid map msg callba
 
     // map dimensions
     map_resolution_ = msg.info.resolution;
-    map_height_ = msg.info.length_x / map_resolution_; //XXX: CHECK THIS.. not sure if length is res*Ncells, or res*Ncells-1
-    map_width_ = msg.info.length_y / map_resolution_;
+    map_height_ = int(std::round(msg.info.length_x / map_resolution_)); // east size //XXX: should be able to get these sizes directly from the floatmultiarray info..
+    map_width_ = int(std::round(msg.info.length_y / map_resolution_)); // north size
 
     // convert local terrain map to row major array // TODO: should be a better way than needing to create these and pass as pointer every time.. e.g. pass the eigen matrix or gridmap itself
     terrain_map_["elevation"].colwise().reverse(); // TODO: sync the format of the acado functions with grid map.. or use grid map in the solver functions themselves
+    terrain_map_["elevation"].rowwise().reverse();
+    terrain_map_["elevation"].transpose();
     if (map_height_*map_width_ > MAX_SIZE_TERR_ARRAY) {
         ROS_ERROR("grid map cb: received terrain map exceeds maximum allowed size");
     }
@@ -193,9 +195,9 @@ void FwNMPC::gridMapCb(const grid_map_msgs::GridMap& msg) // grid map msg callba
 
 void FwNMPC::homePosCb(const mavros_msgs::HomePosition::ConstPtr& msg) // home position msg callback
 {
-    home_lat_ = (double)msg->geo.latitude;
-    home_lon_ = (double)msg->geo.longitude;
-    home_alt_ = (double)msg->geo.altitude;
+    home_lat_ = (double)msg->geo.latitude; // [deg]
+    home_lon_ = (double)msg->geo.longitude; // [deg]
+    home_alt_ = (double)msg->geo.altitude; // [m] AMSL
 
     /* check if we are feeding mapping pipeline with ground truth from simulation and need to broadcast the appropriate transform */
     int broadcast_world_map_tf;
@@ -210,7 +212,7 @@ void FwNMPC::homePosCb(const mavros_msgs::HomePosition::ConstPtr& msg) // home p
         nmpc_.getParam("/nmpc/sim/alt", alt_world_origin);
 
         double north, east;
-        ll2NE(north, east, home_lat_, home_lon_, lat_world_origin, lon_world_origin);
+        ll2NE(north, east, home_lat_, home_lon_, lat_world_origin, lon_world_origin); // small angle approx for home vs world offset
 
         static tf::TransformBroadcaster br; // static broadcaster
         tf::Transform transform; // redefine transform each time home position (possibly) changes
@@ -782,13 +784,16 @@ void FwNMPC::publishNMPCVisualizations()
     nmpc_traj_pred.header.frame_id = "map";
     nmpc_traj_pred.poses = std::vector<geometry_msgs::PoseStamped>(N+1);
     for (int i=0; i<N+1; i++) {
+        // NED->ENU
         nmpc_traj_pred.poses[i].pose.position.x = acadoVariables.x[NX * i + IDX_X_POS+1];
         nmpc_traj_pred.poses[i].pose.position.y = acadoVariables.x[NX * i + IDX_X_POS];
         nmpc_traj_pred.poses[i].pose.position.z = -acadoVariables.x[NX * i + IDX_X_POS+2];
-        Eigen::Quaterniond q = Eigen::AngleAxisd(acadoVariables.x[NX * i + IDX_X_PHI], Eigen::Vector3d::UnitX())
-            * Eigen::AngleAxisd(acadoVariables.x[NX * i + IDX_X_THETA], Eigen::Vector3d::UnitY())
-            * Eigen::AngleAxisd(acadoVariables.x[NX * i + IDX_X_XI], Eigen::Vector3d::UnitZ());
-        tf::quaternionEigenToMsg(q, nmpc_traj_pred.poses[i].pose.orientation);
+
+        // NED->ENU
+        tf::Quaternion q_ned;
+        q_ned.setRPY(acadoVariables.x[NX * i + IDX_X_PHI], acadoVariables.x[NX * i + IDX_X_THETA], acadoVariables.x[NX * i + IDX_X_XI]);
+        tf::Quaternion q_enu = ned_enu_q_ * q_ned * aircraft_baselink_q_;
+        quaternionTFToMsg(q_enu, nmpc_traj_pred.poses[i].pose.orientation);
     }
     nmpc_traj_pred_pub_.publish(nmpc_traj_pred);
 
@@ -808,6 +813,7 @@ void FwNMPC::publishNMPCVisualizations()
                 surf_normal.id = maker_counter;
                 surf_normal.type = visualization_msgs::Marker::ARROW;
                 surf_normal.action = visualization_msgs::Marker::ADD;
+                // NED->ENU
                 surf_normal.pose.position.x = occ_slw_[i * NOCC + IDX_OCC_POS+1];
                 surf_normal.pose.position.y = occ_slw_[i * NOCC + IDX_OCC_POS];
                 surf_normal.pose.position.z = -occ_slw_[i * NOCC + IDX_OCC_POS+2];
@@ -837,10 +843,11 @@ void FwNMPC::publishNMPCVisualizations()
                 surf_plane.id = maker_counter;
                 surf_plane.type = visualization_msgs::Marker::CYLINDER;
                 surf_plane.action = visualization_msgs::Marker::ADD;
+                // NED->ENU
                 surf_plane.pose.position.x = occ_slw_[i * NOCC + IDX_OCC_POS+1];
                 surf_plane.pose.position.y = occ_slw_[i * NOCC + IDX_OCC_POS];
                 surf_plane.pose.position.z = -occ_slw_[i * NOCC + IDX_OCC_POS+2];
-                tf::quaternionEigenToMsg(q, surf_plane.pose.orientation);
+                tf::quaternionEigenToMsg(q, surf_plane.pose.orientation); // same as arrow marker
                 surf_plane.scale.x = 1.0; // cylinder width
                 surf_plane.scale.y = 1.0; // cylinder width 2
                 surf_plane.scale.z = 0.1; // cylinder height
