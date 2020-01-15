@@ -266,6 +266,7 @@ private:
     // node parameters
     struct node_params {
         double nmpc_iteration_rate;
+        double iteration_timestep;
         double nmpc_discretization;
         bool viz_en;
         bool ghost_en;

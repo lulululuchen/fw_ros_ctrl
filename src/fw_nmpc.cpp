@@ -534,7 +534,7 @@ double FwNMPC::mapNormalizedThrotToPX4Throt(const double throt, const double air
 
 void FwNMPC::propagateVirtPropSpeed(const double throt, const double airsp, const double aoa)
 {
-    n_prop_virt_ += (mapNormalizedThrotToPropSpeed(throt, airsp, aoa) - n_prop_virt_) / model_params_.tau_n_prop / node_params_.nmpc_iteration_rate;
+    n_prop_virt_ += (mapNormalizedThrotToPropSpeed(throt, airsp, aoa) - n_prop_virt_) / model_params_.tau_n_prop * node_params_.iteration_timestep;
 } // propagateVirtPropSpeed
 
 double FwNMPC::unwrapHeading(const double yaw_meas)
@@ -822,11 +822,10 @@ void FwNMPC::publishNMPCVisualizations()
 
 void FwNMPC::populateOcclusionMarkerArray(visualization_msgs::MarkerArray::Ptr occ_detections_msg, int &marker_counter, const int detection_count, const int size_list, int *occ_detected, double *occ_attributes)
 {
+    ros::Duration lifetime(node_params_.iteration_timestep);
     if (detection_count>0) {
         for (int i=0; i<size_list; i++) {
             if (occ_detected[i]>0) {
-                ros::Duration lifetime(node_params_.nmpc_iteration_rate);
-
                 // define surface normal marker (arrow)
                 visualization_msgs::Marker surf_normal;
                 surf_normal.header.frame_id = "map";
@@ -2780,7 +2779,7 @@ void FwNMPC::get_occ_along_gsp_vec(double *p_occ, double *n_occ, double *r_occ, 
 void FwNMPC::filterControlReference()
 {
     // first order filter on reference horizon driven by currently applied control held through horizon
-    u_ref_ = (u_ * Eigen::Matrix<double, 1, N>::Ones() - u_ref_) / control_params_.tau_u / node_params_.nmpc_iteration_rate + u_ref_;
+    u_ref_ = (u_ * Eigen::Matrix<double, 1, N>::Ones() - u_ref_) / control_params_.tau_u * node_params_.iteration_timestep + u_ref_;
 } // filterControlReference
 
 void FwNMPC::filterTerrainCostJacobian()
@@ -2788,7 +2787,7 @@ void FwNMPC::filterTerrainCostJacobian()
     // first order filter on terrain based jacobian
     for (int i=0; i<N+1; i++) {
         for (int j=IDX_OD_OBJ; j<NOD; j++) {
-            acadoVariables.od[NOD * i + j] = (od_(j, i) - acadoVariables.od[NOD * i + j]) / control_params_.tau_terr / node_params_.nmpc_iteration_rate + acadoVariables.od[NOD * i + j];
+            acadoVariables.od[NOD * i + j] = (od_(j, i) - acadoVariables.od[NOD * i + j]) / control_params_.tau_terr * node_params_.iteration_timestep + acadoVariables.od[NOD * i + j];
         }
     }
 } // filterTerrainCostJacobian
@@ -3194,6 +3193,12 @@ int FwNMPC::initParameters()
         ROS_ERROR("initParameters: nmpc iteration rate not found");
         return 1;
     }
+    if (node_params_.nmpc_iteration_rate < 1.0 || node_params_.nmpc_iteration_rate > 100.0) {
+        // sanity check
+        ROS_ERROR("initParameters: nmpc iteration rate exceeds bounds");
+        node_params_.nmpc_iteration_rate = constrain_double(node_params_.nmpc_iteration_rate, 1.0, 100.0); // Hz
+    }
+    node_params_.iteration_timestep = 1.0 / node_params_.nmpc_iteration_rate; // s
     if (!nmpc_.getParam("/nmpc/time_step", node_params_.nmpc_discretization)) {
         ROS_ERROR("initParameters: nmpc discretization time step not found");
         return 1;
