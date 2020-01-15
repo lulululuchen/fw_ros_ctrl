@@ -93,13 +93,14 @@ FwNMPC::FwNMPC() :
     obctrl_status_(OffboardControlStatus::NOMINAL),
     err_code_preparation_step_(0),
     err_code_feedback_step_(0),
-    re_init_horizon_(false)
+    re_init_horizon_(false),
+    grid_map_valid_(false)
 {
     ROS_INFO("Instance of NMPC created");
 
     /* subscribers */
     act_sub_ = nmpc_.subscribe("/mavros/target_actuator_control", 1, &FwNMPC::actCb, this);
-    grid_map_sub_ = nmpc_.subscribe("/elevation_mapper/map_mpc", 1, &FwNMPC::gridMapCb, this);
+    grid_map_sub_ = nmpc_.subscribe("map_mpc", 1, &FwNMPC::gridMapCb, this);
     home_pos_sub_ = nmpc_.subscribe("/mavros/home_position/home", 1, &FwNMPC::homePosCb, this);
     imu_sub_ = nmpc_.subscribe("/mavros/imu/data", 1, &FwNMPC::imuCb, this);
     local_pos_sub_ = nmpc_.subscribe("/mavros/global_position/local", 1, &FwNMPC::localPosCb, this);
@@ -163,33 +164,44 @@ void FwNMPC::actCb(const mavros_msgs::ActuatorControl::ConstPtr& msg) // actuato
 void FwNMPC::gridMapCb(const grid_map_msgs::GridMap& msg) // grid map msg callback
 {
     bool ret;
+    grid_map_valid_ = true;
 
     // get incoming terrain data
     ret = grid_map::GridMapRosConverter::fromMessage(msg, terrain_map_);
-    if (ret) ROS_ERROR("grid map cb: failed to convert msg to eigen");
+    if (!ret) {
+        ROS_ERROR("grid map cb: failed to convert msg");
+        grid_map_valid_ = false;
+    }
 
     // grid map center (assuming constant level-northing orientation in world frame)
-    double map_center_north = msg.info.pose.position.x; // N (inertial frame) = x (grid map frame) [m]
-    double map_center_east = msg.info.pose.position.y; // E (inertial frame) = y (grid map frame) [m]
+    double map_center_north_world = msg.info.pose.position.y; // N ("world" frame) = y (grid map frame) [m]
+    double map_center_east_world = msg.info.pose.position.x; // E ("world" frame) = x (grid map frame) [m]
 
     // get local terrain map origin (top-right corner of array)
-    terr_local_origin_n_ = map_center_north - msg.info.length_x / 2.0;
-    terr_local_origin_e_ = map_center_east - msg.info.length_y / 2.0;
+    terr_local_origin_n_ = map_center_north_world - msg.info.length_y / 2.0;
+    terr_local_origin_e_ = map_center_east_world - msg.info.length_x / 2.0;
 
     // map dimensions
     map_resolution_ = msg.info.resolution;
-    map_height_ = int(std::round(msg.info.length_x / map_resolution_)); // east size //XXX: should be able to get these sizes directly from the floatmultiarray info..
-    map_width_ = int(std::round(msg.info.length_y / map_resolution_)); // north size
+    map_height_ = int(std::round(msg.info.length_y / map_resolution_)); // north size //XXX: should be able to get these sizes directly from the floatmultiarray info..
+    map_width_ = int(std::round(msg.info.length_x / map_resolution_)); // east size
 
     // convert local terrain map to row major array // TODO: should be a better way than needing to create these and pass as pointer every time.. e.g. pass the eigen matrix or gridmap itself
-    terrain_map_["elevation"].colwise().reverse(); // TODO: sync the format of the acado functions with grid map.. or use grid map in the solver functions themselves
-    terrain_map_["elevation"].rowwise().reverse();
-    terrain_map_["elevation"].transpose();
+    terrain_map_["elevation"].reverseInPlace(); // TODO: sync the format of the acado functions with grid map.. or use grid map in the solver functions themselves
+    int broadcast_world_map_tf;
+    nmpc_.getParam("/nmpc/mapping_with_ground_truth", broadcast_world_map_tf);
+    if (home_pos_valid_ && broadcast_world_map_tf) {
+        // "world" -> "map" (where nmpc is operating) //XXX: THIS IS MESSY
+        terrain_map_["elevation"].array() -= translate_world_to_home_(2);
+        terr_local_origin_n_ -= translate_world_to_home_(0);
+        terr_local_origin_e_ -= translate_world_to_home_(1);
+    }
     if (map_height_*map_width_ > MAX_SIZE_TERR_ARRAY) {
         ROS_ERROR("grid map cb: received terrain map exceeds maximum allowed size");
+        grid_map_valid_ = false;
     }
     else {
-        Eigen::Map<Eigen::Matrix<double,Eigen::Dynamic,Eigen::Dynamic,Eigen::RowMajor>>(terr_array_, map_height_, map_width_) = terrain_map_["elevation"].cast<double>();
+        Eigen::Map<Eigen::Matrix<double,Eigen::Dynamic,Eigen::Dynamic>>(terr_array_, map_height_, map_width_) = terrain_map_["elevation"].cast<double>();
     }
 } // gridMapCb
 
@@ -216,9 +228,13 @@ void FwNMPC::homePosCb(const mavros_msgs::HomePosition::ConstPtr& msg) // home p
 
         static tf::TransformBroadcaster br; // static broadcaster
         tf::Transform transform; // redefine transform each time home position (possibly) changes
+
         transform.setOrigin( tf::Vector3(east, north, home_alt_ - alt_world_origin) );
+        translate_world_to_home_(0) = north; // XXX: THIS IS MESSY
+        translate_world_to_home_(1) = east; // XXX: THIS IS MESSY
+        translate_world_to_home_(2) = home_alt_ - alt_world_origin; // XXX: THIS IS MESSY
         tf::Quaternion q;
-        q.setRPY(0, 0, 0);
+        q.setRPY(0.0, 0.0, 0.0);
         transform.setRotation(q);
         br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "world", "map"));
 
@@ -614,18 +630,6 @@ void FwNMPC::publishNMPCInfo(ros::Time t_iter_start, uint64_t t_ctrl, uint64_t t
     nmpc_info.t_iter = (uint64_t)(t_elapsed.toNSec()/1000);
 
     nmpc_info_pub_.publish(nmpc_info);
-
-    // TODO: send offboard status to PX4 (tell PX4 things are broken if necessary..)
-    // mavros_msgs::AslObCtrl obctrl_msg;
-	// obctrl_msg.timestamp = 0;
-	// obctrl_msg.uThrot = 0.0f;
-	// obctrl_msg.uThrot2 = 0.0f;
-	// obctrl_msg.uAilR = 0.0f;
-	// obctrl_msg.uAilL = 0.0f;
-	// obctrl_msg.uElev = 0.0f;
-	// obctrl_msg.obctrl_status = obctrl_status_;
-    // obctrl_status_pub_.publish();
-
 } // publishNMPCInfo
 
 void FwNMPC::publishNMPCStates()
@@ -788,7 +792,6 @@ void FwNMPC::publishNMPCVisualizations()
         nmpc_traj_pred.poses[i].pose.position.x = acadoVariables.x[NX * i + IDX_X_POS+1];
         nmpc_traj_pred.poses[i].pose.position.y = acadoVariables.x[NX * i + IDX_X_POS];
         nmpc_traj_pred.poses[i].pose.position.z = -acadoVariables.x[NX * i + IDX_X_POS+2];
-
         // NED->ENU
         tf::Quaternion q_ned;
         q_ned.setRPY(acadoVariables.x[NX * i + IDX_X_PHI], acadoVariables.x[NX * i + IDX_X_THETA], acadoVariables.x[NX * i + IDX_X_XI]);
@@ -801,7 +804,7 @@ void FwNMPC::publishNMPCVisualizations()
     if (occ_count_total_>0) {
         visualization_msgs::MarkerArray occ_detections;
         int maker_counter = 0;
-        for (int i=0; i<(ACADO_N+LEN_SLIDING_WINDOW_MAX) * NOCC; i++) {
+        for (int i=0; i<ACADO_N+LEN_SLIDING_WINDOW_MAX; i++) {
             if (occ_detect_slw_[i]>0) {
                 ros::Duration lifetime(node_params_.nmpc_iteration_rate);
 
@@ -814,16 +817,16 @@ void FwNMPC::publishNMPCVisualizations()
                 surf_normal.type = visualization_msgs::Marker::ARROW;
                 surf_normal.action = visualization_msgs::Marker::ADD;
                 // NED->ENU
-                surf_normal.pose.position.x = occ_slw_[i * NOCC + IDX_OCC_POS+1];
-                surf_normal.pose.position.y = occ_slw_[i * NOCC + IDX_OCC_POS];
-                surf_normal.pose.position.z = -occ_slw_[i * NOCC + IDX_OCC_POS+2];
-                Eigen::Vector3d v(occ_slw_[i * NOCC + IDX_OCC_NORMAL+1], occ_slw_[i * NOCC + IDX_OCC_NORMAL], -occ_slw_[i * NOCC + IDX_OCC_NORMAL+2]); // ENU
-                Eigen::Quaterniond q;
-                q.setFromTwoVectors(Eigen::Vector3d::UnitZ(), v);
-                tf::quaternionEigenToMsg(q, surf_normal.pose.orientation);
-                surf_normal.scale.x = 1.0; // marker length
-                surf_normal.scale.y = 0.1; // arrow width
-                surf_normal.scale.z = 0.1; // arrow height
+                surf_normal.pose.position.x = occ_slw_[i * NOCC + IDX_OCC_POS];
+                surf_normal.pose.position.y = occ_slw_[i * NOCC + IDX_OCC_POS+1];
+                surf_normal.pose.position.z = occ_slw_[i * NOCC + IDX_OCC_POS+2];
+                Eigen::Vector3d v(occ_slw_[i * NOCC + IDX_OCC_NORMAL], occ_slw_[i * NOCC + IDX_OCC_NORMAL+1], occ_slw_[i * NOCC + IDX_OCC_NORMAL+2]); // ENU
+                Eigen::Quaterniond q_enu_to_arrow;
+                q_enu_to_arrow.setFromTwoVectors(Eigen::Vector3d::UnitX(), v);
+                tf::quaternionEigenToMsg(q_enu_to_arrow, surf_normal.pose.orientation);
+                surf_normal.scale.x = 8.0; // marker length
+                surf_normal.scale.y = 1.0; // arrow width
+                surf_normal.scale.z = 1.0; // arrow height
                 surf_normal.color.a = 1.0; // alpha
                 surf_normal.color.r = 1.0;
                 surf_normal.color.g = 0.0;
@@ -844,13 +847,12 @@ void FwNMPC::publishNMPCVisualizations()
                 surf_plane.type = visualization_msgs::Marker::CYLINDER;
                 surf_plane.action = visualization_msgs::Marker::ADD;
                 // NED->ENU
-                surf_plane.pose.position.x = occ_slw_[i * NOCC + IDX_OCC_POS+1];
-                surf_plane.pose.position.y = occ_slw_[i * NOCC + IDX_OCC_POS];
-                surf_plane.pose.position.z = -occ_slw_[i * NOCC + IDX_OCC_POS+2];
-                tf::quaternionEigenToMsg(q, surf_plane.pose.orientation); // same as arrow marker
-                surf_plane.scale.x = 1.0; // cylinder width
-                surf_plane.scale.y = 1.0; // cylinder width 2
-                surf_plane.scale.z = 0.1; // cylinder height
+                surf_plane.pose.position = surf_normal.pose.position;
+                Eigen::Quaterniond q_y_rot(0.7071, 0.0, 0.7071, 0.0);
+                tf::quaternionEigenToMsg(q_enu_to_arrow * q_y_rot, surf_plane.pose.orientation);
+                surf_plane.scale.x = 5.0; // cylinder width
+                surf_plane.scale.y = 5.0; // cylinder width 2
+                surf_plane.scale.z = 1.0; // cylinder height
                 surf_plane.color.a = 1.0; // alpha
                 surf_plane.color.r = 1.0;
                 surf_plane.color.g = 0.0;
@@ -884,10 +886,10 @@ void FwNMPC::preEvaluateObjectives()
 
     /* sliding window operations */
     shiftOcclusionSlidingWindow();
-    if (control_params_.enable_terrain_feedback) castRays(terr_array_); //XXX: dont really need to pass this, as the variable is global within the class
+    if (control_params_.enable_terrain_feedback && grid_map_valid_) castRays(terr_array_); //XXX: dont really need to pass this, as the variable is global within the class
 
     /* external objectives */
-    if (control_params_.enable_terrain_feedback) sumOcclusionDetections();
+    if (control_params_.enable_terrain_feedback && grid_map_valid_) sumOcclusionDetections();
     evaluateExternalObjectives(terr_array_);
 } // preEvaluateObjectives
 
@@ -1106,7 +1108,7 @@ void FwNMPC::evaluateExternalObjectives(const double *terrain_data)
         prio_aoa_(i) = prio_aoa;
 
         /* soft height constraint */
-        if (control_params_.enable_terrain_feedback) { //XXX: shouldnt need to do this.. but NaNs are currently unhandled and could screw things up  in the following calculations when not using the terrain feedback
+        if (control_params_.enable_terrain_feedback && grid_map_valid_) { //XXX: shouldnt need to do this.. but NaNs are currently unhandled and could screw things up  in the following calculations when not using the terrain feedback
             double sig_h, prio_h, h_terr;
             double jac_sig_h[4];
             calculate_height_objective(&sig_h, jac_sig_h, &prio_h, &h_terr, acadoVariables.x + (i * ACADO_NX), terrain_params_,
@@ -1142,7 +1144,7 @@ void FwNMPC::evaluateExternalObjectives(const double *terrain_data)
 
         /* soft radial constraint */
         double jac_sig_r[6] = {0.0};
-        if (control_params_.enable_terrain_feedback) { //XXX: shouldnt need to do this.. but NaNs are currently unhandled and could screw things up  in the following calculations when not using the terrain feedback
+        if (control_params_.enable_terrain_feedback && grid_map_valid_) { //XXX: shouldnt need to do this.. but NaNs are currently unhandled and could screw things up  in the following calculations when not using the terrain feedback
             double dummy_pos[3];
             double dummy_normal[3];
 
@@ -1239,7 +1241,7 @@ void FwNMPC::prioritizeObjectives()
     // if still on ground (landed), do not consider terrain
     if ((landed_state_ == mavros_msgs::ExtendedState::LANDED_STATE_ON_GROUND)
         || (landed_state_ == mavros_msgs::ExtendedState::LANDED_STATE_UNDEFINED)
-        || !control_params_.enable_terrain_feedback) { //TODO: check when, if ever, the undefined state is set by pixhawk
+        || !(control_params_.enable_terrain_feedback && grid_map_valid_)) { //TODO: check when, if ever, the undefined state is set by pixhawk
         prio_h_.setOnes();
         prio_r_.setOnes();
 

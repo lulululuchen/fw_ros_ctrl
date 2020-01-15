@@ -407,8 +407,9 @@ private:
     void shutdown();
 
     /* conversions */
-    tf::Quaternion ned_enu_q_;              // ned to enu (or visa versa) quaternion
-    tf::Quaternion aircraft_baselink_q_;    // aircraft to baselink (or visa versa) quaternion
+    tf::Quaternion ned_enu_q_;                  // ned to enu (or visa versa) quaternion
+    tf::Quaternion aircraft_baselink_q_;        // aircraft to baselink (or visa versa) quaternion
+    Eigen::Vector3d translate_world_to_home_;   // XXX: for now.. ground truth to "map" frame translation
 
     /* pixhawk states / estimates */
     double flaps_normalized_;   // normalized flaps setting
@@ -484,6 +485,7 @@ private:
     int err_code_preparation_step_;         // detailed error code for ACADO preparation step
     int err_code_feedback_step_;            // detailed error code for ACADO feedback step
     bool re_init_horizon_;                  // re-initialize the horizon
+    bool grid_map_valid_;
 };
 
 } // namespace fw_nmpc
