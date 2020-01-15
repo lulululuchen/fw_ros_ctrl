@@ -366,6 +366,7 @@ private:
     void publishNMPCInfo(ros::Time t_iter_start, uint64_t t_ctrl, uint64_t t_preeval, uint64_t t_prep, uint64_t t_fb);
     void publishNMPCStates();
     void publishNMPCVisualizations();
+    void populateOcclusionMarkerArray(visualization_msgs::MarkerArray::Ptr occ_detections_msg, int &marker_counter, const int detection_count, const int size_list, int *occ_detected, double *occ_attributes);
 
     // objective functions
     void preEvaluateObjectives();
@@ -454,10 +455,16 @@ private:
     Eigen::Matrix<double, ACADO_NU, 1> ub_;             // upper bound of control constraints
 
     /* sliding window of occlusions */
-    int len_sliding_window_;                                    // sliding window length
-    int occ_detect_slw_[ACADO_N+LEN_SLIDING_WINDOW_MAX];        // sliding window of occlusion detections (row-major format)
-    double occ_slw_[(ACADO_N+LEN_SLIDING_WINDOW_MAX) * NOCC];   // sliding window of occlusion attributes (row-major format)
-    int occ_count_total_;                                       // total number of occlusion detections
+    int len_sliding_window_;                                        // sliding window length
+    int occ_detected_fwd_slw_[ACADO_N+LEN_SLIDING_WINDOW_MAX];      // sliding window of forward occlusion detections
+    int occ_detected_left_[ACADO_N];                                // list of left side occlusion detections
+    int occ_detected_right_[ACADO_N];                               // list of right side occlusion detections
+    double occ_left_[ACADO_N * NOCC];                               // left side occlusion attributes (row-major format)
+    double occ_right_[ACADO_N * NOCC];                              // right side occlusion attributes (row-major format)
+    double occ_fwd_slw_[(ACADO_N+LEN_SLIDING_WINDOW_MAX) * NOCC];   // sliding window of forward occlusion attributes (row-major format)
+    int occ_count_total_fwd_;                                       // total number of occlusion detections
+    int occ_count_total_left_;                                      // total number of occlusion detections
+    int occ_count_total_right_;                                     // total number of occlusion detections
 
     /* parameters */
     double guidance_params_[5];         // guidance parameters

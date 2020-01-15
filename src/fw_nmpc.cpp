@@ -81,7 +81,9 @@ FwNMPC::FwNMPC() :
     od_(Eigen::Matrix<double, ACADO_NOD, ACADO_N+1>::Zero()),
     lb_(Eigen::Matrix<double, ACADO_NU, 1>::Zero()),
     ub_(Eigen::Matrix<double, ACADO_NU, 1>::Zero()),
-    occ_count_total_(0),
+    occ_count_total_fwd_(0),
+    occ_count_total_left_(0),
+    occ_count_total_right_(0),
     log_sqrt_w_over_sig1_r_(1.0),
     one_over_sqrt_w_r_(1.0),
     path_type_(GuidancePathTypes::LOITER),
@@ -800,12 +802,29 @@ void FwNMPC::publishNMPCVisualizations()
     }
     nmpc_traj_pred_pub_.publish(nmpc_traj_pred);
 
-    // occlusion detections XXX: for now only forward detections ... TODO: add side detections
-    if (occ_count_total_>0) {
-        visualization_msgs::MarkerArray occ_detections;
-        int maker_counter = 0;
-        for (int i=0; i<ACADO_N+LEN_SLIDING_WINDOW_MAX; i++) {
-            if (occ_detect_slw_[i]>0) {
+    // occlusion detections
+    if (control_params_.enable_terrain_feedback) {
+        int marker_counter = 0;
+        auto occ_detections_msg = boost::make_shared<visualization_msgs::MarkerArray>();
+        // forward occlusion detections (+ sliding window storage)
+        populateOcclusionMarkerArray(occ_detections_msg, marker_counter, occ_count_total_fwd_, N+control_params_.len_slw, occ_detected_fwd_slw_, occ_fwd_slw_);
+        // left side occlusion detections
+        populateOcclusionMarkerArray(occ_detections_msg, marker_counter, occ_count_total_left_, N, occ_detected_left_, occ_left_);
+        // right side occlusion detections
+        populateOcclusionMarkerArray(occ_detections_msg, marker_counter, occ_count_total_right_, N, occ_detected_right_, occ_right_);
+        // publish
+        if (occ_count_total_fwd_>0 || occ_count_total_left_>0 || occ_count_total_right_>0) {
+            // TODO: would be nice to use TRIANGLE_LIST and show the actual full triangle detection from the mesh (would need to store the vertices in the obj pre-eval)
+            nmpc_occ_detect_pub_.publish(occ_detections_msg);
+        }
+    }
+} // publishNMPCVisualizations
+
+void FwNMPC::populateOcclusionMarkerArray(visualization_msgs::MarkerArray::Ptr occ_detections_msg, int &marker_counter, const int detection_count, const int size_list, int *occ_detected, double *occ_attributes)
+{
+    if (detection_count>0) {
+        for (int i=0; i<size_list; i++) {
+            if (occ_detected[i]>0) {
                 ros::Duration lifetime(node_params_.nmpc_iteration_rate);
 
                 // define surface normal marker (arrow)
@@ -813,14 +832,14 @@ void FwNMPC::publishNMPCVisualizations()
                 surf_normal.header.frame_id = "map";
                 surf_normal.header.stamp = ros::Time();
                 surf_normal.ns = "surface_normals";
-                surf_normal.id = maker_counter;
+                surf_normal.id = marker_counter;
                 surf_normal.type = visualization_msgs::Marker::ARROW;
                 surf_normal.action = visualization_msgs::Marker::ADD;
                 // NED->ENU
-                surf_normal.pose.position.x = occ_slw_[i * NOCC + IDX_OCC_POS];
-                surf_normal.pose.position.y = occ_slw_[i * NOCC + IDX_OCC_POS+1];
-                surf_normal.pose.position.z = occ_slw_[i * NOCC + IDX_OCC_POS+2];
-                Eigen::Vector3d v(occ_slw_[i * NOCC + IDX_OCC_NORMAL], occ_slw_[i * NOCC + IDX_OCC_NORMAL+1], occ_slw_[i * NOCC + IDX_OCC_NORMAL+2]); // ENU
+                surf_normal.pose.position.x = occ_attributes[i * NOCC + IDX_OCC_POS];
+                surf_normal.pose.position.y = occ_attributes[i * NOCC + IDX_OCC_POS+1];
+                surf_normal.pose.position.z = occ_attributes[i * NOCC + IDX_OCC_POS+2];
+                Eigen::Vector3d v(occ_attributes[i * NOCC + IDX_OCC_NORMAL], occ_attributes[i * NOCC + IDX_OCC_NORMAL+1], occ_attributes[i * NOCC + IDX_OCC_NORMAL+2]); // ENU
                 Eigen::Quaterniond q_enu_to_arrow;
                 q_enu_to_arrow.setFromTwoVectors(Eigen::Vector3d::UnitX(), v);
                 tf::quaternionEigenToMsg(q_enu_to_arrow, surf_normal.pose.orientation);
@@ -834,16 +853,16 @@ void FwNMPC::publishNMPCVisualizations()
                 surf_normal.lifetime = lifetime;
 
                 // push back surface normal marker
-                occ_detections.markers.push_back(surf_normal);
+                occ_detections_msg->markers.push_back(surf_normal);
 
-                maker_counter++;
+                marker_counter++;
 
                 // define surface plane marker (flat cylinder)
                 visualization_msgs::Marker surf_plane;
                 surf_plane.header.frame_id = "map";
                 surf_plane.header.stamp = ros::Time();
                 surf_plane.ns = "surface_normals";
-                surf_plane.id = maker_counter;
+                surf_plane.id = marker_counter;
                 surf_plane.type = visualization_msgs::Marker::CYLINDER;
                 surf_plane.action = visualization_msgs::Marker::ADD;
                 // NED->ENU
@@ -860,15 +879,13 @@ void FwNMPC::publishNMPCVisualizations()
                 surf_plane.lifetime = lifetime;
 
                 // push back surface normal marker
-                occ_detections.markers.push_back(surf_plane);
+                occ_detections_msg->markers.push_back(surf_plane);
 
-                maker_counter++;
+                marker_counter++;
             }
         }
-        // TODO: would be nice to use TRIANGLE_LIST and show the actual full triangle detection from the mesh (would need to store the vertices in the obj pre-eval)
-        nmpc_occ_detect_pub_.publish(occ_detections);
     }
-} // publishNMPCVisualizations
+} // populateOcclusionMarkerArray
 
 /* / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /*/
 /* OBJECTIVE PRE-EVALUATION FUNCTIONS  / / / / / / / / / / / / / / / / / / / /*/
@@ -969,18 +986,20 @@ void FwNMPC::shiftOcclusionSlidingWindow()
 {
     /* shift detection window */
     for (int i = 0; i < control_params_.len_slw; ++i) {
-        occ_detect_slw_[i] = occ_detect_slw_[i+1];
-        occ_slw_[i * NOCC + IDX_OCC_POS] = occ_slw_[(i+1) * NOCC + IDX_OCC_POS];
-        occ_slw_[i * NOCC + IDX_OCC_POS+1] = occ_slw_[(i+1) * NOCC + IDX_OCC_POS+1];
-        occ_slw_[i * NOCC + IDX_OCC_POS+2] = occ_slw_[(i+1) * NOCC + IDX_OCC_POS+2];
-        occ_slw_[i * NOCC + IDX_OCC_NORMAL] = occ_slw_[(i+1) * NOCC + IDX_OCC_NORMAL];
-        occ_slw_[i * NOCC + IDX_OCC_NORMAL+1] = occ_slw_[(i+1) * NOCC + IDX_OCC_NORMAL+1];
-        occ_slw_[i * NOCC + IDX_OCC_NORMAL+2] = occ_slw_[(i+1) * NOCC + IDX_OCC_NORMAL+2];
+        occ_detected_fwd_slw_[i] = occ_detected_fwd_slw_[i+1];
+        occ_fwd_slw_[i * NOCC + IDX_OCC_POS] = occ_fwd_slw_[(i+1) * NOCC + IDX_OCC_POS];
+        occ_fwd_slw_[i * NOCC + IDX_OCC_POS+1] = occ_fwd_slw_[(i+1) * NOCC + IDX_OCC_POS+1];
+        occ_fwd_slw_[i * NOCC + IDX_OCC_POS+2] = occ_fwd_slw_[(i+1) * NOCC + IDX_OCC_POS+2];
+        occ_fwd_slw_[i * NOCC + IDX_OCC_NORMAL] = occ_fwd_slw_[(i+1) * NOCC + IDX_OCC_NORMAL];
+        occ_fwd_slw_[i * NOCC + IDX_OCC_NORMAL+1] = occ_fwd_slw_[(i+1) * NOCC + IDX_OCC_NORMAL+1];
+        occ_fwd_slw_[i * NOCC + IDX_OCC_NORMAL+2] = occ_fwd_slw_[(i+1) * NOCC + IDX_OCC_NORMAL+2];
     }
 } // shiftOcclusionSlidingWindow
 
 void FwNMPC::castRays(const double *terrain_data)
 {
+    occ_count_total_fwd_ = 0; // re-init count total
+
     /* cast rays along ground speed vector at every node */
     for (int i = 0; i < N+1; ++i)
     {
@@ -998,27 +1017,18 @@ void FwNMPC::castRays(const double *terrain_data)
         double p_occ_fwd[3];
         double n_occ_fwd[3];
         double r_occ_fwd; // XXX: not currently used
-        int occ_detected_fwd = 0;
-        get_occ_along_gsp_vec(p_occ_fwd, n_occ_fwd, &r_occ_fwd, &occ_detected_fwd,
+        get_occ_along_gsp_vec(occ_fwd_slw_ + ((control_params_.len_slw-1+i) * NOCC + IDX_OCC_POS),
+                              occ_fwd_slw_ + ((control_params_.len_slw-1+i) * NOCC + IDX_OCC_NORMAL),
+                              &r_occ_fwd, occ_detected_fwd_slw_ + (control_params_.len_slw - 1 + i),
                               acadoVariables.x + (i * ACADO_NX), speed_states, terrain_params_,
                               terr_local_origin_n_, terr_local_origin_e_, map_height_, map_width_,
                               map_resolution_, terrain_data);
-
-        /* log detections */
-        occ_detect_slw_[control_params_.len_slw-1+i] = occ_detected_fwd;
-        occ_slw_[(control_params_.len_slw-1+i) * NOCC + IDX_OCC_POS] = p_occ_fwd[0];
-        occ_slw_[(control_params_.len_slw-1+i) * NOCC + IDX_OCC_POS+1] = p_occ_fwd[1];
-        occ_slw_[(control_params_.len_slw-1+i) * NOCC + IDX_OCC_POS+2] = p_occ_fwd[2];
-        occ_slw_[(control_params_.len_slw-1+i) * NOCC + IDX_OCC_NORMAL] = n_occ_fwd[0];
-        occ_slw_[(control_params_.len_slw-1+i) * NOCC + IDX_OCC_NORMAL+1] = n_occ_fwd[1];
-        occ_slw_[(control_params_.len_slw-1+i) * NOCC + IDX_OCC_NORMAL+2] = n_occ_fwd[2];
+        occ_count_total_fwd_ += occ_detected_fwd_slw_[control_params_.len_slw - 1 + i];
     }
 } // castRays
 
 void FwNMPC::sumOcclusionDetections()
 {
-    occ_count_total_ = 0; // re-init count total
-
     /* sum detections on sliding horizon window for each node */
     for (int i = 0; i < N+1; ++i)
     {
@@ -1042,15 +1052,15 @@ void FwNMPC::sumOcclusionDetections()
         /* sum detections in sliding window */
         for (int j = i; j < (i + control_params_.len_slw); ++j)
         {
-            if (occ_detect_slw_[j]>0) {
+            if (occ_detected_fwd_slw_[j]>0) {
                 add_unit_radial_distance_and_gradient(jac_r_unit, &r_unit_min, &f_min, &occ_count,
-                                                      occ_slw_ + (j * NOCC + IDX_OCC_POS), occ_slw_ + (j * NOCC + IDX_OCC_NORMAL),
+                                                      occ_fwd_slw_ + (j * NOCC + IDX_OCC_POS), occ_fwd_slw_ + (j * NOCC + IDX_OCC_NORMAL),
                                                       acadoVariables.x + (i * NX), speed_states, terrain_params_);
             }
         }
-        occ_count_total_ += occ_count;
 
         /* calculate objective/jacobian */ // XXX: should probably have this encapsulated somehow
+        // NOTE: we're taking the minimum distance of all occlusions, but the average normal (XXX: maybe there is a more proper way of weighting the distances/normals..)
         double prio_r_fwd = 1.0;
         double sig_r_fwd;
         if (occ_count>0) {
@@ -1093,6 +1103,8 @@ void FwNMPC::sumOcclusionDetections()
 void FwNMPC::evaluateExternalObjectives(const double *terrain_data)
 {
     /* evaluate external objectives */
+    occ_count_total_left_ = 0;
+    occ_count_total_right_ = 0;
     double v_ray[3];
     for (int i = 0; i < ACADO_N+1; ++i)
     {
@@ -1108,7 +1120,7 @@ void FwNMPC::evaluateExternalObjectives(const double *terrain_data)
         prio_aoa_(i) = prio_aoa;
 
         /* soft height constraint */
-        if (control_params_.enable_terrain_feedback && grid_map_valid_) { //XXX: shouldnt need to do this.. but NaNs are currently unhandled and could screw things up  in the following calculations when not using the terrain feedback
+        if (control_params_.enable_terrain_feedback && grid_map_valid_) {
             double sig_h, prio_h, h_terr;
             double jac_sig_h[4];
             calculate_height_objective(&sig_h, jac_sig_h, &prio_h, &h_terr, acadoVariables.x + (i * ACADO_NX), terrain_params_,
@@ -1144,31 +1156,28 @@ void FwNMPC::evaluateExternalObjectives(const double *terrain_data)
 
         /* soft radial constraint */
         double jac_sig_r[6] = {0.0};
-        if (control_params_.enable_terrain_feedback && grid_map_valid_) { //XXX: shouldnt need to do this.. but NaNs are currently unhandled and could screw things up  in the following calculations when not using the terrain feedback
-            double dummy_pos[3];
-            double dummy_normal[3];
-
+        if (control_params_.enable_terrain_feedback && grid_map_valid_) {
             /* left ray */
             double sig_r_left, r_occ_left, prio_r_left;
-            int occ_detected_left;
             double jac_sig_r_left[6];
             v_ray[0] = -speed_states[9];
             v_ray[1] = speed_states[10];
             v_ray[2] = 0.0;
-            calculate_radial_objective(&sig_r_left, jac_sig_r_left, &r_occ_left, dummy_pos, dummy_normal, &prio_r_left, &occ_detected_left,
-                                       v_ray, acadoVariables.x + (i * ACADO_NX), speed_states, terrain_params_, terr_local_origin_n_, terr_local_origin_e_,
-                                       map_height_, map_width_, map_resolution_, terrain_data);
+            calculate_radial_objective(&sig_r_left, jac_sig_r_left, &r_occ_left, occ_left_ + (i * NOCC + IDX_OCC_POS), occ_left_ + (i * NOCC + IDX_OCC_NORMAL),
+                                       &prio_r_left, occ_detected_left_ + i, v_ray, acadoVariables.x + (i * ACADO_NX), speed_states, terrain_params_,
+                                       terr_local_origin_n_, terr_local_origin_e_, map_height_, map_width_, map_resolution_, terrain_data);
+            occ_count_total_left_ += occ_detected_left_[i];
 
             /* right ray */
             double sig_r_right, r_occ_right, prio_r_right;
-            int occ_detected_right;
             double jac_sig_r_right[6];
             v_ray[0] = speed_states[9];
             v_ray[1] = -speed_states[10];
             v_ray[2] = 0.0;
-            calculate_radial_objective(&sig_r_right, jac_sig_r_right, &r_occ_right, dummy_pos, dummy_normal, &prio_r_right, &occ_detected_right,
-                                       v_ray, acadoVariables.x + (i * ACADO_NX), speed_states, terrain_params_, terr_local_origin_n_, terr_local_origin_e_,
-                                       map_height_, map_width_, map_resolution_, terrain_data);
+            calculate_radial_objective(&sig_r_right, jac_sig_r_right, &r_occ_right, occ_right_ + (i * NOCC + IDX_OCC_POS), occ_right_ + (i * NOCC + IDX_OCC_NORMAL),
+                                       &prio_r_right, occ_detected_right_ + i, v_ray, acadoVariables.x + (i * ACADO_NX), speed_states, terrain_params_,
+                                       terr_local_origin_n_, terr_local_origin_e_, map_height_, map_width_, map_resolution_, terrain_data);
+            occ_count_total_right_ += occ_detected_right_[i];
 
             /* sum left, right, and forward detections */
             jac_sig_r[0] = jac_sig_r_left[0] + jac_sig_r_right[0];
@@ -1188,9 +1197,8 @@ void FwNMPC::evaluateExternalObjectives(const double *terrain_data)
             od_(IDX_OD_JAC_SOFT_R+5, i) += jac_sig_r[5];
 
             /* prioritization */
-            int occ_detected_fwd = occ_detect_slw_[control_params_.len_slw-1+i];
             double prio_r = 1.0;
-            if (!(one_over_sqrt_w_r_<0.0) && (occ_detected_fwd + occ_detected_left + occ_detected_right>0)) {
+            if (!(one_over_sqrt_w_r_<0.0) && (occ_detected_fwd_slw_[control_params_.len_slw-1+i] + occ_detected_left_[i] + occ_detected_right_[i]>0)) {
 
                 /* take minimum unit radial distance */
                 prio_r = (prio_r_(i, IDX_PRIO_R_FWD) < prio_r_left) ? prio_r_(i, IDX_PRIO_R_FWD) : prio_r_left;
@@ -3073,8 +3081,13 @@ void FwNMPC::initACADOVars()
     yN_.setZero();
     od_.setZero();
 
-    for (int i = 0; i < N+LEN_SLIDING_WINDOW_MAX; ++i) occ_detect_slw_[i] = 0;
-    for (int i = 0; i < ((N+LEN_SLIDING_WINDOW_MAX) * NOCC); ++i) occ_slw_[i] = 0.0;
+    for (int i = 0; i < N+LEN_SLIDING_WINDOW_MAX; ++i) occ_detected_fwd_slw_[i] = 0;
+    for (int i = 0; i < ((N+LEN_SLIDING_WINDOW_MAX) * NOCC); ++i) occ_fwd_slw_[i] = 0.0;
+
+    for (int i = 0; i < N; ++i) occ_detected_left_[i] = 0;
+    for (int i = 0; i < N; ++i) occ_detected_right_[i] = 0;
+    for (int i = 0; i < (N * NOCC); ++i) occ_left_[i] = 0.0;
+    for (int i = 0; i < (N * NOCC); ++i) occ_right_[i] = 0.0;
 
     updateAcadoX0();
     updateAcadoConstraints();
