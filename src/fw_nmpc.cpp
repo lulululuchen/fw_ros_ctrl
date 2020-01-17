@@ -128,6 +128,10 @@ FwNMPC::FwNMPC() :
     obctrl_status_pub_ = nmpc_.advertise<std_msgs::Int32>("/nmpc/status", 1);
     thrust_pub_ = nmpc_.advertise<mavros_msgs::Thrust>("/mavros/setpoint_attitude/thrust", 1);
 
+    nmpc_obj_soft_aoa_pub_ = nmpc_.advertise<std_msgs::Float32MultiArray>("/nmpc/soft_obj/aoa", 1);
+    nmpc_obj_soft_h_pub_ = nmpc_.advertise<std_msgs::Float32MultiArray>("/nmpc/soft_obj/h", 1);
+    nmpc_obj_soft_r_pub_ = nmpc_.advertise<std_msgs::Float32MultiArray>("/nmpc/soft_obj/r", 1);
+
     /* dynamic reconfigure */
 
     // The dynamic reconfigure server for control parameters
@@ -765,6 +769,25 @@ void FwNMPC::publishNMPCStates()
     nmpc_obj_ref_pub_.publish(nmpc_obj_ref);
     nmpc_objN_ref_pub_.publish(nmpc_objN_ref);
     nmpc_aux_out_pub_.publish(nmpc_aux_output);
+
+    // msgs only for plotting
+    std_msgs::Float32MultiArray nmpc_obj_soft_aoa, nmpc_obj_soft_h, nmpc_obj_soft_r;
+    nmpc_obj_soft_aoa.data.clear();
+    nmpc_obj_soft_h.data.clear();
+    nmpc_obj_soft_r.data.clear();
+    for (int i=0; i<N+1; i++) {
+        nmpc_obj_soft_aoa.data.push_back((float)acadoVariables.od[NOD * i + IDX_OD_SOFT_AOA]);
+        nmpc_obj_soft_h.data.push_back((float)acadoVariables.od[NOD * i + IDX_OD_SOFT_H]);
+        nmpc_obj_soft_r.data.push_back((float)acadoVariables.od[NOD * i + IDX_OD_SOFT_R]);
+    }
+    for (int i=0; i<N+1; i++) {
+        nmpc_obj_soft_aoa.data.push_back((float)i);
+        nmpc_obj_soft_h.data.push_back((float)i);
+        nmpc_obj_soft_r.data.push_back((float)i);
+    }
+    nmpc_obj_soft_aoa_pub_.publish(nmpc_obj_soft_aoa);
+    nmpc_obj_soft_h_pub_.publish(nmpc_obj_soft_h);
+    nmpc_obj_soft_r_pub_.publish(nmpc_obj_soft_r);
 } // publishNMPCStates
 
 void FwNMPC::publishNMPCVisualizations()

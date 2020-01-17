@@ -63,6 +63,7 @@
 #include <sensor_msgs/Temperature.h>
 #include <sensor_msgs/FluidPressure.h>
 #include <std_msgs/Float32.h>
+#include <std_msgs/Float32MultiArray.h>
 #include <std_msgs/Float64.h>
 #include <std_msgs/Int32.h>
 #include <visualization_msgs/Marker.h>
@@ -260,6 +261,10 @@ private:
     ros::Publisher nmpc_traj_pred_pub_;
     ros::Publisher obctrl_status_pub_;
     ros::Publisher thrust_pub_;
+
+    ros::Publisher nmpc_obj_soft_aoa_pub_;
+    ros::Publisher nmpc_obj_soft_h_pub_;
+    ros::Publisher nmpc_obj_soft_r_pub_;
 
     /* server parameteres */
 
