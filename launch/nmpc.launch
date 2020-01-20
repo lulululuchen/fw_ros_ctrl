@@ -23,10 +23,10 @@
     <param name="/nmpc/prop/epsilon_T" type="double" value="2.0" />                <!-- thrust incidence [deg] -->
 
     <!-- control-augmented model dynamics -->
-    <param name="/nmpc/od/tau_phi" type="double" value="0.5" />                    <!-- control-augmented roll response time constant [s] -->
-    <param name="/nmpc/od/tau_theta" type="double" value="0.5" />                  <!-- control-augmented pitch response time constant [s] -->
-    <param name="/nmpc/od/k_phi" type="double" value="1.1" />                      <!-- control-augmented roll response gain [s] -->
-    <param name="/nmpc/od/k_theta" type="double" value="1.1" />                    <!-- control-augmented pitch response gain [s] -->
+    <param name="/nmpc/od/tau_phi" type="double" value="0.469" />                  <!-- control-augmented roll response time constant [s] -->
+    <param name="/nmpc/od/tau_theta" type="double" value="0.315" />                <!-- control-augmented pitch response time constant [s] -->
+    <param name="/nmpc/od/k_phi" type="double" value="1.19" />                     <!-- control-augmented roll response gain [s] -->
+    <param name="/nmpc/od/k_theta" type="double" value="0.965" />                  <!-- control-augmented pitch response gain [s] -->
     <param name="/nmpc/od/tau_n" type="double" value="0.2" />                      <!-- propeller delay [s] -->
 
     <!-- objective inverse squared output scaling -->
