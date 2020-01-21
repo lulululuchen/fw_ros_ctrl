@@ -364,10 +364,14 @@ void FwNMPC::parametersCallbackControl(const fw_ctrl::controlConfig &config, con
     // terrain avoidance parameters
     control_params_.enable_terrain_feedback = config.enable_terrain_feedback;
     control_params_.len_slw = constrain_int(config.len_slw, 1, LEN_SLIDING_WINDOW_MAX);
-
-    // filter parameters
-    control_params_.tau_u = config.tau_u;
     control_params_.tau_terr = config.tau_terr;
+
+    // control reference parameters
+    control_params_.use_ff_roll_ref = config.use_ff_roll_ref;
+    control_params_.use_floating_ctrl_ref = config.use_floating_ctrl_ref;
+    control_params_.tau_u = config.tau_u;
+    control_params_.fixed_pitch_ref = config.fixed_pitch_ref * DEG_TO_RAD;
+    control_params_.fixed_throt_ref = config.fixed_throt_ref;
 } // parametersCallbackControl
 
 void FwNMPC::parametersCallbackGuidance(const fw_ctrl::guidanceConfig &config, const uint32_t& level)
@@ -742,6 +746,7 @@ void FwNMPC::publishNMPCStates()
     /* auxiliary outputs */
     double v_ref[3];
     double path_error_lat, path_error_lon;
+    double dummy1, dummy2; //XXX: "throws up in mouth"
     double speed_states[12];
     calculate_speed_states(speed_states, acadoVariables.x0[3], acadoVariables.x0[4], acadoVariables.x0[5], od_(1,1), od_(2,1), od_(3,1));
     double jac_sig_r[6];
@@ -751,7 +756,7 @@ void FwNMPC::publishNMPCStates()
     jac_sig_r[3] = od_(IDX_OD_JAC_SOFT_R+3, 1);
     jac_sig_r[4] = od_(IDX_OD_JAC_SOFT_R+4, 1);
     jac_sig_r[5] = od_(IDX_OD_JAC_SOFT_R+5, 1);
-    calculate_velocity_reference(v_ref, &path_error_lat, &path_error_lon, acadoVariables.x0, path_reference_,
+    calculate_velocity_reference(v_ref, &path_error_lat, &path_error_lon, &dummy1, &dummy2, acadoVariables.x0, path_reference_,
                                  speed_states, jac_sig_r, prio_r_(1, IDX_PRIO_R_MAX), path_type_);
     // at current measured states
     nmpc_aux_output.path_error_lat = path_error_lat; // lateral-directional path error [m]
@@ -1226,9 +1231,8 @@ void FwNMPC::evaluateExternalObjectives(const double *terrain_data)
 
         /* velocity reference */
         double v_ref[3];
-        double dummy_err_lat;
-        double dummy_err_lon;
-        calculate_velocity_reference(v_ref, &dummy_err_lat, &dummy_err_lon, acadoVariables.x + (i * NX), path_reference_,
+        double dummy_err_lat, dummy_err_lon, e_lat_unit, vG_lat;
+        calculate_velocity_reference(v_ref, &dummy_err_lat, &dummy_err_lon, &e_lat_unit, &vG_lat, acadoVariables.x + (i * NX), path_reference_,
                                      speed_states, jac_sig_r, prio_r_(i, IDX_PRIO_R_MAX), path_type_);
 
         if (i < N) {
@@ -1240,6 +1244,18 @@ void FwNMPC::evaluateExternalObjectives(const double *terrain_data)
             yN_(IDX_Y_VN) = v_ref[0];
             yN_(IDX_Y_VE) = v_ref[1];
             yN_(IDX_Y_VD) = v_ref[2];
+        }
+
+        /* control reference */
+        if (!control_params_.use_floating_ctrl_ref && i<ACADO_N) {
+            u_ref_(IDX_U_THETA_REF, i) = control_params_.fixed_pitch_ref; //TODO: in future could schedule these also with airsp / fpa setpoints
+            u_ref_(IDX_U_U_T, i) = control_params_.fixed_throt_ref; //TODO: in future could schedule these also with airsp / fpa setpoints
+            if (control_params_.use_ff_roll_ref && path_type_ == GuidancePathTypes::LOITER) {
+                u_ref_(IDX_U_PHI_REF, i) = atan(vG_lat*vG_lat/path_reference_[4]/ONE_G) * 0.5*(1.0+cos(M_PI*e_lat_unit));
+            }
+            else {
+                u_ref_(IDX_U_PHI_REF, i) = 0.0;
+            }
         }
     }
 } // evaluateExternalObjectives
@@ -2016,7 +2032,7 @@ int FwNMPC::castray(double *r_occ, double *p_occ, double *n_occ, double *p1, dou
 /* GUIDANCE  / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /*/
 
 /* calculate ground velocity reference */
-void FwNMPC::calculate_velocity_reference(double *v_ref, double *e_lat, double *e_lon,
+void FwNMPC::calculate_velocity_reference(double *v_ref, double *e_lat, double *e_lon, double *e_lat_unit, double *vG_lat,
                                   const double *states,
                                   const double *path_reference,
                                   const double *speed_states,
@@ -2050,14 +2066,16 @@ void FwNMPC::calculate_velocity_reference(double *v_ref, double *e_lat, double *
     double vP_e_unit = 0.0;
     double vP_d_unit = 0.0;
 
+    /* norm of lateral-directional ground velocity */
+    *vG_lat = sqrt(vG_n*vG_n + vG_e*vG_e);
+
     /* lateral-directional error boundary */
-    const double vG_ne = sqrt(vG_n*vG_n + vG_e*vG_e);
     double e_b_lat;
-    if (vG_ne < 1.0) {
-        e_b_lat = guidance_params_.T_lat * 0.5 * (1.0 + vG_ne*vG_ne); /* vG_ne may be zero */
+    if (*vG_lat < 1.0) {
+        e_b_lat = guidance_params_.T_lat * 0.5 * (1.0 + (*vG_lat)*(*vG_lat)); /* vG_ne may be zero */
     }
     else {
-        e_b_lat = guidance_params_.T_lat * vG_ne;
+        e_b_lat = guidance_params_.T_lat * (*vG_lat);
     }
 
     /* longitudinal error boundary */
@@ -2091,13 +2109,10 @@ void FwNMPC::calculate_velocity_reference(double *v_ref, double *e_lat, double *
         /* lateral-directional distance to circle center */
         const double dist_to_center = sqrt(br_n*br_n + br_e*br_e);
 
-        /* norm of lateral-directional ground velocity */
-        const double vG_lat = sqrt(vG_n*vG_n + vG_e*vG_e);
-
         double br_n_unit, br_e_unit;
         double p_n, p_e;
         if (dist_to_center < 0.1) {
-            if (vG_lat < 0.1) {
+            if (*vG_lat < 0.1) {
                 /* arbitrarily set the point in the northern top of the circle */
                 br_n_unit = 1.0;
                 br_e_unit = 0.0;
@@ -2108,8 +2123,8 @@ void FwNMPC::calculate_velocity_reference(double *v_ref, double *e_lat, double *
             }
             else {
                 /* set the point in the direction we are moving */
-                br_n_unit = vG_n / vG_lat * 0.1;
-                br_e_unit = vG_e / vG_lat * 0.1;
+                br_n_unit = vG_n / (*vG_lat) * 0.1;
+                br_e_unit = vG_e / (*vG_lat) * 0.1;
 
                 /* closest point on circle */
                 p_n = b_n + br_n_unit * radius;
@@ -2135,6 +2150,10 @@ void FwNMPC::calculate_velocity_reference(double *v_ref, double *e_lat, double *
         *e_lat = (r_n-p_n)*tP_e_bar - (r_e-p_e)*tP_n_bar;
         *e_lon = b_d - r_d;
 
+        // unit track error
+        *e_lat_unit = constrain_double(fabs((*e_lat)/e_b_lat), 0.0, 1.0);
+        const double e_lon_unit = constrain_double(fabs((*e_lon)/e_b_lon), 0.0, 1.0);
+
         // check which guidance logic we are using //TODO: encapsulate
         if (guidance_params_.guidance_sel == GuidanceLogicTypes::ARCTAN) {
             // arctangent vector field
@@ -2154,12 +2173,8 @@ void FwNMPC::calculate_velocity_reference(double *v_ref, double *e_lat, double *
         else {
             // piece-wise quadratic
 
-            // unit track error
-            const double e_lat_unit = constrain_double(fabs((*e_lat)/e_b_lat), 0.0, 1.0);
-            const double e_lon_unit = constrain_double(fabs((*e_lon)/e_b_lon), 0.0, 1.0);
-
             // quadratic transition variables
-            const double thetal_lat = -e_lat_unit*(e_lat_unit - 2.0);
+            const double thetal_lat = -(*e_lat_unit)*((*e_lat_unit) - 2.0);
             const double thetal_lon = -e_lon_unit*(e_lon_unit - 2.0);
 
             // unit lateral-direction track error
@@ -2201,6 +2216,10 @@ void FwNMPC::calculate_velocity_reference(double *v_ref, double *e_lat, double *
         *e_lat = (r_n-b_n)*tP_e_bar - (r_e-b_e)*tP_n_bar;
         *e_lon = p_d - r_d;
 
+        // unit track error
+        *e_lat_unit = constrain_double(fabs((*e_lat)/e_b_lat), 0.0, 1.0);
+        const double e_lon_unit = constrain_double(fabs((*e_lon)/e_b_lon), 0.0, 1.0);
+
         // check which guidance logic we are using //TODO: encapsulate
         if (guidance_params_.guidance_sel == GuidanceLogicTypes::ARCTAN) {
             // arctangent vector field
@@ -2220,12 +2239,8 @@ void FwNMPC::calculate_velocity_reference(double *v_ref, double *e_lat, double *
         else {
             // piece-wise quadratic
 
-            // unit track error
-            const double e_lat_unit = constrain_double(fabs((*e_lat)/e_b_lat), 0.0, 1.0);
-            const double e_lon_unit = constrain_double(fabs((*e_lon)/e_b_lon), 0.0, 1.0);
-
             // quadratic transition variables
-            const double thetal_lat = -e_lat_unit*(e_lat_unit - 2.0);
+            const double thetal_lat = -(*e_lat_unit)*((*e_lat_unit) - 2.0);
             const double thetal_lon = -e_lon_unit*(e_lon_unit - 2.0);
 
             // unit lateral-direction track error
@@ -2250,6 +2265,9 @@ void FwNMPC::calculate_velocity_reference(double *v_ref, double *e_lat, double *
         /* position error */
         *e_lat = 0.0;
         *e_lon = 0.0;
+
+        // unit track error
+        *e_lat_unit = 0.0;
 
         /* normalized ground velocity setpoint */
         vP_n_unit = 1.0;
@@ -2909,7 +2927,7 @@ int FwNMPC::nmpcIteration()
     }
     else {
         // only filter the control reference when we are not re-initializing (i.e. there exists a "previous" control ref to filter)
-        filterControlReference(); // from previously applied control
+        if (control_params_.use_floating_ctrl_ref) filterControlReference(); // from previously applied control
     }
 
     /* objective pre-evaluation */

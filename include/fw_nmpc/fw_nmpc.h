@@ -91,7 +91,7 @@
 #include <fw_ctrl/guidanceConfig.h>
 #include <fw_ctrl/soft_constraintsConfig.h>
 
-#define NX ACADO_NX     // Number of differential state variables
+#define NX ACADO_NX     // Number of differential state variables //XXX: why are we duplicating these?
 #define NU ACADO_NU     // Number of control inputs
 #define NOD ACADO_NOD   // Number of online data values
 #define NY ACADO_NY     // Number of measurements/references on nodes 0..N - 1
@@ -314,8 +314,12 @@ private:
         double airsp_ref;
         bool enable_terrain_feedback;
         int len_slw;
-        double tau_u;
         double tau_terr;
+        bool use_ff_roll_ref;
+        bool use_floating_ctrl_ref;
+        double tau_u;
+        double fixed_pitch_ref;
+        double fixed_throt_ref;
     };
     control_params control_params_;
 
@@ -397,7 +401,7 @@ private:
     void lookup_terrain_idx(const double pos_n, const double pos_e, const double pos_n_origin, const double pos_e_origin, const int map_height, const int map_width, const double map_resolution, int *idx_q, double *dn, double *de);
     int intersect_triangle(double *d_occ, double *p_occ, double *n_occ, const double r0[3], const double v_ray[3], const double p1[3], const double p2[3], const double p3[3], const int v_dir);
     int castray(double *r_occ, double *p_occ, double *n_occ, double *p1, double *p2, double *p3, const double r0[3], const double r1[3], const double v[3], const double pos_n_origin, const double pos_e_origin, const int map_height, const int map_width, const double map_resolution, const double *terr_map);
-    void calculate_velocity_reference(double *v_ref, double *e_lat, double *e_lon, const double *states, const double *path_reference, const double *speed_states, const double *jac_sig_r, const double prio_r, const int path_type);
+    void calculate_velocity_reference(double *v_ref, double *e_lat, double *e_lon, double *e_lat_unit, double *vG_lat, const double *states, const double *path_reference, const double *speed_states, const double *jac_sig_r, const double prio_r, const int path_type);
     void jacobian_sig_h_lin(double *jac, const double de, const double delta_h, const double delta_y, const double  h1, const double h12, const double h2, const double h3, const double h34, const double h4, const double log_sqrt_w_over_sig1_h, const double sgn_e, const double sgn_n, const double map_resolution, const double xi);
     void jacobian_sig_h_exp(double *jac, const double de, const double delta_h, const double delta_y, const double h1, const double h12, const double h2, const double h3, const double h34, const double h4, const double log_sqrt_w_over_sig1_h, const double sgn_e, const double sgn_n, const double sig_h, const double map_resolution, const double xi);
     void jacobian_r_unit(double *jac, const double delta_r, const double gamma, const double k_delta_r, const double k_r_offset, const double n_occ_e, const double n_occ_h, const double n_occ_n, const double r_unit, const double v, const double v_ray_e, const double v_ray_h, const double v_ray_n, const double v_rel, const double xi);
