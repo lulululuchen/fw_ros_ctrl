@@ -30,9 +30,9 @@
     <param name="/nmpc/od/tau_n" type="double" value="0.2" />                      <!-- propeller delay [s] -->
 
     <!-- objective inverse squared output scaling -->
-    <param name="/nmpc/inv_y_scale_sq/vn" type="double" value="1.0" />             <!--  -->
-    <param name="/nmpc/inv_y_scale_sq/vd" type="double" value="1.0" />             <!--  -->
-    <param name="/nmpc/inv_y_scale_sq/ve" type="double" value="1.0" />             <!--  -->
+    <param name="/nmpc/inv_y_scale_sq/vn" type="double" value="1e2" />             <!-- 1/0.1^2 -->
+    <param name="/nmpc/inv_y_scale_sq/ve" type="double" value="1e2" />             <!-- 1/0.1^2 -->
+    <param name="/nmpc/inv_y_scale_sq/vd" type="double" value="1e2" />             <!-- 1/0.1^2 -->
     <param name="/nmpc/inv_y_scale_sq/v" type="double" value="1.0" />              <!--  -->
     <param name="/nmpc/inv_y_scale_sq/phi" type="double" value="1.0" />            <!--  -->
     <param name="/nmpc/inv_y_scale_sq/theta" type="double" value="1.0" />          <!--  -->
