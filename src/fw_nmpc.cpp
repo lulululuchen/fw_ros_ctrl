@@ -128,6 +128,7 @@ FwNMPC::FwNMPC() :
     nmpc_traj_pred_pub_ = nmpc_.advertise<nav_msgs::Path>("/nmpc/traj_pred",1);
     obctrl_status_pub_ = nmpc_.advertise<std_msgs::Int32>("/nmpc/status", 1);
     thrust_pub_ = nmpc_.advertise<mavros_msgs::Thrust>("/mavros/setpoint_attitude/thrust", 1);
+    unit_gnd_vel_ref_pub_ = nmpc_.advertise<visualization_msgs::MarkerArray>("/nmpc/vg_unit_ref",1);
 
     /* dynamic reconfigure */
 
@@ -889,6 +890,39 @@ void FwNMPC::publishNMPCVisualizations()
             nmpc_occ_detect_pub_.publish(occ_detections_msg);
         }
     }
+
+    // unit ground velocity setpoints
+    visualization_msgs::MarkerArray unit_gnd_vel_ref_msg;
+    int marker_counter = 0;
+    for (int i=0; i<ACADO_N; i++) {
+        visualization_msgs::Marker unit_gnd_vel_ref;
+        unit_gnd_vel_ref.header.frame_id = "map";
+        unit_gnd_vel_ref.header.stamp = ros::Time();
+        unit_gnd_vel_ref.ns = "unit_gnd_vel_ref";
+        unit_gnd_vel_ref.id = ++marker_counter;
+        unit_gnd_vel_ref.type = visualization_msgs::Marker::ARROW;
+        unit_gnd_vel_ref.action = visualization_msgs::Marker::ADD;
+        // NED->ENU
+        unit_gnd_vel_ref.pose.position.x = acadoVariables.x[NX * i + IDX_X_POS+1];
+        unit_gnd_vel_ref.pose.position.y = acadoVariables.x[NX * i + IDX_X_POS];
+        unit_gnd_vel_ref.pose.position.z = -acadoVariables.x[NX * i + IDX_X_POS+2];
+        Eigen::Vector3d v(acadoVariables.y[NY * i + IDX_Y_VE], acadoVariables.y[NY * i + IDX_Y_VN], -acadoVariables.y[NY * i + IDX_Y_VD]); // ENU
+        Eigen::Quaterniond q_enu_to_arrow;
+        q_enu_to_arrow.setFromTwoVectors(Eigen::Vector3d::UnitX(), v);
+        tf::quaternionEigenToMsg(q_enu_to_arrow, unit_gnd_vel_ref.pose.orientation);
+        unit_gnd_vel_ref.scale.x = 5.0; // marker length
+        unit_gnd_vel_ref.scale.y = 0.5; // arrow width
+        unit_gnd_vel_ref.scale.z = 1.0; // arrow height
+        unit_gnd_vel_ref.color.a = 1.0; // alpha
+        unit_gnd_vel_ref.color.r = 0.0;
+        unit_gnd_vel_ref.color.g = 0.8;
+        unit_gnd_vel_ref.color.b = 0.0;
+        unit_gnd_vel_ref.lifetime = ros::Duration(node_params_.iteration_timestep);
+
+        // push back unit ground vel marker
+        unit_gnd_vel_ref_msg.markers.push_back(unit_gnd_vel_ref);
+    }
+    unit_gnd_vel_ref_pub_.publish(unit_gnd_vel_ref_msg);
 } // publishNMPCVisualizations
 
 void FwNMPC::populateOcclusionMarkerArray(visualization_msgs::MarkerArray::Ptr occ_detections_msg, int &marker_counter, const int detection_count, const int size_list, int *occ_detected, double *occ_attributes)

@@ -269,6 +269,7 @@ private:
     ros::Publisher nmpc_traj_pred_pub_;
     ros::Publisher obctrl_status_pub_;
     ros::Publisher thrust_pub_;
+    ros::Publisher unit_gnd_vel_ref_pub_;
 
     /* server parameteres */
 
