@@ -55,6 +55,7 @@
 #include <mavros_msgs/ActuatorControl.h>
 #include <mavros_msgs/ExtendedState.h>
 #include <mavros_msgs/HomePosition.h>
+#include <mavros_msgs/ManualControl.h>
 #include <mavros_msgs/State.h>
 #include <mavros_msgs/Thrust.h>
 #include <nav_msgs/Odometry.h>
@@ -112,6 +113,8 @@ ACADOworkspace acadoWorkspace;
 #define AIR_GAS_CONST 287.1             // [J/(kg*K)]
 #define ABSOLUTE_NULL_CELSIUS -273.15   // [C]
 #define ONE_G 9.81                      // [m/s^2]
+
+#define MANUAL_CONTROL_DZ 0.06
 
 namespace fw_nmpc {
 
@@ -214,6 +217,7 @@ public:
     void homePosCb(const mavros_msgs::HomePosition::ConstPtr& msg);
     void imuCb(const sensor_msgs::Imu::ConstPtr& msg);
     void localPosCb(const nav_msgs::Odometry::ConstPtr& msg);
+    void manCtrlCb(const mavros_msgs::ManualControl::ConstPtr& msg);
     void staticPresCb(const sensor_msgs::FluidPressure::ConstPtr& msg);
     void sysStatusCb(const mavros_msgs::State::ConstPtr& msg);
     void tempCCb(const sensor_msgs::Temperature::ConstPtr& msg);
@@ -243,7 +247,7 @@ private:
     ros::Subscriber home_pos_sub_;
     ros::Subscriber imu_sub_;
     ros::Subscriber local_pos_sub_;
-    ros::Subscriber local_vel_sub_;
+    ros::Subscriber man_ctrl_sub_;
     ros::Subscriber static_pres_sub_;
     ros::Subscriber sys_status_sub_;
     ros::Subscriber sys_status_ext_sub_;
@@ -281,6 +285,8 @@ private:
     // vehicle parameters
     struct vehicle_params {
         double airsp_thres;
+        double airsp_min;
+        double airsp_max;
         double flaps_lim_rad;
     };
     vehicle_params vehicle_params_;
@@ -332,6 +338,8 @@ private:
         double T_lat;
         double T_lon;
         double gamma_app_max;
+        bool en_man_vel_ctrl;
+        double max_bearing_rate;
     };
     guidance_params guidance_params_;
 
@@ -344,6 +352,17 @@ private:
         double sig_r_1;
     };
     soft_params soft_params_;
+
+    // manual velocity control params
+    struct man_vel_sp {
+        double airspeed;
+        double bearing;
+        double bearing_rate;
+        double vn_unit;
+        double ve_unit;
+        double vd_unit;
+    };
+    man_vel_sp man_vel_sp_;
 
     /* dynamic reconfigure */
 

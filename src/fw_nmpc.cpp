@@ -106,6 +106,7 @@ FwNMPC::FwNMPC() :
     home_pos_sub_ = nmpc_.subscribe("/mavros/home_position/home", 1, &FwNMPC::homePosCb, this);
     imu_sub_ = nmpc_.subscribe("/mavros/imu/data", 1, &FwNMPC::imuCb, this);
     local_pos_sub_ = nmpc_.subscribe("/mavros/global_position/local", 1, &FwNMPC::localPosCb, this);
+    man_ctrl_sub_ = nmpc_.subscribe("/mavros/manual_control/control", 1, &FwNMPC::manCtrlCb, this);
     static_pres_sub_ = nmpc_.subscribe("/mavros/imu/static_pressure", 1, &FwNMPC::staticPresCb, this);
     sys_status_sub_ = nmpc_.subscribe("/mavros/state", 1, &FwNMPC::sysStatusCb, this);
     sys_status_ext_sub_ = nmpc_.subscribe("/mavros/extended_state", 1, &FwNMPC::sysStatusExtCb, this);
@@ -150,6 +151,14 @@ FwNMPC::FwNMPC() :
      */
     ned_enu_q_.setRPY(M_PI, 0.0, M_PI_2);
     aircraft_baselink_q_.setRPY(M_PI, 0.0, 0.0);
+
+    // initialize manual velocity control setpoints
+    man_vel_sp_.airspeed = 14.0;
+    man_vel_sp_.bearing = 0.0;
+    man_vel_sp_.bearing_rate = 0.0;
+    man_vel_sp_.vn_unit = 1.0;
+    man_vel_sp_.ve_unit = 0.0;
+    man_vel_sp_.vd_unit = 0.0;
 }
 
 /* / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /*/
@@ -280,6 +289,58 @@ void FwNMPC::localPosCb(const nav_msgs::Odometry::ConstPtr& msg) // local positi
 
 } // localPosCb
 
+void FwNMPC::manCtrlCb(const mavros_msgs::ManualControl::ConstPtr& msg) // manual control msg callback
+{
+    static bool was_disabled = true;
+    static ros::Duration t_elapsed(0);
+    static ros::Time t_last(0);
+
+    // manual unit velocity control //NOTE: this is currently ground relative velocity control -- should perhaps make an option for airmass relative in the future
+    if (guidance_params_.en_man_vel_ctrl) {
+        if (was_disabled) {
+            // reset initial bearing and fpa
+            man_vel_sp_.bearing = ((x0_(IDX_X_V) < vehicle_params_.airsp_thres + 1.0) || (x0_vel_(1)*x0_vel_(1) + x0_vel_(0)*x0_vel_(0) < 1.0))
+                                ? x0_(IDX_X_XI) : atan2(x0_vel_(1), x0_vel_(0));
+            was_disabled = false;
+        }
+        else {
+            t_elapsed = ros::Time::now() - t_last;
+            // propagate bearing from last bearing rate over elapsed time
+            man_vel_sp_.bearing += man_vel_sp_.bearing_rate * std::min(t_elapsed.toSec(), node_params_.iteration_timestep);
+        }
+
+        // set new bearing
+        man_vel_sp_.vn_unit = cos(man_vel_sp_.bearing);
+        man_vel_sp_.ve_unit = sin(man_vel_sp_.bearing);
+
+        // throttle stick controls airspeed set point
+        man_vel_sp_.airspeed = vehicle_params_.airsp_max * (constrain_double(msg->z, -1.0, 1.0)+1.0)*0.5 + vehicle_params_.airsp_min;
+
+        const double one_minus_dz = 1.0 - MANUAL_CONTROL_DZ;
+
+        // roll stick controls rate of bearing
+        if (msg->y < 0.0) {
+            man_vel_sp_.bearing_rate = constrain_double((msg->y + MANUAL_CONTROL_DZ) / one_minus_dz, -1.0, 0.0)
+                                     * guidance_params_.max_bearing_rate;
+        }
+        else {
+            man_vel_sp_.bearing_rate = constrain_double((msg->y - MANUAL_CONTROL_DZ) / one_minus_dz, 0.0, 1.0)
+                                     * guidance_params_.max_bearing_rate;
+        }
+
+        // pitch stick controls flight path angle setpoint (ground relative)
+        if (msg->x < 0.0) {
+            man_vel_sp_.vd_unit = constrain_double((msg->x + MANUAL_CONTROL_DZ) / one_minus_dz, -1.0, 0.0)
+                                * sin(guidance_params_.gamma_app_max);
+        }
+        else {
+            man_vel_sp_.vd_unit = constrain_double((msg->x - MANUAL_CONTROL_DZ) / one_minus_dz, 0.0, 1.0)
+                                * sin(guidance_params_.gamma_app_max); //TODO: again should have separate sink and climb params
+        }
+    }
+    t_last = ros::Time::now();
+} // manCtrlCb
+
 void FwNMPC::staticPresCb(const sensor_msgs::FluidPressure::ConstPtr& msg) // static pressure msg callback
 {
     static_pres_ = msg->fluid_pressure;
@@ -383,6 +444,8 @@ void FwNMPC::parametersCallbackGuidance(const fw_ctrl::guidanceConfig &config, c
     guidance_params_.T_lat = config.T_lat;
     guidance_params_.T_lon = config.T_lon;
     guidance_params_.gamma_app_max = config.gamma_app_max * DEG_TO_RAD;
+    guidance_params_.en_man_vel_ctrl = config.en_man_vel_ctrl;
+    guidance_params_.max_bearing_rate = config.max_bearing_rate * DEG_TO_RAD;
 } // parametersCallbackGuidance
 
 void FwNMPC::parametersCallbackSoftConstraints(const fw_ctrl::soft_constraintsConfig &config, const uint32_t& level)
@@ -1230,27 +1293,44 @@ void FwNMPC::evaluateExternalObjectives(const double *terrain_data)
         }
 
         /* velocity reference */
-        double v_ref[3];
-        double dummy_err_lat, dummy_err_lon, e_lat_unit, vG_lat;
-        calculate_velocity_reference(v_ref, &dummy_err_lat, &dummy_err_lon, &e_lat_unit, &vG_lat, acadoVariables.x + (i * NX), path_reference_,
-                                     speed_states, jac_sig_r, prio_r_(i, IDX_PRIO_R_MAX), path_type_);
-
-        if (i < N) {
-            y_(IDX_Y_VN, i) = v_ref[0];
-            y_(IDX_Y_VE, i) = v_ref[1];
-            y_(IDX_Y_VD, i) = v_ref[2];
+        double e_lat_unit, vG_lat;
+        if (guidance_params_.en_man_vel_ctrl) {
+            // we are receiving manual velocity setpoints from the remote
+            // hold constant through horizon
+            if (i < N) {
+                y_(IDX_Y_VN, i) = man_vel_sp_.vn_unit;
+                y_(IDX_Y_VE, i) = man_vel_sp_.ve_unit;
+                y_(IDX_Y_VD, i) = man_vel_sp_.vd_unit;
+            }
+            else {
+                yN_(IDX_Y_VN) = man_vel_sp_.vn_unit;
+                yN_(IDX_Y_VE) = man_vel_sp_.ve_unit;
+                yN_(IDX_Y_VD) = man_vel_sp_.vd_unit;
+            }
         }
         else {
-            yN_(IDX_Y_VN) = v_ref[0];
-            yN_(IDX_Y_VE) = v_ref[1];
-            yN_(IDX_Y_VD) = v_ref[2];
+            // use guidance logic to follow path
+            double v_ref[3];
+            double dummy_err_lat, dummy_err_lon;
+            calculate_velocity_reference(v_ref, &dummy_err_lat, &dummy_err_lon, &e_lat_unit, &vG_lat, acadoVariables.x + (i * NX), path_reference_,
+                                         speed_states, jac_sig_r, prio_r_(i, IDX_PRIO_R_MAX), path_type_);
+            if (i < N) {
+                y_(IDX_Y_VN, i) = v_ref[0];
+                y_(IDX_Y_VE, i) = v_ref[1];
+                y_(IDX_Y_VD, i) = v_ref[2];
+            }
+            else {
+                yN_(IDX_Y_VN) = v_ref[0];
+                yN_(IDX_Y_VE) = v_ref[1];
+                yN_(IDX_Y_VD) = v_ref[2];
+            }
         }
 
         /* control reference */
         if (!control_params_.use_floating_ctrl_ref && i<ACADO_N) {
             u_ref_(IDX_U_THETA_REF, i) = control_params_.fixed_pitch_ref; //TODO: in future could schedule these also with airsp / fpa / roll*** setpoints
             u_ref_(IDX_U_U_T, i) = control_params_.fixed_throt_ref; //TODO: in future could schedule these also with airsp / fpa setpoints
-            if (control_params_.use_ff_roll_ref && path_type_ == GuidancePathTypes::LOITER) {
+            if (control_params_.use_ff_roll_ref && path_type_ == GuidancePathTypes::LOITER && !guidance_params_.en_man_vel_ctrl) {
                 u_ref_(IDX_U_PHI_REF, i) = atan(vG_lat*vG_lat/path_reference_[4]/ONE_G) * 0.5*(1.0+cos(M_PI*e_lat_unit));
             }
             else {
@@ -3303,6 +3383,14 @@ int FwNMPC::initParameters()
 
     if (!nmpc_.getParam("/nmpc/veh/airsp_thres", vehicle_params_.airsp_thres)) {
         ROS_ERROR("initParameters: airspeed threshold not found");
+        return 1;
+    }
+    if (!nmpc_.getParam("/nmpc/veh/airsp_min", vehicle_params_.airsp_min)) {
+        ROS_ERROR("initParameters: airspeed minimum not found");
+        return 1;
+    }
+    if (!nmpc_.getParam("/nmpc/veh/airsp_max", vehicle_params_.airsp_max)) {
+        ROS_ERROR("initParameters: airspeed maximum not found");
         return 1;
     }
     if (!nmpc_.getParam("/nmpc/veh/flaps_lim", temp_double)) {
