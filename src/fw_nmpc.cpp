@@ -1248,7 +1248,7 @@ void FwNMPC::evaluateExternalObjectives(const double *terrain_data)
 
         /* control reference */
         if (!control_params_.use_floating_ctrl_ref && i<ACADO_N) {
-            u_ref_(IDX_U_THETA_REF, i) = control_params_.fixed_pitch_ref; //TODO: in future could schedule these also with airsp / fpa setpoints
+            u_ref_(IDX_U_THETA_REF, i) = control_params_.fixed_pitch_ref; //TODO: in future could schedule these also with airsp / fpa / roll*** setpoints
             u_ref_(IDX_U_U_T, i) = control_params_.fixed_throt_ref; //TODO: in future could schedule these also with airsp / fpa setpoints
             if (control_params_.use_ff_roll_ref && path_type_ == GuidancePathTypes::LOITER) {
                 u_ref_(IDX_U_PHI_REF, i) = atan(vG_lat*vG_lat/path_reference_[4]/ONE_G) * 0.5*(1.0+cos(M_PI*e_lat_unit));
@@ -1288,6 +1288,13 @@ void FwNMPC::prioritizeObjectives()
     // end term objective weighting through horizon (row-major array)
     for (int j=IDX_Y_VN; j<IDX_Y_VD; j++) {
         acadoVariables.WN[NYN*j+j] *= prio_h_(N) * prio_r_(N,IDX_PRIO_R_MAX); // de-prioritize path following objectives when near terrain
+    }
+
+    // de-prioritize feed-forward roll reference //XXX: is there a way to do this back where it is set? (currently not.. as prio is called after eval)
+    if (!control_params_.use_floating_ctrl_ref && control_params_.use_ff_roll_ref && path_type_ == GuidancePathTypes::LOITER) {
+        for (int i=0; i<N; i++) {
+            u_ref_(IDX_U_PHI_REF, i) *= prio_h_(i) * prio_r_(i, IDX_PRIO_R_MAX);
+        }
     }
 } // prioritizeObjectives
 
