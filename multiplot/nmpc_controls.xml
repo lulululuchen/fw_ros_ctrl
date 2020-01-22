@@ -72,7 +72,7 @@
                                 <type>0</type>
                             </style>
                             <subscriber_queue_size>100</subscriber_queue_size>
-                            <title>Roll Reference</title>
+                            <title>Roll Setpoint</title>
                         </curve_0>
                         <curve_1>
                             <axes>
@@ -125,6 +125,57 @@
                             <subscriber_queue_size>100</subscriber_queue_size>
                             <title>Roll Angle</title>
                         </curve_1>
+                        <curve_2>
+                            <axes>
+                                <x_axis>
+                                    <field></field>
+                                    <field_type>1</field_type>
+                                    <scale>
+                                        <absolute_maximum>1000</absolute_maximum>
+                                        <absolute_minimum>0</absolute_minimum>
+                                        <relative_maximum>0</relative_maximum>
+                                        <relative_minimum>-1000</relative_minimum>
+                                        <type>0</type>
+                                    </scale>
+                                    <topic>/nmpc/obj_ref</topic>
+                                    <type>fw_ctrl/NMPCObjRef</type>
+                                </x_axis>
+                                <y_axis>
+                                    <field>phi_ref/0</field>
+                                    <field_type>0</field_type>
+                                    <scale>
+                                        <absolute_maximum>1000</absolute_maximum>
+                                        <absolute_minimum>0</absolute_minimum>
+                                        <relative_maximum>0</relative_maximum>
+                                        <relative_minimum>-1000</relative_minimum>
+                                        <type>0</type>
+                                    </scale>
+                                    <topic>/nmpc/obj_ref</topic>
+                                    <type>fw_ctrl/NMPCObjRef</type>
+                                </y_axis>
+                            </axes>
+                            <color>
+                                <custom_color>#888a85</custom_color>
+                                <type>1</type>
+                            </color>
+                            <data>
+                                <circular_buffer_capacity>1000</circular_buffer_capacity>
+                                <time_frame_length>10</time_frame_length>
+                                <type>3</type>
+                            </data>
+                            <style>
+                                <lines_interpolate>false</lines_interpolate>
+                                <pen_style>4</pen_style>
+                                <pen_width>1</pen_width>
+                                <render_antialias>false</render_antialias>
+                                <steps_invert>false</steps_invert>
+                                <sticks_baseline>0</sticks_baseline>
+                                <sticks_orientation>2</sticks_orientation>
+                                <type>0</type>
+                            </style>
+                            <subscriber_queue_size>100</subscriber_queue_size>
+                            <title>Roll Reference</title>
+                        </curve_2>
                     </curves>
                     <legend>
                         <visible>true</visible>
@@ -199,7 +250,7 @@
                                 <type>0</type>
                             </style>
                             <subscriber_queue_size>100</subscriber_queue_size>
-                            <title>Pitch Reference</title>
+                            <title>Pitch Setpoint</title>
                         </curve_0>
                         <curve_1>
                             <axes>
@@ -252,6 +303,57 @@
                             <subscriber_queue_size>100</subscriber_queue_size>
                             <title>Pitch Angle</title>
                         </curve_1>
+                        <curve_2>
+                            <axes>
+                                <x_axis>
+                                    <field></field>
+                                    <field_type>1</field_type>
+                                    <scale>
+                                        <absolute_maximum>1000</absolute_maximum>
+                                        <absolute_minimum>0</absolute_minimum>
+                                        <relative_maximum>0</relative_maximum>
+                                        <relative_minimum>-1000</relative_minimum>
+                                        <type>0</type>
+                                    </scale>
+                                    <topic>/nmpc/obj_ref</topic>
+                                    <type>fw_ctrl/NMPCObjRef</type>
+                                </x_axis>
+                                <y_axis>
+                                    <field>theta_ref/0</field>
+                                    <field_type>0</field_type>
+                                    <scale>
+                                        <absolute_maximum>1000</absolute_maximum>
+                                        <absolute_minimum>0</absolute_minimum>
+                                        <relative_maximum>0</relative_maximum>
+                                        <relative_minimum>-1000</relative_minimum>
+                                        <type>0</type>
+                                    </scale>
+                                    <topic>/nmpc/obj_ref</topic>
+                                    <type>fw_ctrl/NMPCObjRef</type>
+                                </y_axis>
+                            </axes>
+                            <color>
+                                <custom_color>#888a85</custom_color>
+                                <type>1</type>
+                            </color>
+                            <data>
+                                <circular_buffer_capacity>1000</circular_buffer_capacity>
+                                <time_frame_length>10</time_frame_length>
+                                <type>3</type>
+                            </data>
+                            <style>
+                                <lines_interpolate>false</lines_interpolate>
+                                <pen_style>4</pen_style>
+                                <pen_width>1</pen_width>
+                                <render_antialias>false</render_antialias>
+                                <steps_invert>false</steps_invert>
+                                <sticks_baseline>0</sticks_baseline>
+                                <sticks_orientation>2</sticks_orientation>
+                                <type>0</type>
+                            </style>
+                            <subscriber_queue_size>100</subscriber_queue_size>
+                            <title>Pitch Reference</title>
+                        </curve_2>
                     </curves>
                     <legend>
                         <visible>true</visible>
@@ -328,6 +430,57 @@
                             <subscriber_queue_size>100</subscriber_queue_size>
                             <title>Thrust (normalized)</title>
                         </curve_0>
+                        <curve_1>
+                            <axes>
+                                <x_axis>
+                                    <field></field>
+                                    <field_type>1</field_type>
+                                    <scale>
+                                        <absolute_maximum>1000</absolute_maximum>
+                                        <absolute_minimum>0</absolute_minimum>
+                                        <relative_maximum>0</relative_maximum>
+                                        <relative_minimum>-1000</relative_minimum>
+                                        <type>0</type>
+                                    </scale>
+                                    <topic>/nmpc/obj_ref</topic>
+                                    <type>fw_ctrl/NMPCObjRef</type>
+                                </x_axis>
+                                <y_axis>
+                                    <field>u_T/0</field>
+                                    <field_type>0</field_type>
+                                    <scale>
+                                        <absolute_maximum>1000</absolute_maximum>
+                                        <absolute_minimum>0</absolute_minimum>
+                                        <relative_maximum>0</relative_maximum>
+                                        <relative_minimum>-1000</relative_minimum>
+                                        <type>0</type>
+                                    </scale>
+                                    <topic>/nmpc/obj_ref</topic>
+                                    <type>fw_ctrl/NMPCObjRef</type>
+                                </y_axis>
+                            </axes>
+                            <color>
+                                <custom_color>#888a85</custom_color>
+                                <type>1</type>
+                            </color>
+                            <data>
+                                <circular_buffer_capacity>1000</circular_buffer_capacity>
+                                <time_frame_length>10</time_frame_length>
+                                <type>3</type>
+                            </data>
+                            <style>
+                                <lines_interpolate>false</lines_interpolate>
+                                <pen_style>4</pen_style>
+                                <pen_width>1</pen_width>
+                                <render_antialias>false</render_antialias>
+                                <steps_invert>false</steps_invert>
+                                <sticks_baseline>0</sticks_baseline>
+                                <sticks_orientation>2</sticks_orientation>
+                                <type>0</type>
+                            </style>
+                            <subscriber_queue_size>100</subscriber_queue_size>
+                            <title>Thrust Reference</title>
+                        </curve_1>
                     </curves>
                     <legend>
                         <visible>true</visible>

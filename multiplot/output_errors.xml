@@ -46,7 +46,7 @@
                                         <absolute_minimum>-1</absolute_minimum>
                                         <relative_maximum>0</relative_maximum>
                                         <relative_minimum>-1000</relative_minimum>
-                                        <type>1</type>
+                                        <type>0</type>
                                     </scale>
                                     <topic>/nmpc/aux_out</topic>
                                     <type>fw_ctrl/NMPCAuxOut</type>
@@ -97,7 +97,7 @@
                                         <absolute_minimum>-1</absolute_minimum>
                                         <relative_maximum>0</relative_maximum>
                                         <relative_minimum>-1000</relative_minimum>
-                                        <type>1</type>
+                                        <type>0</type>
                                     </scale>
                                     <topic>/nmpc/aux_out</topic>
                                     <type>fw_ctrl/NMPCAuxOut</type>
@@ -148,7 +148,7 @@
                                         <absolute_minimum>-1</absolute_minimum>
                                         <relative_maximum>0</relative_maximum>
                                         <relative_minimum>-1000</relative_minimum>
-                                        <type>1</type>
+                                        <type>0</type>
                                     </scale>
                                     <topic>/nmpc/aux_out</topic>
                                     <type>fw_ctrl/NMPCAuxOut</type>
