@@ -1,14 +1,16 @@
 <launch>
 
-  <arg name="file_name" value="/home/asl/Documents/rosbags/nmpc" />
+  <arg name="file_name" value="/home/thomas/Documents/rosbags/nmpc" />
 
-  <arg name="general_topics" value="/mavros/global_position/global /mavros/global_position/local /mavros/aslctrl/data /mavros/aslekf_extended /mavros/aslctrl/debug" />
+  <arg name="nmpc_subs" value="/mavros/target_actuator_control map_mpc /mavros/home_position/home /mavros/imu/data /mavros/global_position/local /mavros/manual_control/control /mavros/imu/static_pressure /mavros/state /mavros/extended_state /mavros/imu/temperature_imu /mavros/wind_estimation" />
 
-  <arg name="nmpc_topics" value="/nmpc/controls /nmpc/info /nmpc/measurements /nmpc/objN_ref /nmpc/obj_ref /nmpc/online_data /nmpc/states" />
+  <arg name="nmpc_pubs" value="/mavros/setpoint_attitude/attitude /nmpc/aux_out /nmpc/controls /nmpc/guidance_path /nmpc/info /nmpc/measurements /nmpc/obj_ref /nmpc/objN_ref /nmpc/occ_detect /nmpc/online_data /nmpc/states /nmpc/traj_pred /nmpc/status /mavros/setpoint_attitude/thrust /nmpc/vg_unit_ref" />
 
-  <arg name="mission_items" value="/mavros/home_position" />
+  <arg name="vision" value="/uav_1/cam_left/image_raw /uav_1/cam_right/image_raw /uav_1/cam_center/image_raw /stereo_dense_reconstruction/disparity_raw" />
 
-  <arg name="recorded_topics" value="$(arg general_topics) $(arg nmpc_topics) $(arg mission_items)" />
+  <arg name="tf" value="/tf /tf_static" />
+
+  <arg name="recorded_topics" value="$(arg nmpc_subs) $(arg nmpc_pubs) $(arg tf)" />
 
   <node pkg="rosbag" type="record" name="record" args="-o $(arg file_name) $(arg recorded_topics)" />
 </launch>
