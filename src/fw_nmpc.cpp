@@ -47,6 +47,8 @@ FwNMPC::FwNMPC() :
     serverControl(control_config_nh_),
     guidance_config_nh_("~/guidance"),
     serverGuidance(guidance_config_nh_),
+    manual_control_config_nh_("~/manual_control"),
+    serverManualControl(manual_control_config_nh_),
     soft_constraints_config_nh_("~/soft_constraints"),
     serverSoftConstraints(soft_constraints_config_nh_),
     flaps_normalized_(0.0),
@@ -86,7 +88,6 @@ FwNMPC::FwNMPC() :
     occ_count_total_right_(0),
     log_sqrt_w_over_sig1_r_(1.0),
     one_over_sqrt_w_r_(1.0),
-    path_type_(GuidancePathTypes::LOITER),
     prio_aoa_(Eigen::Matrix<double, ACADO_N+1, 1>::Ones()),
     prio_h_(Eigen::Matrix<double, ACADO_N+1, 1>::Ones()),
     prio_r_(Eigen::Matrix<double, ACADO_N+1, 4>::Ones()),
@@ -138,6 +139,9 @@ FwNMPC::FwNMPC() :
     // The dynamic reconfigure server for guidance parameters
     serverGuidance.setCallback(boost::bind(&FwNMPC::parametersCallbackGuidance, this, _1, _2));
 
+    // The dynamic reconfigure server for manual control parameters
+    serverManualControl.setCallback(boost::bind(&FwNMPC::parametersCallbackManualControl, this, _1, _2));
+
     // The dynamic reconfigure server for soft constraints parameters
     serverSoftConstraints.setCallback(boost::bind(&FwNMPC::parametersCallbackSoftConstraints, this, _1, _2));
 
@@ -153,13 +157,17 @@ FwNMPC::FwNMPC() :
     ned_enu_q_.setRPY(M_PI, 0.0, M_PI_2);
     aircraft_baselink_q_.setRPY(M_PI, 0.0, 0.0);
 
-    // initialize manual velocity control setpoints
-    man_vel_sp_.airspeed = 14.0;
-    man_vel_sp_.bearing = 0.0;
-    man_vel_sp_.bearing_rate = 0.0;
-    man_vel_sp_.vn_unit = 1.0;
-    man_vel_sp_.ve_unit = 0.0;
-    man_vel_sp_.vd_unit = 0.0;
+    // initialize manual velocity control setpoints (arbitrary)
+    manual_control_sp_.airspeed = 14.0;
+    manual_control_sp_.roll = 0.0;
+    manual_control_sp_.bearing = 0.0;
+    manual_control_sp_.bearing_rate = 0.0;
+    manual_control_sp_.unit_delta_alt_rate = 0.0;
+    manual_control_sp_.unit_vel(0) = 1.0;
+    manual_control_sp_.unit_vel(0) = 0.0;
+    manual_control_sp_.unit_vel(0) = 0.0;
+    manual_control_sp_.alt = 100.0;
+    manual_control_sp_.rel_alt = 100.0;
 }
 
 /* / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /*/
@@ -293,53 +301,121 @@ void FwNMPC::localPosCb(const nav_msgs::Odometry::ConstPtr& msg) // local positi
 void FwNMPC::manCtrlCb(const mavros_msgs::ManualControl::ConstPtr& msg) // manual control msg callback
 {
     static bool was_disabled = true;
+    static bool mode_changed = false;
+    static ManualControlTypes last_mode = ManualControlTypes::DIRECTION;
     static ros::Duration t_elapsed(0);
     static ros::Time t_last(0);
 
     // manual unit velocity control //NOTE: this is currently ground relative velocity control -- should perhaps make an option for airmass relative in the future
-    if (guidance_params_.en_man_vel_ctrl) {
-        if (was_disabled) {
-            // reset initial bearing and fpa
-            man_vel_sp_.bearing = ((x0_(IDX_X_V) < vehicle_params_.airsp_thres + 1.0) || (x0_vel_(1)*x0_vel_(1) + x0_vel_(0)*x0_vel_(0) < 1.0))
-                                ? x0_(IDX_X_XI) : atan2(x0_vel_(1), x0_vel_(0));
+    if (manual_control_sp_.enabled) {
+
+        // check mode
+        mode_changed = manual_control_sp_.type != last_mode;
+
+        if (was_disabled || mode_changed) {
+            // reset initial bearing and altitude
+
+            // init roll to zero
+            manual_control_sp_.roll = 0.0;
+
+            // check if on ground, flying against strong wind, or just launched, otherwise set current course
+            bool airsp_less_than_thres = x0_(IDX_X_V) < vehicle_params_.airsp_thres + 1.0;
+            bool gsp_near_zero = x0_vel_(1)*x0_vel_(1) + x0_vel_(0)*x0_vel_(0) < 1.0;
+            manual_control_sp_.bearing = (airsp_less_than_thres || gsp_near_zero) ? x0_(IDX_X_XI) : atan2(x0_vel_(1), x0_vel_(0));
+
+            // set current altitude
+            manual_control_sp_.alt = -x0_(IDX_X_POS+2);
+            if (manual_control_sp_.type == ManualControlTypes::TERRAIN_ALTITUDE) {
+                // consider terrain
+
+                // get terrain altitude at current position
+                double terr_alt = getTerrainAltitude(x0_(IDX_X_POS), x0_(IDX_X_POS+1));
+
+                // set relative altitude
+                manual_control_sp_.rel_alt = std::max(manual_control_sp_.alt - terr_alt, 0.0); // must be above ground
+
+                // set absolute altitude
+                manual_control_sp_.alt = terr_alt + manual_control_sp_.rel_alt;
+            }
+
             was_disabled = false;
         }
         else {
+            // translate stick inputs and propagate manual control signals
+
             t_elapsed = ros::Time::now() - t_last;
+
             // propagate bearing from last bearing rate over elapsed time
-            man_vel_sp_.bearing += man_vel_sp_.bearing_rate * std::min(t_elapsed.toSec(), node_params_.iteration_timestep);
+            manual_control_sp_.bearing += manual_control_sp_.bearing_rate * std::min(t_elapsed.toSec(), node_params_.iteration_timestep);
+
+            // propagate altitude from last unit ground velocity reference (if in altitude mode
+            double delta_alt = -manual_control_sp_.airspeed * manual_control_sp_.unit_delta_alt_rate * std::min(t_elapsed.toSec(), node_params_.iteration_timestep);
+
+            if (manual_control_sp_.type == ManualControlTypes::ALTITUDE) {
+                // increment the absolute altitude
+                manual_control_sp_.alt += delta_alt;
+            }
+            else if (manual_control_sp_.type == ManualControlTypes::TERRAIN_ALTITUDE) {
+                // increment the relative altitude
+                manual_control_sp_.rel_alt = std::max(manual_control_sp_.rel_alt + delta_alt, 0.0); // relative altitude must be positive
+            }
         }
 
-        // set new bearing
-        man_vel_sp_.vn_unit = cos(man_vel_sp_.bearing);
-        man_vel_sp_.ve_unit = sin(man_vel_sp_.bearing);
+        // set new bearing -- INFO: why unit vel? why here? saves a horizon's length worth+ of sin and cos evals (these are held through the horizon)
+        manual_control_sp_.unit_vel(0) = cos(manual_control_sp_.bearing);
+        manual_control_sp_.unit_vel(1) = sin(manual_control_sp_.bearing);
 
         // throttle stick controls airspeed set point
-        man_vel_sp_.airspeed = vehicle_params_.airsp_max * (constrain_double(msg->z, -1.0, 1.0)+1.0)*0.5 + vehicle_params_.airsp_min;
+        manual_control_sp_.airspeed = vehicle_params_.airsp_max * (constrain_double(msg->z, -1.0, 1.0)+1.0)*0.5 + vehicle_params_.airsp_min;
 
         const double one_minus_dz = 1.0 - MANUAL_CONTROL_DZ;
 
-        // roll stick controls rate of bearing
+        // roll stick inputs
+        double y_input;
         if (msg->y < 0.0) {
-            man_vel_sp_.bearing_rate = constrain_double((msg->y + MANUAL_CONTROL_DZ) / one_minus_dz, -1.0, 0.0)
-                                     * guidance_params_.max_bearing_rate;
+            y_input = constrain_double((msg->y + MANUAL_CONTROL_DZ) / one_minus_dz, -1.0, 0.0);
         }
         else {
-            man_vel_sp_.bearing_rate = constrain_double((msg->y - MANUAL_CONTROL_DZ) / one_minus_dz, 0.0, 1.0)
-                                     * guidance_params_.max_bearing_rate;
+            y_input = constrain_double((msg->y - MANUAL_CONTROL_DZ) / one_minus_dz, 0.0, 1.0);
+        }
+
+        // what to do with roll stick inputs
+        if (manual_control_sp_.lat_input == ManualControlLatInputs::BEARING_RATE) {
+            // roll stick controls rate of bearing
+            manual_control_sp_.bearing_rate = y_input * manual_control_sp_.max_bearing_rate;
+        }
+        else { // default == ManualControlLatInputs::ROLL
+            // roll stick controls (setpoint of) roll setpoint
+            manual_control_sp_.roll = y_input * control_params_.roll_lim_rad;
         }
 
         // pitch stick controls flight path angle setpoint (ground relative)
+        double unit_delta_z;
         if (msg->x < 0.0) {
-            man_vel_sp_.vd_unit = constrain_double((msg->x + MANUAL_CONTROL_DZ) / one_minus_dz, -1.0, 0.0)
-                                * sin(guidance_params_.gamma_app_max);
+            unit_delta_z = constrain_double((msg->x + MANUAL_CONTROL_DZ) / one_minus_dz, -1.0, 0.0)
+                                * guidance_params_.unit_z_app_max;
         }
         else {
-            man_vel_sp_.vd_unit = constrain_double((msg->x - MANUAL_CONTROL_DZ) / one_minus_dz, 0.0, 1.0)
-                                * sin(guidance_params_.gamma_app_max); //TODO: again should have separate sink and climb params
+            unit_delta_z = constrain_double((msg->x - MANUAL_CONTROL_DZ) / one_minus_dz, 0.0, 1.0)
+                                * guidance_params_.unit_z_app_max; //TODO: again should have separate sink and climb params
         }
+        if (manual_control_sp_.type == ManualControlTypes::ALTITUDE || manual_control_sp_.type == ManualControlTypes::TERRAIN_ALTITUDE) {
+            manual_control_sp_.unit_vel(2) = 0.0; // this is calculated depending on the horizon node
+            manual_control_sp_.unit_delta_alt_rate = unit_delta_z;
+        }
+        else {
+            manual_control_sp_.unit_vel(2) = unit_delta_z;
+        }
+
+        // re-normalize decoupled (lat/lon) unit velocity setpoint
+        renormalizeUnitVelocity(manual_control_sp_.unit_vel);
     }
+    else {
+        was_disabled = true;
+    }
+
     t_last = ros::Time::now();
+    last_mode = manual_control_sp_.type;
 } // manCtrlCb
 
 void FwNMPC::staticPresCb(const sensor_msgs::FluidPressure::ConstPtr& msg) // static pressure msg callback
@@ -445,9 +521,19 @@ void FwNMPC::parametersCallbackGuidance(const fw_ctrl::guidanceConfig &config, c
     guidance_params_.T_lat = config.T_lat;
     guidance_params_.T_lon = config.T_lon;
     guidance_params_.gamma_app_max = config.gamma_app_max * DEG_TO_RAD;
-    guidance_params_.en_man_vel_ctrl = config.en_man_vel_ctrl;
-    guidance_params_.max_bearing_rate = config.max_bearing_rate * DEG_TO_RAD;
+    guidance_params_.unit_z_app_max = sin(guidance_params_.gamma_app_max);
 } // parametersCallbackGuidance
+
+void FwNMPC::parametersCallbackManualControl(const fw_ctrl::manual_controlConfig &config, const uint32_t& level)
+{
+    manual_control_sp_.enabled = config.en_man_ctrl;
+    manual_control_sp_.type = ManualControlTypes(config.man_ctrl_type);
+    if (manual_control_sp_.type == ManualControlTypes::TERRAIN_ALTITUDE && !(control_params_.enable_terrain_feedback && grid_map_valid_)) {
+        manual_control_sp_.type = ManualControlTypes::ALTITUDE;
+    }
+    manual_control_sp_.lat_input = ManualControlLatInputs(config.man_ctrl_lat_input);
+    manual_control_sp_.max_bearing_rate = config.max_bearing_rate * DEG_TO_RAD;
+} // parametersCallbackManualControl
 
 void FwNMPC::parametersCallbackSoftConstraints(const fw_ctrl::soft_constraintsConfig &config, const uint32_t& level)
 {
@@ -808,26 +894,62 @@ void FwNMPC::publishNMPCStates()
     nmpc_objN_ref.soft_r = (float)acadoVariables.yN[IDX_Y_SOFT_R];
 
     /* auxiliary outputs */
-    double v_ref[3];
-    double path_error_lat, path_error_lon;
-    double dummy1, dummy2; //XXX: "throws up in mouth"
-    double speed_states[12];
-    calculate_speed_states(speed_states, acadoVariables.x0[3], acadoVariables.x0[4], acadoVariables.x0[5], od_(1,1), od_(2,1), od_(3,1));
-    double jac_sig_r[6];
-    jac_sig_r[0] = od_(IDX_OD_JAC_SOFT_R, 1);
-    jac_sig_r[1] = od_(IDX_OD_JAC_SOFT_R+1, 1);
-    jac_sig_r[2] = od_(IDX_OD_JAC_SOFT_R+2, 1);
-    jac_sig_r[3] = od_(IDX_OD_JAC_SOFT_R+3, 1);
-    jac_sig_r[4] = od_(IDX_OD_JAC_SOFT_R+4, 1);
-    jac_sig_r[5] = od_(IDX_OD_JAC_SOFT_R+5, 1);
-    calculate_velocity_reference(v_ref, &path_error_lat, &path_error_lon, &dummy1, &dummy2, acadoVariables.x0, path_reference_,
-                                 speed_states, jac_sig_r, prio_r_(1, IDX_PRIO_R_MAX), path_type_);
+
+    // XXX: below is mostly copied from the velocity reference portion of the evaluateExternalObjectives function, should encapsulate.
+
+    // arbitrary init
+    Eigen::Vector3d unit_ground_vel_sp(1.0, 0.0, 0.0);
+    double err_lat = 0.0;
+    double err_lon = 0.0;
+    double err_lat_unit = 0.0;
+    double ground_sp_lat = 14.0;
+
+    // vehicle position
+    Eigen::Vector3d veh_pos = x0_pos_;
+
+    // vehicle ground velocity
+    Eigen::Vector3d ground_vel = x0_vel_;
+
+    // lateral-directional ground speed
+    ground_sp_lat = ground_vel.segment(0,2).norm();
+
+    if (manual_control_sp_.enabled) {
+        // we are receiving manual setpoints from the remote
+
+        // get the terrain altitude at the current position (only used in terrain following mode)
+        double terr_alt = getTerrainAltitude(x0_(IDX_X_POS), x0_(IDX_X_POS+1));
+
+        followManual(unit_ground_vel_sp, err_lat, err_lon, err_lat_unit,
+                     terr_alt, veh_pos, ground_vel, ground_sp_lat);
+    }
+    else {
+        // full auto - mpc is following some input path
+
+        // use guidance logic to follow path
+        followPath(unit_ground_vel_sp, err_lat, err_lon, err_lat_unit,
+                   path_params_.type, path_params_.pos, path_params_.bearing, path_params_.fpa, path_params_.signed_radius, // input because will eventually have time dependent paths
+                   veh_pos, ground_vel, ground_sp_lat);
+    }
+
+    if (guidance_params_.use_occ_as_guidance) {
+        // steer current guidance vector with terrain cost jacobians
+        double jac_sig_r[6];
+        jac_sig_r[0] = od_(IDX_OD_JAC_SOFT_R, 1);
+        jac_sig_r[1] = od_(IDX_OD_JAC_SOFT_R+1, 1);
+        jac_sig_r[2] = od_(IDX_OD_JAC_SOFT_R+2, 1);
+        jac_sig_r[3] = od_(IDX_OD_JAC_SOFT_R+3, 1);
+        jac_sig_r[4] = od_(IDX_OD_JAC_SOFT_R+4, 1);
+        jac_sig_r[5] = od_(IDX_OD_JAC_SOFT_R+5, 1);
+        augmentTerrainCostToGuidance(unit_ground_vel_sp, jac_sig_r, prio_r_(1, IDX_PRIO_R_MAX));
+    }
+
     // at current measured states
-    nmpc_aux_output.path_error_lat = path_error_lat; // lateral-directional path error [m]
-    nmpc_aux_output.path_error_lon = path_error_lon; // longitudinal path error [m]
-    nmpc_aux_output.err_v_n_unit = v_ref[0] - speed_states[9]; // unit northing ground velocity error [~]
-    nmpc_aux_output.err_v_e_unit = v_ref[1] - speed_states[10]; // unit easting ground velocity error [~]
-    nmpc_aux_output.err_v_d_unit = v_ref[2] - speed_states[11]; // unit downing ground velocity error [~]
+    nmpc_aux_output.path_error_lat = err_lat; // lateral-directional path error [m]
+    nmpc_aux_output.path_error_lon = err_lon; // longitudinal path error [m]
+    const double inv_ground_sp = (ground_vel.norm() < 0.01) ? 100.0 : 1.0 / ground_vel.norm();
+    nmpc_aux_output.err_v_n_unit = unit_ground_vel_sp(0) - ground_vel(0) * inv_ground_sp; // unit northing ground velocity error [~]
+    nmpc_aux_output.err_v_e_unit = unit_ground_vel_sp(1) - ground_vel(1) * inv_ground_sp; // unit easting ground velocity error [~]
+    nmpc_aux_output.err_v_d_unit = unit_ground_vel_sp(2) - ground_vel(2) * inv_ground_sp; // unit downing ground velocity error [~]
 
     /* publish */
     nmpc_meas_pub_.publish(nmpc_measurements);
@@ -844,15 +966,15 @@ void FwNMPC::publishNMPCVisualizations()
     // publish msgs for rviz visualization
 
     // path references (converted to robotic frame)
-    if (path_type_ == GuidancePathTypes::LOITER) {
+    if (path_params_.type == PathTypes::LOITER) {
         nav_msgs::Path guidance_path;
         guidance_path.header.frame_id = "map";
         int num_pts = 50;
         guidance_path.poses = std::vector<geometry_msgs::PoseStamped>(num_pts+1);
         for (int i=0; i<num_pts+1; i++) {
-            guidance_path.poses[i].pose.position.x = path_reference_[1] + fabs(path_reference_[4])*sin(double(i)/double(num_pts)*M_PI*2.0);
-            guidance_path.poses[i].pose.position.y = path_reference_[0] + fabs(path_reference_[4])*cos(double(i)/double(num_pts)*M_PI*2.0);
-            guidance_path.poses[i].pose.position.z = -path_reference_[2];
+            guidance_path.poses[i].pose.position.x = path_params_.pos(1) + fabs(path_params_.signed_radius)*sin(double(i)/double(num_pts)*M_PI*2.0);
+            guidance_path.poses[i].pose.position.y = path_params_.pos(0) + fabs(path_params_.signed_radius)*cos(double(i)/double(num_pts)*M_PI*2.0);
+            guidance_path.poses[i].pose.position.z = -path_params_.pos(2);
         }
         nmpc_guidance_path_pub_.publish(guidance_path);
     }
@@ -1075,15 +1197,18 @@ void FwNMPC::updateObjectiveParameters()
     one_over_sqrt_w_r_ = one_over_sqrt_w_r;
 
     /* path reference */ // TODO: should probably be set with some kind of service instead of polling every iteration
-    nmpc_.getParam("/nmpc/path/path_type", path_type_);
-    nmpc_.getParam("/nmpc/path/b_n", path_reference_[0]);
-    nmpc_.getParam("/nmpc/path/b_e", path_reference_[1]);
-    nmpc_.getParam("/nmpc/path/b_d", path_reference_[2]);
-    nmpc_.getParam("/nmpc/path/Gamma_p", path_reference_[3]);
-    path_reference_[3] *= DEG_TO_RAD;
-    nmpc_.getParam("/nmpc/path/chi_p", path_reference_[4]);
-    if (path_type_ != GuidancePathTypes::LOITER) path_reference_[4] *= DEG_TO_RAD;
-
+    int temp_int;
+    nmpc_.getParam("/nmpc/path/path_type", temp_int);
+    path_params_.type = PathTypes(temp_int);
+    nmpc_.getParam("/nmpc/path/b_n", path_params_.pos(0));
+    nmpc_.getParam("/nmpc/path/b_e", path_params_.pos(1));
+    nmpc_.getParam("/nmpc/path/b_d", path_params_.pos(2));
+    nmpc_.getParam("/nmpc/path/Gamma_p", path_params_.fpa);
+    path_params_.fpa *= DEG_TO_RAD;
+    double temp_double;
+    nmpc_.getParam("/nmpc/path/chi_p", temp_double);
+    path_params_.bearing = temp_double * DEG_TO_RAD;
+    path_params_.signed_radius = temp_double; // XXX: the static param is hijacked in the case of loiter vs line atm
 } // updateObjectiveParameters
 
 void FwNMPC::shiftOcclusionSlidingWindow()
@@ -1207,11 +1332,32 @@ void FwNMPC::sumOcclusionDetections()
 void FwNMPC::evaluateExternalObjectives(const double *terrain_data)
 {
     /* evaluate external objectives */
+
+    // non-aribtrary init
     occ_count_total_left_ = 0;
     occ_count_total_right_ = 0;
     double v_ray[3];
+
+    // arbitrary init
+    Eigen::Vector3d unit_ground_vel_sp(1.0, 0.0, 0.0);
+    double err_lat = 0.0;
+    double err_lon = 0.0;
+    double err_lat_unit = 0.0;
+    double ground_sp_lat = 14.0;
+
+    // loop through horizon
     for (int i = 0; i < ACADO_N+1; ++i)
     {
+        /* calculate speed states */
+        const double v = acadoVariables.x[i * ACADO_NX + IDX_X_V];
+        const double gamma = acadoVariables.x[i * ACADO_NX + IDX_X_GAMMA];
+        const double xi = acadoVariables.x[i * ACADO_NX + IDX_X_XI];
+        const double w_n = acadoVariables.od[i * NOD + IDX_OD_W];
+        const double w_e = acadoVariables.od[i * NOD + IDX_OD_W+1];
+        const double w_d = acadoVariables.od[i * NOD + IDX_OD_W+2];
+        double speed_states[12];
+        calculate_speed_states(speed_states, v, gamma, xi, w_n, w_e, w_d);
+
         /* soft aoa constraint */
         double sig_aoa, prio_aoa;
         double jac_sig_aoa[2];
@@ -1224,8 +1370,9 @@ void FwNMPC::evaluateExternalObjectives(const double *terrain_data)
         prio_aoa_(i) = prio_aoa;
 
         /* soft height constraint */
+        double h_terr = 0.0;
         if (control_params_.enable_terrain_feedback && grid_map_valid_) {
-            double sig_h, prio_h, h_terr;
+            double sig_h, prio_h;
             double jac_sig_h[4];
             calculate_height_objective(&sig_h, jac_sig_h, &prio_h, &h_terr, acadoVariables.x + (i * ACADO_NX), terrain_params_,
                                        terr_local_origin_n_, terr_local_origin_e_, map_height_, map_width_, map_resolution_, terrain_data);
@@ -1247,16 +1394,6 @@ void FwNMPC::evaluateExternalObjectives(const double *terrain_data)
 
             prio_h_(i) = 1.0;
         }
-
-        /* calculate speed states */
-        const double v = acadoVariables.x[i * ACADO_NX + IDX_X_V];
-        const double gamma = acadoVariables.x[i * ACADO_NX + IDX_X_GAMMA];
-        const double xi = acadoVariables.x[i * ACADO_NX + IDX_X_XI];
-        const double w_n = acadoVariables.od[i * NOD + IDX_OD_W];
-        const double w_e = acadoVariables.od[i * NOD + IDX_OD_W+1];
-        const double w_d = acadoVariables.od[i * NOD + IDX_OD_W+2];
-        double speed_states[12];
-        calculate_speed_states(speed_states, v, gamma, xi, w_n, w_e, w_d);
 
         /* soft radial constraint */
         double jac_sig_r[6] = {0.0};
@@ -1327,45 +1464,65 @@ void FwNMPC::evaluateExternalObjectives(const double *terrain_data)
         }
 
         /* velocity reference */
-        double e_lat_unit, vG_lat;
-        if (guidance_params_.en_man_vel_ctrl) {
-            // we are receiving manual velocity setpoints from the remote
-            // hold constant through horizon
-            if (i < N) {
-                y_(IDX_Y_VN, i) = man_vel_sp_.vn_unit;
-                y_(IDX_Y_VE, i) = man_vel_sp_.ve_unit;
-                y_(IDX_Y_VD, i) = man_vel_sp_.vd_unit;
-            }
-            else {
-                yN_(IDX_Y_VN) = man_vel_sp_.vn_unit;
-                yN_(IDX_Y_VE) = man_vel_sp_.ve_unit;
-                yN_(IDX_Y_VD) = man_vel_sp_.vd_unit;
-            }
+
+        // vehicle position
+        Eigen::Vector3d veh_pos(acadoVariables.x[i * ACADO_NX + IDX_X_POS], acadoVariables.x[i * ACADO_NX + IDX_X_POS+1], acadoVariables.x[i * ACADO_NX + IDX_X_POS+2]);
+
+        // vehicle ground velocity
+        Eigen::Vector3d ground_vel(speed_states[3], speed_states[4], speed_states[5]);
+
+        // lateral-directional ground speed
+        ground_sp_lat = ground_vel.segment(0,2).norm();
+
+        if (manual_control_sp_.enabled) {
+            // we are receiving manual setpoints from the remote
+            followManual(unit_ground_vel_sp, err_lat, err_lon, err_lat_unit,
+                         h_terr, veh_pos, ground_vel, ground_sp_lat);
         }
         else {
+            // full auto - mpc is following some input path
+
             // use guidance logic to follow path
-            double v_ref[3];
-            double dummy_err_lat, dummy_err_lon;
-            calculate_velocity_reference(v_ref, &dummy_err_lat, &dummy_err_lon, &e_lat_unit, &vG_lat, acadoVariables.x + (i * NX), path_reference_,
-                                         speed_states, jac_sig_r, prio_r_(i, IDX_PRIO_R_MAX), path_type_);
-            if (i < N) {
-                y_(IDX_Y_VN, i) = v_ref[0];
-                y_(IDX_Y_VE, i) = v_ref[1];
-                y_(IDX_Y_VD, i) = v_ref[2];
-            }
-            else {
-                yN_(IDX_Y_VN) = v_ref[0];
-                yN_(IDX_Y_VE) = v_ref[1];
-                yN_(IDX_Y_VD) = v_ref[2];
-            }
+            followPath(unit_ground_vel_sp, err_lat, err_lon, err_lat_unit,
+                       path_params_.type, path_params_.pos, path_params_.bearing, path_params_.fpa, path_params_.signed_radius, // input because will eventually have time dependent paths
+                       veh_pos, ground_vel, ground_sp_lat);
+        }
+
+        if (guidance_params_.use_occ_as_guidance) {
+            // steer current guidance vector with terrain cost jacobians
+            augmentTerrainCostToGuidance(unit_ground_vel_sp, jac_sig_r, prio_r_(i, IDX_PRIO_R_MAX));
+        }
+
+        // set the unit ground velocity reference
+        if (i < N) {
+            y_(IDX_Y_VN, i) = unit_ground_vel_sp(0);
+            y_(IDX_Y_VE, i) = unit_ground_vel_sp(1);
+            y_(IDX_Y_VD, i) = unit_ground_vel_sp(2);
+        }
+        else {
+            yN_(IDX_Y_VN) = unit_ground_vel_sp(0);
+            yN_(IDX_Y_VE) = unit_ground_vel_sp(1);
+            yN_(IDX_Y_VD) = unit_ground_vel_sp(2);
         }
 
         /* control reference */
         if (!control_params_.use_floating_ctrl_ref && i<ACADO_N) {
+            // fixed control reference
+
+            // pitch reference
             u_ref_(IDX_U_THETA_REF, i) = control_params_.fixed_pitch_ref; //TODO: in future could schedule these also with airsp / fpa / roll*** setpoints
+
+            // throttle reference
             u_ref_(IDX_U_U_T, i) = control_params_.fixed_throt_ref; //TODO: in future could schedule these also with airsp / fpa setpoints
-            if (control_params_.use_ff_roll_ref && path_type_ == GuidancePathTypes::LOITER && !guidance_params_.en_man_vel_ctrl) {
-                u_ref_(IDX_U_PHI_REF, i) = atan(vG_lat*vG_lat/path_reference_[4]/ONE_G) * 0.5*(1.0+cos(M_PI*e_lat_unit));
+
+            // roll reference
+            if (manual_control_sp_.enabled && manual_control_sp_.lat_input == ManualControlLatInputs::ROLL) {
+                // we are using roll reference to steer the aircraft in manual mode
+                u_ref_(IDX_U_PHI_REF, i) = manual_control_sp_.roll;
+            }
+            else if (control_params_.use_ff_roll_ref && path_params_.type == PathTypes::LOITER && !manual_control_sp_.enabled) {
+                // feed-forward the path curvature when near to the track
+                u_ref_(IDX_U_PHI_REF, i) = atan(ground_sp_lat*ground_sp_lat/path_params_.signed_radius/ONE_G) * 0.5*(1.0+cos(M_PI*err_lat_unit));
             }
             else {
                 u_ref_(IDX_U_PHI_REF, i) = 0.0;
@@ -1392,20 +1549,38 @@ void FwNMPC::prioritizeObjectives()
         }
     }
 
-    // objective weighting through horizon (row-major array)
-    for (int i=0; i<N; i++) {
-        for (int j=IDX_Y_VN; j<IDX_Y_VD; j++) {
-            acadoVariables.W[NY*NY*i+NY*j+j] *= prio_h_(i) * prio_r_(i,IDX_PRIO_R_MAX); // de-prioritize path following objectives when near terrain
+    // unit velocity objective weighting through horizon (row-major array)
+    bool manual_roll = manual_control_sp_.enabled && manual_control_sp_.lat_input == ManualControlLatInputs::ROLL;
+    if (manual_roll) {
+        // de-prioritize path following objectives when near terrain
+        // zero out lateral-directional unit ground velocity weights as they are not used when roll is commanded
+        for (int i=0; i<N; i++) {
+            acadoVariables.W[NY*NY*i+NY*IDX_Y_VN+IDX_Y_VN] *= 0.0;
+            acadoVariables.W[NY*NY*i+NY*IDX_Y_VE+IDX_Y_VE] *= 0.0;
+            acadoVariables.W[NY*NY*i+NY*IDX_Y_VD+IDX_Y_VD] *= prio_h_(i) * prio_r_(i,IDX_PRIO_R_MAX);
         }
+        acadoVariables.WN[NYN*IDX_Y_VN+IDX_Y_VN] *= 0.0;
+        acadoVariables.WN[NYN*IDX_Y_VE+IDX_Y_VE] *= 0.0;
+        acadoVariables.WN[NYN*IDX_Y_VD+IDX_Y_VD] *= prio_h_(N) * prio_r_(N,IDX_PRIO_R_MAX);
     }
-
-    // end term objective weighting through horizon (row-major array)
-    for (int j=IDX_Y_VN; j<IDX_Y_VD; j++) {
-        acadoVariables.WN[NYN*j+j] *= prio_h_(N) * prio_r_(N,IDX_PRIO_R_MAX); // de-prioritize path following objectives when near terrain
+    else {
+        // de-prioritize path following objectives when near terrain
+        double prio;
+        for (int i=0; i<N; i++) {
+            prio = prio_h_(i) * prio_r_(i,IDX_PRIO_R_MAX);
+            acadoVariables.W[NY*NY*i+NY*IDX_Y_VN+IDX_Y_VN] *= prio;
+            acadoVariables.W[NY*NY*i+NY*IDX_Y_VE+IDX_Y_VE] *= prio;
+            acadoVariables.W[NY*NY*i+NY*IDX_Y_VD+IDX_Y_VD] *= prio;
+        }
+        prio = prio_h_(N) * prio_r_(N,IDX_PRIO_R_MAX);
+        acadoVariables.WN[NYN*IDX_Y_VN+IDX_Y_VN] *= prio;
+        acadoVariables.WN[NYN*IDX_Y_VE+IDX_Y_VE] *= prio;
+        acadoVariables.WN[NYN*IDX_Y_VD+IDX_Y_VD] *= prio;
     }
 
     // de-prioritize feed-forward roll reference //XXX: is there a way to do this back where it is set? (currently not.. as prio is called after eval)
-    if (!control_params_.use_floating_ctrl_ref && control_params_.use_ff_roll_ref && path_type_ == GuidancePathTypes::LOITER) {
+    bool ff_roll = !control_params_.use_floating_ctrl_ref && control_params_.use_ff_roll_ref && path_params_.type == PathTypes::LOITER;
+    if (manual_roll || ff_roll) {
         for (int i=0; i<N; i++) {
             u_ref_(IDX_U_PHI_REF, i) *= prio_h_(i) * prio_r_(i, IDX_PRIO_R_MAX);
         }
@@ -1413,6 +1588,19 @@ void FwNMPC::prioritizeObjectives()
 } // prioritizeObjectives
 
 /* TERRAIN CHECKS  / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /*/
+
+double FwNMPC::getTerrainAltitude(const double pos_n, const double pos_e)
+{
+    /* look up the terrain altitude at the speicified position */ // XXX: should maybe replace all with grid map functions..
+    int idx_q[4];
+    double dn, de;
+    lookup_terrain_idx(pos_n, pos_e, terr_local_origin_n_, terr_local_origin_e_, map_height_, map_width_, map_resolution_, idx_q, &dn, &de);
+
+    /* bi-linear interpolation */ //XXX: should this be changed to correspond to the triangular grid used in the radial respresentation?
+    double h12 = (1.0-dn)*terr_array_[idx_q[0]] + dn*terr_array_[idx_q[1]];
+    double h34 = (1.0-dn)*terr_array_[idx_q[2]] + dn*terr_array_[idx_q[3]];
+    return (1.0-de)*h12 + de*h34;
+} // getTerrainAltitude
 
 void FwNMPC::lookup_terrain_idx(const double pos_n, const double pos_e, const double pos_n_origin,
                         const double pos_e_origin, const int map_height, const int map_width,
@@ -2152,272 +2340,480 @@ int FwNMPC::castray(double *r_occ, double *p_occ, double *n_occ, double *p1, dou
 
 /* GUIDANCE  / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / /*/
 
-/* calculate ground velocity reference */
-void FwNMPC::calculate_velocity_reference(double *v_ref, double *e_lat, double *e_lon, double *e_lat_unit, double *vG_lat,
-                                  const double *states,
-                                  const double *path_reference,
-                                  const double *speed_states,
-                                  const double *jac_sig_r,
-                                  const double prio_r,
-                                  const int path_type)
+void FwNMPC::renormalizeUnitVelocity(Eigen::Vector3d &unit_vel)
 {
-    /* DEFINE INPUTS - - - - - - - - - - - - - - - - - - - - - - - - - - */
+    // re-normalize decoupled (lat/lon) unit velocity
+    unit_vel.segment(0,2) *= 1.0 - unit_vel(2)*unit_vel(2);
+} // renormalizeUnitVelocity
 
-    /* states */
-    const double r_n = states[0];
-    const double r_e = states[1];
-    const double r_d = states[2];
-    const double v = states[3];
-    const double gamma = states[4];
-    const double xi = states[5];
+void FwNMPC::augmentTerrainCostToGuidance(Eigen::Vector3d &unit_ground_vel_sp, const double *jac_sig_r, const double prio_r)
+{
+    // unit terrain cost jacobian vector
+    const double norm_jac_sig_r = sqrt(jac_sig_r[0]*jac_sig_r[0] + jac_sig_r[1]*jac_sig_r[1] + jac_sig_r[2]*jac_sig_r[2]);
+    const double one_over_norm_jac_sig_r = (norm_jac_sig_r > 0.0001) ? 1.0/norm_jac_sig_r : 10000.0;
+    Eigen::Vector3d v_occ_unit(jac_sig_r[0], jac_sig_r[1], jac_sig_r[2]);
+    v_occ_unit *= -one_over_norm_jac_sig_r;
 
-    /* path reference */
-    const double b_n = path_reference[0];
-    const double b_e = path_reference[1];
-    const double b_d = path_reference[2];
+    // augment unit vel sp //XXX: should this change the reference, or is it better to have a copy output?
+    unit_ground_vel_sp *= prio_r;
+    unit_ground_vel_sp += (1.0-prio_r) * v_occ_unit;
+}
 
-    /* speed states */
-    const double vG_n = speed_states[3];
-    const double vG_e = speed_states[4];
-    const double vG_d = speed_states[5];
-
-    /* path following - - - - - - - - - - - - - - - - - - - - - - - - - -*/
-
-    double vP_n_unit = 0.0;
-    double vP_e_unit = 0.0;
-    double vP_d_unit = 0.0;
-
-    /* norm of lateral-directional ground velocity */
-    *vG_lat = sqrt(vG_n*vG_n + vG_e*vG_e);
-
-    /* lateral-directional error boundary */
-    double e_b_lat;
-    if (*vG_lat < 1.0) {
-        e_b_lat = guidance_params_.T_lat * 0.5 * (1.0 + (*vG_lat)*(*vG_lat)); /* vG_ne may be zero */
+/* generate unit velocity commands to follow manual setpoints */
+void FwNMPC::followManual(Eigen::Vector3d &unit_ground_vel_sp, double &err_lat, double &err_lon, double &err_lat_unit,
+             const double terr_alt, const Eigen::Vector3d &veh_pos, const Eigen::Vector3d &ground_vel, const double &ground_sp_lat)
+{
+    if (manual_control_sp_.type == ManualControlTypes::DIRECTION) {
+        // track the commanded unit ground velocity
+        unit_ground_vel_sp = manual_control_sp_.unit_vel;
     }
-    else {
-        e_b_lat = guidance_params_.T_lat * (*vG_lat);
-    }
+    else if (manual_control_sp_.type == ManualControlTypes::ALTITUDE) {
+        // track manual bearing and altitude setpoints
 
-    /* longitudinal error boundary */
-    double e_b_lon;
-    if (guidance_params_.fix_vert_pos_err_bnd) {
-        e_b_lon = guidance_params_.vert_pos_err_bnd;
-    }
-    else {
-        if (fabs(vG_d) < 1.0) {
-            e_b_lon = guidance_params_.T_lon * 0.5 * (1.0 + vG_d*vG_d); /* vG_d may be zero */
+        // set xy vel
+        unit_ground_vel_sp.segment(0,2) = manual_control_sp_.unit_vel.segment(0,2);
+
+        // use guidance to calculate flight path angle setpoint
+        if (guidance_params_.guidance_sel == GuidanceLogicTypes::ARCTAN) {
+            // arctangent vector field guidance
+            unit_ground_vel_sp(2) = longitudinalArctanVFGuidance(err_lon, -manual_control_sp_.alt, 0.0, 0.0, veh_pos(2), ground_vel(2));
         }
-        else {
-            e_b_lon = guidance_params_.T_lon * fabs(vG_d);
+        else { // default = GuidanceLogicTypes::PW_QUAD
+            // piece-wise quadratic guidance
+            unit_ground_vel_sp(2) = longitudinalPwQuadGuidance(err_lon, -manual_control_sp_.alt, 0.0, veh_pos(2), ground_vel(2));
         }
-    }
 
-    if (path_type == 0) {
+        // re-normalize decoupled (lat/lon) unit velocity
+        renormalizeUnitVelocity(unit_ground_vel_sp);
+    }
+    else if (manual_control_sp_.type == ManualControlTypes::TERRAIN_ALTITUDE) {
+        // track manual bearing and relative altitude setpoints
+
+        // set xy vel
+        unit_ground_vel_sp.segment(0,2) = manual_control_sp_.unit_vel.segment(0,2);
+
+        // set absolute altitude based on node-wise terrain height
+        double alt = terr_alt + manual_control_sp_.rel_alt;
+
+        // terrain slope
+        // XXX: for now flat.. could potentially calculate the slope based on the current course .. it is calculated anyway internally in the cost jacobian.
+        const double unit_path_tangent_d = 0.0;
+
+        // use guidance to calculate flight path angle setpoint
+        if (guidance_params_.guidance_sel == GuidanceLogicTypes::ARCTAN) {
+            // arctangent vector field guidance
+            unit_ground_vel_sp(2) = longitudinalArctanVFGuidance(err_lon, -alt, unit_path_tangent_d, 0.0, veh_pos(2), ground_vel(2));
+        }
+        else { // default = GuidanceLogicTypes::PW_QUAD
+            // piece-wise quadratic guidance
+            unit_ground_vel_sp(2) = longitudinalPwQuadGuidance(err_lon, -alt, unit_path_tangent_d, veh_pos(2), ground_vel(2));
+        }
+
+        // re-normalize decoupled (lat/lon) unit velocity
+        renormalizeUnitVelocity(unit_ground_vel_sp);
+    }
+    // else {
+    //     // ...
+    // }
+} // followManual
+
+/* generate unit velocity commands to follow the reference path */
+void FwNMPC::followPath(Eigen::Vector3d &unit_ground_vel_sp, double &err_lat, double &err_lon, double &err_lat_unit,
+                        PathTypes path_type, Eigen::Vector3d pos_ref, const double bearing, const double fpa_ref, const double signed_radius,
+                        const Eigen::Vector3d &veh_pos, const Eigen::Vector3d &veh_vel, const double ground_sp_lat)
+{
+    // init
+    Eigen::Vector3d closest_pt_on_path;
+    Eigen::Vector3d unit_path_tangent;
+
+    if (path_type == PathTypes::LOITER) {
         /* loiter at fixed altitude */
 
-        const double Gamma_p = 0.0;
+        // get reference pose at closest point on loiter circle
+        calculateReferencePoseOnLoiter(closest_pt_on_path, unit_path_tangent, pos_ref, signed_radius, veh_pos, veh_vel, ground_sp_lat);
 
-        /* loiter direction (hijack chi_p param) */
-        const double loiter_dir = (path_reference[4] < 0.0) ? -1.0 : 1.0;
-        const double radius = (fabs(path_reference[4]) < 0.1) ? 0.1 : fabs(path_reference[4]);
-
-        /* vector from circle center to aircraft */
-        const double br_n = r_n-b_n;
-        const double br_e = r_e-b_e;
-        const double br_d = r_d-b_d;
-
-        /* lateral-directional distance to circle center */
-        const double dist_to_center = sqrt(br_n*br_n + br_e*br_e);
-
-        double br_n_unit, br_e_unit;
-        double p_n, p_e;
-        if (dist_to_center < 0.1) {
-            if (*vG_lat < 0.1) {
-                /* arbitrarily set the point in the northern top of the circle */
-                br_n_unit = 1.0;
-                br_e_unit = 0.0;
-
-                /* closest point on circle */
-                p_n = b_n + br_n_unit * radius;
-                p_e = b_e + br_e_unit * radius;
-            }
-            else {
-                /* set the point in the direction we are moving */
-                br_n_unit = vG_n / (*vG_lat) * 0.1;
-                br_e_unit = vG_e / (*vG_lat) * 0.1;
-
-                /* closest point on circle */
-                p_n = b_n + br_n_unit * radius;
-                p_e = b_e + br_e_unit * radius;
-            }
-        }
-        else {
-            /* set the point in the direction of the aircraft */
-            br_n_unit = br_n / dist_to_center;
-            br_e_unit = br_e / dist_to_center;
-
-            /* closest point on circle */
-            p_n = b_n + br_n_unit * radius;
-            p_e = b_e + br_e_unit * radius;
-        }
-
-        /* path tangent unit vector */
-        const double tP_n_bar = -br_e_unit * loiter_dir;
-        const double tP_e_bar = br_n_unit * loiter_dir;
-        const double chi_p = atan2(tP_e_bar, tP_n_bar);
-
-        /* position error */
-        *e_lat = (r_n-p_n)*tP_e_bar - (r_e-p_e)*tP_n_bar;
-        *e_lon = b_d - r_d;
-
-        // unit track error
-        *e_lat_unit = constrain_double(fabs((*e_lat)/e_b_lat), 0.0, 1.0);
-        const double e_lon_unit = constrain_double(fabs((*e_lon)/e_b_lon), 0.0, 1.0);
-
-        // check which guidance logic we are using //TODO: encapsulate
+        // guidance logic
         if (guidance_params_.guidance_sel == GuidanceLogicTypes::ARCTAN) {
-            // arctangent vector field
-
-            /* course approach angle */
-            const double chi_app = atan(M_PI_2*(*e_lat)/e_b_lat);
-
-            /* flight path approach angle */
-            const double Gamma_app = -guidance_params_.gamma_app_max * atan(M_PI_2*(*e_lon)/e_b_lon);
-
-            /* normalized ground velocity setpoint */
-            const double cos_gamma = cos(Gamma_p + Gamma_app);
-            vP_n_unit = cos_gamma*cos(chi_p + chi_app);
-            vP_e_unit = cos_gamma*sin(chi_p + chi_app);
-            vP_d_unit = -sin(Gamma_p + Gamma_app);
+            // arctangent vector field guidance
+            arctanVFGuidance(unit_ground_vel_sp, err_lat, err_lon, err_lat_unit,
+                             closest_pt_on_path, unit_path_tangent, bearing, fpa_ref,
+                             veh_pos, veh_vel, ground_sp_lat);
         }
-        else {
-            // piece-wise quadratic
-
-            // quadratic transition variables
-            const double thetal_lat = -(*e_lat_unit)*((*e_lat_unit) - 2.0);
-            const double thetal_lon = -e_lon_unit*(e_lon_unit - 2.0);
-
-            // unit lateral-direction track error
-            double err_n_unit = 0.0;
-            double err_e_unit = 0.0;
-            if (fabs(*e_lat) > 0.00001) {
-                err_n_unit = (p_n - r_n) / fabs(*e_lat);
-                err_e_unit = (p_e - r_e) / fabs(*e_lat);
-            }
-            const double sign_e_lon = (*e_lon < 0.0) ? -1.0 : 1.0;
-
-            // unit ground velocity setpoint (NOTE: this is not actually unit..)
-            vP_n_unit = (1.0 - thetal_lat) * tP_n_bar + thetal_lat * err_n_unit;
-            vP_e_unit = (1.0 - thetal_lat) * tP_e_bar + thetal_lat * err_e_unit;
-            vP_d_unit = (1.0 - thetal_lon) * -sin(Gamma_p) + thetal_lon * sin(guidance_params_.gamma_app_max) * sign_e_lon;
+        else { // default or PW_QUAD
+            // piece-wise quadratic guidance
+            pwQuadraticGuidance(unit_ground_vel_sp, err_lat, err_lon, err_lat_unit,
+                                closest_pt_on_path, unit_path_tangent, veh_pos, veh_vel, ground_sp_lat);
         }
     }
-    else if (path_type == 1) {
-        /* line */
+    else if (path_type == PathTypes::LINE) {
+        /* 3D line */
 
-        /* path direction */
-        const double Gamma_p = path_reference[3];
-        const double chi_p = path_reference[4];
+        // get reference pose at closest point on line
+        calculateReferencePoseOnLine(closest_pt_on_path, unit_path_tangent, pos_ref, bearing, fpa_ref, veh_pos);
 
-        /* path tangent unit vector  */
-        const double tP_n_bar = cos(chi_p);
-        const double tP_e_bar = sin(chi_p);
-
-        /* "closest" point on track */
-        const double br_n = r_n-b_n;
-        const double br_e = r_e-b_e;
-        const double tp_dot_br = tP_n_bar*br_n + tP_e_bar*br_e;
-        const double tp_dot_br_n = tp_dot_br*tP_n_bar;
-        const double tp_dot_br_e = tp_dot_br*tP_e_bar;
-        const double p_lat = tp_dot_br_n*tP_n_bar + tp_dot_br_e*tP_e_bar;
-        const double p_d = b_d - p_lat*tan(Gamma_p);
-
-        /* position error */
-        *e_lat = (r_n-b_n)*tP_e_bar - (r_e-b_e)*tP_n_bar;
-        *e_lon = p_d - r_d;
-
-        // unit track error
-        *e_lat_unit = constrain_double(fabs((*e_lat)/e_b_lat), 0.0, 1.0);
-        const double e_lon_unit = constrain_double(fabs((*e_lon)/e_b_lon), 0.0, 1.0);
-
-        // check which guidance logic we are using //TODO: encapsulate
+        // guidance logic
         if (guidance_params_.guidance_sel == GuidanceLogicTypes::ARCTAN) {
-            // arctangent vector field
-
-            /* course approach angle */
-            const double chi_app = atan(M_PI_2*(*e_lat)/e_b_lat);
-
-            /* flight path approach angle */
-            const double Gamma_app = -guidance_params_.gamma_app_max * atan(M_PI_2*(*e_lon)/e_b_lon);
-
-            /* normalized ground velocity setpoint */
-            const double cos_gamma = cos(Gamma_p + Gamma_app);
-            vP_n_unit = cos_gamma*cos(chi_p + chi_app);
-            vP_e_unit = cos_gamma*sin(chi_p + chi_app);
-            vP_d_unit = -sin(Gamma_p + Gamma_app);
+            // arctangent vector field guidance
+            arctanVFGuidance(unit_ground_vel_sp, err_lat, err_lon, err_lat_unit,
+                             closest_pt_on_path, unit_path_tangent, bearing, fpa_ref,
+                             veh_pos, veh_vel, ground_sp_lat);
         }
-        else {
-            // piece-wise quadratic
-
-            // quadratic transition variables
-            const double thetal_lat = -(*e_lat_unit)*((*e_lat_unit) - 2.0);
-            const double thetal_lon = -e_lon_unit*(e_lon_unit - 2.0);
-
-            // unit lateral-direction track error
-            double err_n_unit = 0.0;
-            double err_e_unit = 0.0;
-            if (fabs(*e_lat) > 0.00001) {
-                err_n_unit = (br_n + tp_dot_br * tP_n_bar) / fabs(*e_lat);
-                err_e_unit = (br_e + tp_dot_br * tP_e_bar) / fabs(*e_lat);
-            }
-            const double sign_e_lon = (*e_lon < 0.0) ? -1.0 : 1.0;
-
-            // unit ground velocity setpoint (NOTE: this is not actually unit..)
-            vP_n_unit = (1.0 - thetal_lat) * tP_n_bar + thetal_lat * err_n_unit;
-            vP_e_unit = (1.0 - thetal_lat) * tP_e_bar + thetal_lat * err_e_unit;
-            vP_d_unit = (1.0 - thetal_lon) * -sin(Gamma_p) + thetal_lon * sin(guidance_params_.gamma_app_max) * sign_e_lon;
+        else { // default or PW_QUAD
+            // piece-wise quadratic guidance
+            pwQuadraticGuidance(unit_ground_vel_sp, err_lat, err_lon, err_lat_unit,
+                                closest_pt_on_path, unit_path_tangent, veh_pos, veh_vel, ground_sp_lat);
         }
     }
     else {
         /* unknown */
-        /* fly north.. */
 
-        /* position error */
-        *e_lat = 0.0;
-        *e_lon = 0.0;
+        // position error
+        err_lat = 0.0;
+        err_lon = 0.0;
 
         // unit track error
-        *e_lat_unit = 0.0;
+        err_lat_unit = 0.0;
 
-        /* normalized ground velocity setpoint */
-        vP_n_unit = 1.0;
-        vP_e_unit = 0.0;
-        vP_d_unit = 0.0;
+        // unit ground velocity setpoint -- fly north..
+        unit_ground_vel_sp(0) = 1.0;
+        unit_ground_vel_sp(1) = 0.0;
+        unit_ground_vel_sp(2) = 0.0;
     }
+} // followPath
 
-    if (guidance_params_.use_occ_as_guidance) {
-        /* terrain avoidance velocity setpoint */
-        const double norm_jac_sig_r = sqrt(jac_sig_r[0]*jac_sig_r[0] + jac_sig_r[1]*jac_sig_r[1] + jac_sig_r[2]*jac_sig_r[2]);
-        const double one_over_norm_jac_sig_r = (norm_jac_sig_r > 0.0001) ? 1.0/norm_jac_sig_r : 10000.0;
-        const double v_occ_n_unit = -jac_sig_r[0] * one_over_norm_jac_sig_r;
-        const double v_occ_e_unit = -jac_sig_r[1] * one_over_norm_jac_sig_r;
-        const double v_occ_d_unit = -jac_sig_r[2] * one_over_norm_jac_sig_r;
+void FwNMPC::calculateReferencePoseOnLoiter(Eigen::Vector3d &closest_pt_on_path, Eigen::Vector3d &unit_path_tangent, const Eigen::Vector3d &circle_center, const double signed_radius, const Eigen::Vector3d& veh_pos, const Eigen::Vector3d& veh_vel, const double v_lat)
+{
+    // loiter direction
+    const double loiter_dir = (signed_radius < 0.0) ? -1.0 : 1.0;
+    const double radius = (fabs(signed_radius) < 0.1) ? 0.1 : fabs(signed_radius);
 
-        /* velocity errors */
-        v_ref[0] = vP_n_unit * prio_r + (1.0-prio_r) * v_occ_n_unit;
-        v_ref[1] = vP_e_unit * prio_r + (1.0-prio_r) * v_occ_e_unit;
-        v_ref[2] = vP_d_unit * prio_r + (1.0-prio_r) * v_occ_d_unit;
+    // vector from circle center to aircraft
+    const double br_n = veh_pos(0)-circle_center(0);
+    const double br_e = veh_pos(1)-circle_center(1);
+    const double br_d = veh_pos(2)-circle_center(2);
+
+    // lateral-directional distance to circle center
+    const double dist_to_center = sqrt(br_n*br_n + br_e*br_e);
+
+    double br_n_unit, br_e_unit;
+    double p_n, p_e;
+    if (dist_to_center < 0.1) {
+        if (v_lat < 0.1) {
+            // arbitrarily set the point in the northern top of the circle
+            br_n_unit = 1.0;
+            br_e_unit = 0.0;
+
+            // closest point on circle
+            p_n = circle_center(0) + br_n_unit * radius;
+            p_e = circle_center(1) + br_e_unit * radius;
+        }
+        else {
+            // set the point in the direction we are moving
+            br_n_unit = veh_vel(0) / v_lat * 0.1;
+            br_e_unit = veh_vel(1) / v_lat * 0.1;
+
+            // closest point on circle
+            p_n = circle_center(0) + br_n_unit * radius;
+            p_e = circle_center(1) + br_e_unit * radius;
+        }
     }
     else {
-        /* velocity errors */
-        v_ref[0] = vP_n_unit;
-        v_ref[1] = vP_e_unit;
-        v_ref[2] = vP_d_unit;
+        // set the point in the direction of the aircraft
+        br_n_unit = br_n / dist_to_center;
+        br_e_unit = br_e / dist_to_center;
+
+        // closest point on circle
+        p_n = circle_center(0) + br_n_unit * radius;
+        p_e = circle_center(1) + br_e_unit * radius;
     }
-}
 
+    // path tangent unit vector
+    const double tp_lat_n = -br_e_unit * loiter_dir;
+    const double tp_lat_e = br_n_unit * loiter_dir;
 
+    // "closest" point on path
+    closest_pt_on_path(0) = p_n;
+    closest_pt_on_path(1) = p_e;
+    closest_pt_on_path(2) = circle_center(2);
+
+    // unit path tangent vector
+    unit_path_tangent(0) = tp_lat_n;
+    unit_path_tangent(1) = tp_lat_e;
+    unit_path_tangent(2) = 0.0;
+} // calculateReferencePoseOnLoiter
+
+void FwNMPC::calculateReferencePoseOnLine(Eigen::Vector3d &closest_pt_on_path, Eigen::Vector3d &unit_path_tangent, Eigen::Vector3d &pt_on_line, const double bearing, const double fpa_ref, const Eigen::Vector3d& veh_pos)
+{
+    /* Calculate reference position and direction on a line path
+     *
+     * inputs:
+     * pt_on_line (3,1): arbitrary point on line, NED [m]
+     * bearing: path bearing at pt_on_line [rad]
+     * fpa_ref: path flight path angle at pt_on_line [rad]
+     * veh_pos (3,1): vehicle position, NED [m]
+     * veh_vel (3,1): vehicle velocity, NED [m/s]
+     *
+     * outputs:
+     * closest_pt_on_path (3,1): "closest" point on line path [m]
+     * unit_path_tangent (3,1): unit path tangent vector [~]
+     */
+
+    // lateral-directional (2d) unit path tangent components
+    const double tp_lat_n = cos(bearing);
+    const double tp_lat_e = sin(bearing);
+
+    // "closest" point on track
+    const double br_n = veh_pos(0) - pt_on_line(0);
+    const double br_e = veh_pos(1) - pt_on_line(1);
+    const double tp_dot_br = tp_lat_n * br_n + tp_lat_e * br_e;
+    const double proj_br_tp_n = tp_dot_br * tp_lat_n;
+    const double proj_br_tp_e = tp_dot_br * tp_lat_e;
+    const double dist_lat = proj_br_tp_n * tp_lat_n + proj_br_tp_e * tp_lat_e;
+    closest_pt_on_path(0) = pt_on_line(0) + proj_br_tp_n;
+    closest_pt_on_path(1) = pt_on_line(1) + proj_br_tp_e;
+    closest_pt_on_path(2) = pt_on_line(2) - dist_lat * tan(fpa_ref);
+
+    // unit path tangent vector
+    const double cos_fpa = cos(fpa_ref);
+    unit_path_tangent(0) = tp_lat_n*cos_fpa;
+    unit_path_tangent(1) = tp_lat_e*cos_fpa;
+    unit_path_tangent(2) = -sin(fpa_ref);
+} // calculateReferencePoseOnLine
+
+//TODO: make class for guidance, remove redundancy
+double FwNMPC::longitudinalPwQuadGuidance(double &err_lon, const double d_ref, const double unit_path_tangent_d, const double veh_pos_d, const double veh_vel_d)
+{
+    /* Piecewise Quadratic Guidance Logic
+     *
+     * inputs:
+     * d_ref (3,1): down reference [m]
+     * unit_path_tangent_d: unit down path tangent at d_ref [~]
+     * veh_pos_d: vehicle position, NED [m]
+     * veh_vel_d: vehicle down velocity, D [m/s]
+     *
+     * outputs:
+     * err_lon: longitudinal (vertical) signed track-error [m]
+     *
+     * return:
+     * unit_vel_sp_d: vehicle unit velocity setpoint [~]
+     */
+
+    // position error
+    err_lon = d_ref - veh_pos_d;
+
+    // longitudinal speed
+    const double v_lon = fabs(veh_vel_d);
+
+    // track-error boundaries
+    double err_b_lon;
+    if (guidance_params_.fix_vert_pos_err_bnd) {
+        err_b_lon = guidance_params_.vert_pos_err_bnd;
+    }
+    else {
+        err_b_lon = calculatePositionErrorBoundary(v_lon, guidance_params_.T_lon); // longitudinal track-error boundary
+    }
+
+    // unit track error
+    const double err_lon_unit = constrain_double(fabs(err_lon)/err_b_lon, 0.0, 1.0);
+
+    // quadratic transition variables
+    const double thetal_lon = -err_lon_unit*(err_lon_unit - 2.0);
+
+    // sign of longitudinal position error
+    const double sign_e_lon = (err_lon < 0.0) ? -1.0 : 1.0;
+
+    // unit z velocity setpoint
+    return (1.0 - thetal_lon) * unit_path_tangent_d + thetal_lon * guidance_params_.unit_z_app_max * sign_e_lon;
+} // longitudinalPwQuadGuidance
+
+void FwNMPC::pwQuadraticGuidance(Eigen::Vector3d &unit_vel_sp, double &err_lat, double &err_lon, double &err_lat_unit, const Eigen::Vector3d& pt_on_path, const Eigen::Vector3d& unit_path_tangent, const Eigen::Vector3d& veh_pos, const Eigen::Vector3d& veh_vel, const double v_lat)
+{
+    /* Piecewise Quadratic Guidance Logic
+     *
+     * inputs:
+     * pt_on_path (3,1): closet point on path, NED [m]
+     * unit_path_tangent (3,1): unit path tangent at pt_on_path [~]
+     * veh_pos (3,1): vehicle position, NED [m]
+     * veh_vel (3,1): vehicle velocity, NED [m/s]
+     * v_lat: vehicle lateral-directional (horizontal) speed [m/s] (redundant, but saves a couple divisions)
+     *
+     * outputs:
+     * unit_vel_sp (3,1): vehicle unit velocity setpoint [~]
+     * err_lat: lateral-directional (horizontal) signed track-error [m]
+     * err_lat_unit: normalized lateral-directional (horizontal) track-error [~]
+     * err_lon: longitudinal (vertical) signed track-error [m]
+     */
+
+    // lateral-directional path tangent components
+    Eigen::Vector2d unit_path_tangent_lat = unit_path_tangent.segment(0,2).normalized();
+
+    // lateral-directional position error
+    Eigen::Vector2d pos_err_lat = veh_pos.segment(0,2) - pt_on_path.segment(0,2);
+
+    // position error
+    err_lat = pos_err_lat(0) * unit_path_tangent_lat(1) - pos_err_lat(1) * unit_path_tangent_lat(0);
+    err_lon = pt_on_path(2) - veh_pos(2);
+
+    // longitudinal speed
+    const double v_lon = fabs(veh_vel(2));
+
+    // track-error boundaries
+    const double err_b_lat = calculatePositionErrorBoundary(v_lat, guidance_params_.T_lat); // lateral-directional track-error boundary
+    double err_b_lon;
+    if (guidance_params_.fix_vert_pos_err_bnd) {
+        err_b_lon = guidance_params_.vert_pos_err_bnd;
+    }
+    else {
+        err_b_lon = calculatePositionErrorBoundary(v_lon, guidance_params_.T_lon); // longitudinal track-error boundary
+    }
+
+    // unit track error
+    err_lat_unit = constrain_double(fabs(err_lat)/err_b_lat, 0.0, 1.0);
+    const double err_lon_unit = constrain_double(fabs(err_lon)/err_b_lon, 0.0, 1.0);
+
+    // quadratic transition variables
+    const double thetal_lat = -err_lat_unit*(err_lat_unit - 2.0);
+    const double thetal_lon = -err_lon_unit*(err_lon_unit - 2.0);
+
+    if (fabs(err_lat) > 0.00001) {
+        pos_err_lat.normalize(); // normalized from this point on in function
+    }
+    const double sign_e_lon = (err_lon < 0.0) ? -1.0 : 1.0;
+
+    // unit ground velocity setpoint
+    unit_vel_sp(2) = (1.0 - thetal_lon) * unit_path_tangent(2) + thetal_lon * guidance_params_.unit_z_app_max * sign_e_lon;
+    unit_vel_sp.segment(0,2) = ((1.0 - thetal_lat) * unit_path_tangent_lat + thetal_lat * -pos_err_lat) * (1.0-unit_vel_sp(2)*unit_vel_sp(2)); // normalize xy considering z
+} // pwQuadraticGuidance
+
+//TODO: make class for guidance, remove redundancy
+double FwNMPC::longitudinalArctanVFGuidance(double &err_lon, const double d_ref, const double unit_path_tangent_d, const double fpa_ref, const double veh_pos_d, const double veh_vel_d)
+{
+    /*
+     * inputs:
+     * d_ref (3,1): down reference [m]
+     * unit_path_tangent_d: unit down path tangent at d_ref [~]
+     * fpa_ref: path flight path angle at pt_on_path [rad] (redundant, but saves on trig evals)
+     * veh_pos_d: vehicle position, NED [m]
+     * veh_vel_d: vehicle down velocity, D [m/s]
+     *
+     * outputs:
+     * err_lon: longitudinal (vertical) signed track-error [m]
+     *
+     * return:
+     * unit_vel_sp_d: vehicle unit velocity setpoint [~]
+     */
+
+     // position error
+     err_lon = d_ref - veh_pos_d;
+
+     // longitudinal speed
+     const double v_lon = fabs(veh_vel_d);
+
+     // track-error boundaries
+     double err_b_lon;
+     if (guidance_params_.fix_vert_pos_err_bnd) {
+         err_b_lon = guidance_params_.vert_pos_err_bnd;
+     }
+     else {
+         err_b_lon = calculatePositionErrorBoundary(v_lon, guidance_params_.T_lon); // longitudinal track-error boundary
+     }
+
+     // unit track-error
+     const double err_lon_unit = constrain_double(fabs((err_lon)/err_b_lon), 0.0, 1.0);
+
+     // flight path approach angle
+     const double Gamma_app = -guidance_params_.gamma_app_max * atan(M_PI_2*err_lon_unit);
+
+     // normalized ground velocity setpoint
+     return -sin(fpa_ref + Gamma_app);
+} // longitudinalArctanVFGuidance
+
+void FwNMPC::arctanVFGuidance(Eigen::Vector3d &unit_vel_sp, double &err_lat, double &err_lon, double &err_lat_unit,
+                              const Eigen::Vector3d &pt_on_path, const Eigen::Vector3d &unit_path_tangent, const double bearing, const double fpa_ref,
+                              const Eigen::Vector3d &veh_pos, const Eigen::Vector3d &veh_vel, const double v_lat)
+{
+    /* Arctangent Vector-field Guidance Logic
+     *
+     * inputs:
+     * pt_on_path (3,1): point on path, NED [m]
+     * unit_path_tangent (3,1): unit path tangent at pt_on_path [~]
+     * bearing: path bearing at pt_on_path [rad] (redundant, but saves on trig evals)
+     * fpa_ref: path flight path angle at pt_on_path [rad] (redundant, but saves on trig evals)
+     * veh_pos (3,1): vehicle position, NED [m]
+     * veh_vel (3,1): vehicle velocity, NED [m/s]
+     * v_lat: vehicle lateral-directional (horizontal) speed [m/s] (redundant, but saves a couple divisions)
+     *
+     * outputs:
+     * unit_vel_sp (3,1): vehicle unit velocity setpoint [~]
+     * err_lat: lateral-directional (horizontal) signed track-error [m]
+     * err_lon: longitudinal (vertical) signed track-error [m]
+     * err_lat_unit: normalized lateral-directional (horizontal) track-error [~]
+     *
+     * returns:
+     * unit_vel_sp (3,1): vehicle unit velocity setpoint [~]
+     */
+
+    // lateral-directional path tangent components
+    const double norm_unit_path_tangent_lat = unit_path_tangent.segment(0,2).norm();
+    const double tp_n = unit_path_tangent(0) / norm_unit_path_tangent_lat;
+    const double tp_e = unit_path_tangent(1) / norm_unit_path_tangent_lat;
+
+    // position error
+    err_lat = (veh_pos(0)-pt_on_path(0))*tp_e - (veh_pos(1)-pt_on_path(1))*tp_n;
+    err_lon = pt_on_path(2) - veh_pos(2);
+
+    // longitudinal speed
+    const double v_lon = fabs(veh_vel(2));
+
+    // track-error boundaries
+    const double err_b_lat = calculatePositionErrorBoundary(v_lat, guidance_params_.T_lat); // lateral-directional track-error boundary
+    double err_b_lon;
+    if (guidance_params_.fix_vert_pos_err_bnd) {
+        err_b_lon = guidance_params_.vert_pos_err_bnd;
+    }
+    else {
+        err_b_lon = calculatePositionErrorBoundary(v_lon, guidance_params_.T_lon); // longitudinal track-error boundary
+    }
+
+    // unit track-error
+    err_lat_unit = constrain_double(fabs((err_lat)/err_b_lat), 0.0, 1.0);
+    const double err_lon_unit = constrain_double(fabs((err_lon)/err_b_lon), 0.0, 1.0);
+
+    // course approach angle
+    const double chi_app = atan(M_PI_2*err_lat_unit);
+
+    // flight path approach angle
+    const double Gamma_app = -guidance_params_.gamma_app_max * atan(M_PI_2*err_lon_unit);
+
+    // normalized ground velocity setpoint
+    const double cos_gamma = cos(fpa_ref + Gamma_app);
+    unit_vel_sp(0) = cos_gamma*cos(bearing + chi_app);
+    unit_vel_sp(1) = cos_gamma*sin(bearing + chi_app);
+    unit_vel_sp(2) = -sin(fpa_ref + Gamma_app);
+} // arctanVFGuidance
+
+double FwNMPC::calculatePositionErrorBoundary(const double v, const double tc)
+{
+    /*
+     * calculates the metric error boundary normal to the closest point/tangent
+     * on the path. near zero vehicle speeds are smoothly accounted for by
+     * quadratically converging the boundary to a fixed value at zero speed.
+     *
+     * inputs:
+     * v: vehicle speed (magnitude) [m/s]
+     * tc: guidance logic time constant [s]
+     * outputs:
+     * err_b: error boundary [m]
+     */
+    double err_b;
+    if (v < 1.0) {
+        err_b = tc * 0.5 * (1.0 + v*v);
+    }
+    else {
+        err_b = tc * v;
+    }
+    return err_b;
+} // calculatePositionErrorBoundary
 
 /* SOFT CONSTRAINTS / / / / / / / / / / / / / / / / / / / / / / / / / / /*/
 
@@ -2660,7 +3056,7 @@ void FwNMPC::calculate_height_objective(double *sig_h, double *jac_sig_h, double
         double sgn_e = 0.0;
         lookup_terrain_idx(r_n, r_e, terr_local_origin_n, terr_local_origin_e, map_height, map_width, map_resolution, idx_q, &dn, &de);
 
-        /* bi-linear interpolation */
+        /* bi-linear interpolation */ //XXX: does this need to be changed to correspond to the triangular grid used in the radial respresentation?
         double h12 = (1-dn)*terr_map[idx_q[0]] + dn*terr_map[idx_q[1]];
         double h34 = (1-dn)*terr_map[idx_q[2]] + dn*terr_map[idx_q[3]];
         double h_terr_temp = (1-de)*h12 + de*h34;
@@ -3241,7 +3637,7 @@ void FwNMPC::updateAcadoY()
 
     // airspeed reference
     y_.block(IDX_Y_V, 0, 1, N).setConstant(control_params_.airsp_ref);
-    yN_(IDX_Y_V) = control_params_.airsp_ref;
+    yN_(IDX_Y_V) = (manual_control_sp_.enabled) ? manual_control_sp_.airspeed : control_params_.airsp_ref;
 
     // attitude reference
     y_.block(IDX_Y_PHI, 0, 1, N) = u_ref_.block(IDX_U_PHI_REF, 0, 1, N);

@@ -90,6 +90,7 @@
 #include <fw_ctrl/fw_ctrlConfig.h>
 #include <fw_ctrl/controlConfig.h>
 #include <fw_ctrl/guidanceConfig.h>
+#include <fw_ctrl/manual_controlConfig.h>
 #include <fw_ctrl/soft_constraintsConfig.h>
 
 #define NX ACADO_NX     // Number of differential state variables //XXX: why are we duplicating these?
@@ -189,15 +190,26 @@ enum OffboardControlStatus {
     BAD_SOLUTION = 4            // most often NaNs in solution - but could add high KKT value condition as well
 }; // offboard control statuses
 
-enum GuidancePathTypes {
+enum PathTypes {
     LOITER = 0,
     LINE
-}; // guidance path types
+}; // path types
 
 enum GuidanceLogicTypes {
     PW_QUAD = 0, // piece-wise quadratic
     ARCTAN // arctangent
 }; // guidance logic types
+
+enum ManualControlTypes { //XXX: does dyn reconfig already include these enum definitions? can this be thrown away?
+    DIRECTION = 0, // set roll (or bearing) and flight path angle (ground relative)
+    ALTITUDE, // set roll (or bearing) and altitude
+    TERRAIN_ALTITUDE // set roll (or bearing) and altitude relative to terrain
+}; // manual control types
+
+enum ManualControlLatInputs { //XXX: does dyn reconfig already include these enum definitions? can this be thrown away?
+    ROLL = 0, // command roll angle
+    BEARING_RATE // command bearing rate
+}; // lateral-directional manual control inputs
 
 /*
  * @brief fw_nmpc class
@@ -239,6 +251,7 @@ private:
     ros::NodeHandle nmpc_;                          // nmpc node handle
     ros::NodeHandle control_config_nh_;             // node handle for dynamic reconfig of control params
     ros::NodeHandle guidance_config_nh_;            // node handle for dynamic reconfig of guidance params
+    ros::NodeHandle manual_control_config_nh_;            // node handle for dynamic reconfig of manual control params
     ros::NodeHandle soft_constraints_config_nh_;    // node handle for dynamic reconfig of soft constraints params
 
     /* subscribers */
@@ -339,8 +352,7 @@ private:
         double T_lat;
         double T_lon;
         double gamma_app_max;
-        bool en_man_vel_ctrl;
-        double max_bearing_rate;
+        double unit_z_app_max;
     };
     guidance_params guidance_params_;
 
@@ -354,16 +366,32 @@ private:
     };
     soft_params soft_params_;
 
-    // manual velocity control params
-    struct man_vel_sp {
+    // manual control setpoint
+    struct manual_control_sp {
+        bool enabled;
+        ManualControlTypes type;
+        ManualControlLatInputs lat_input;
         double airspeed;
+        double roll;
         double bearing;
         double bearing_rate;
-        double vn_unit;
-        double ve_unit;
-        double vd_unit;
+        double unit_delta_alt_rate;
+        double max_bearing_rate;
+        Eigen::Vector3d unit_vel;
+        double alt;
+        double rel_alt;
     };
-    man_vel_sp man_vel_sp_;
+    manual_control_sp manual_control_sp_;
+
+    // path params
+    struct path_params {
+        PathTypes type;
+        Eigen::Vector3d pos;
+        double bearing;
+        double fpa;
+        double signed_radius;
+    };
+    path_params path_params_;
 
     /* dynamic reconfigure */
 
@@ -375,12 +403,17 @@ private:
     dynamic_reconfigure::Server<fw_ctrl::guidanceConfig> serverGuidance;
     dynamic_reconfigure::Server<fw_ctrl::guidanceConfig>::CallbackType f_guidance;
 
+    // The dynamic reconfigure server + callback for manual control configuration
+    dynamic_reconfigure::Server<fw_ctrl::manual_controlConfig> serverManualControl;
+    dynamic_reconfigure::Server<fw_ctrl::manual_controlConfig>::CallbackType f_manual_control;
+
     // The dynamic reconfigure server + callback for soft constraint parameters
     dynamic_reconfigure::Server<fw_ctrl::soft_constraintsConfig> serverSoftConstraints;
     dynamic_reconfigure::Server<fw_ctrl::soft_constraintsConfig>::CallbackType f_soft_constraints;
 
     void parametersCallbackControl(const fw_ctrl::controlConfig &config, const uint32_t& level);
     void parametersCallbackGuidance(const fw_ctrl::guidanceConfig &config, const uint32_t& level);
+    void parametersCallbackManualControl(const fw_ctrl::manual_controlConfig &config, const uint32_t& level);
     void parametersCallbackSoftConstraints(const fw_ctrl::soft_constraintsConfig &config, const uint32_t& level);
 
     /* functions */
@@ -418,10 +451,31 @@ private:
     void sumOcclusionDetections();
     void evaluateExternalObjectives(const double *terrain_data);
     void prioritizeObjectives();
+
+    // terrain interpretation functions
+    double getTerrainAltitude(const double pos_n, const double pos_e);
     void lookup_terrain_idx(const double pos_n, const double pos_e, const double pos_n_origin, const double pos_e_origin, const int map_height, const int map_width, const double map_resolution, int *idx_q, double *dn, double *de);
     int intersect_triangle(double *d_occ, double *p_occ, double *n_occ, const double r0[3], const double v_ray[3], const double p1[3], const double p2[3], const double p3[3], const int v_dir);
     int castray(double *r_occ, double *p_occ, double *n_occ, double *p1, double *p2, double *p3, const double r0[3], const double r1[3], const double v[3], const double pos_n_origin, const double pos_e_origin, const int map_height, const int map_width, const double map_resolution, const double *terr_map);
-    void calculate_velocity_reference(double *v_ref, double *e_lat, double *e_lon, double *e_lat_unit, double *vG_lat, const double *states, const double *path_reference, const double *speed_states, const double *jac_sig_r, const double prio_r, const int path_type);
+    void get_occ_along_gsp_vec(double *p_occ, double *n_occ, double *r_occ, int *occ_detected, const double *states, const double *speed_states, const double *terr_params, const double terr_local_origin_n, const double terr_local_origin_e, const int map_height, const int map_width, const double map_resolution, const double *terr_map);
+
+    // guidance functions
+    void renormalizeUnitVelocity(Eigen::Vector3d &unit_vel);
+    void followManual(Eigen::Vector3d &unit_ground_vel_sp, double &err_lat, double &err_lon, double &err_lat_unit,
+                      const double terr_alt, const Eigen::Vector3d &veh_pos, const Eigen::Vector3d &ground_vel, const double &ground_sp_lat);
+    void augmentTerrainCostToGuidance(Eigen::Vector3d &unit_ground_vel_sp, const double *jac_sig_r, const double prio_r);
+    void followPath(Eigen::Vector3d &unit_ground_vel_sp, double &e_lat, double &e_lon, double &e_lat_unit,
+                    PathTypes path_type, Eigen::Vector3d pos_ref, const double bearing, const double fpa_ref, const double signed_radius,
+                    const Eigen::Vector3d &veh_pos, const Eigen::Vector3d &veh_vel, const double ground_sp_lat);
+    void calculateReferencePoseOnLoiter(Eigen::Vector3d &closest_pt_on_path, Eigen::Vector3d &unit_path_tangent, const Eigen::Vector3d &circle_center, const double signed_radius, const Eigen::Vector3d& veh_pos, const Eigen::Vector3d& veh_vel, const double v_lat);
+    void calculateReferencePoseOnLine(Eigen::Vector3d &closest_pt_on_path, Eigen::Vector3d &unit_path_tangent, Eigen::Vector3d &pt_on_line, const double bearing, const double fpa_ref, const Eigen::Vector3d& veh_pos);
+    double longitudinalPwQuadGuidance(double &err_lon, const double d_ref, const double unit_path_tangent_d, const double veh_pos_d, const double veh_vel_d);
+    void pwQuadraticGuidance(Eigen::Vector3d &unit_vel_sp, double &err_lat, double &err_lon, double &err_lat_unit, const Eigen::Vector3d& pt_on_path, const Eigen::Vector3d& unit_path_tangent, const Eigen::Vector3d& veh_pos, const Eigen::Vector3d& veh_vel, const double v_lat);
+    double longitudinalArctanVFGuidance(double &err_lon, const double d_ref, const double unit_path_tangent_d, const double fpa_ref, const double veh_pos_d, const double veh_vel_d);
+    void arctanVFGuidance(Eigen::Vector3d &unit_vel_sp, double &err_lat, double &err_lon, double &err_lat_unit, const Eigen::Vector3d &pt_on_path, const Eigen::Vector3d &unit_path_tangent, const double bearing, const double fpa_ref, const Eigen::Vector3d &veh_pos, const Eigen::Vector3d &veh_vel, const double v_lat);
+    double calculatePositionErrorBoundary(const double v, const double tc);
+
+    // soft constraint functions
     void jacobian_sig_h_lin(double *jac, const double de, const double delta_h, const double delta_y, const double  h1, const double h12, const double h2, const double h3, const double h34, const double h4, const double log_sqrt_w_over_sig1_h, const double sgn_e, const double sgn_n, const double map_resolution, const double xi);
     void jacobian_sig_h_exp(double *jac, const double de, const double delta_h, const double delta_y, const double h1, const double h12, const double h2, const double h3, const double h34, const double h4, const double log_sqrt_w_over_sig1_h, const double sgn_e, const double sgn_n, const double sig_h, const double map_resolution, const double xi);
     void jacobian_r_unit(double *jac, const double delta_r, const double gamma, const double k_delta_r, const double k_r_offset, const double n_occ_e, const double n_occ_h, const double n_occ_n, const double r_unit, const double v, const double v_ray_e, const double v_ray_h, const double v_ray_n, const double v_rel, const double xi);
@@ -429,7 +483,8 @@ private:
     void calculate_height_objective(double *sig_h, double *jac_sig_h, double *prio_h, double *h_terr, const double *states, const double *terr_params, const double terr_local_origin_n, const double terr_local_origin_e, const int map_height, const int map_width, const double map_resolution, const double *terr_map);
     void calculate_radial_objective(double *sig_r, double *jac_sig_r, double *r_occ, double *p_occ, double *n_occ, double *prio_r, int *occ_detected, const double *v_ray, const double *states, const double *speed_states, const double *terr_params, const double terr_local_origin_n, const double terr_local_origin_e, const int map_height, const int map_width, const double map_resolution, const double *terr_map);
     void add_unit_radial_distance_and_gradient(double *jac_r_unit, double *r_unit_min, bool *f_min, int *occ_count, double *p_occ, double *n_occ, const double *states, const double *speed_states, const double *terr_params);
-    void get_occ_along_gsp_vec(double *p_occ, double *n_occ, double *r_occ, int *occ_detected, const double *states, const double *speed_states, const double *terr_params, const double terr_local_origin_n, const double terr_local_origin_e, const int map_height, const int map_width, const double map_resolution, const double *terr_map);
+
+    // filters
     void filterControlReference();
     void filterTerrainCostJacobian();
 
@@ -513,10 +568,6 @@ private:
     double terrain_params_[10];         // soft terrain parameters
     double log_sqrt_w_over_sig1_r_;     // XXX: these two are the only ones currently needed outside the lsq_objective.c file..
     double one_over_sqrt_w_r_;          // XXX: these two are the only ones currently needed outside the lsq_objective.c file..
-
-    /* path */
-    double path_reference_[5];  // path reference parameters
-    int path_type_;             // 0 = constant altitude loiter, 1 = line
 
     /* objective priorities */
     Eigen::Matrix<double, ACADO_N+1, 1> prio_aoa_;  // soft angle of attack priority
