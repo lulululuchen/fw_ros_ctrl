@@ -14,6 +14,7 @@ generate_dynamic_reconfigure_options(
   cfg/control.cfg
   cfg/guidance.cfg
   cfg/manual_control.cfg
+  cfg/occlusion_detection.cfg
   cfg/soft_constraints.cfg
 )
 
@@ -49,7 +50,12 @@ include_directories(
 )
 
 add_library(fw_nmpc_lib
-  src/fw_nmpc.cpp
+  src/nonlinear_mpc.cpp
+  src/guidance_logic.cpp
+  src/helpers.cpp
+  src/huber_constraint.cpp
+  src/nonlinear_mpc_objectives.cpp
+  src/occlusion_detector.cpp
   src/acado_solver/acado_auxiliary_functions.c
   src/acado_solver/acado_integrator.c
   src/acado_solver/acado_qpoases_interface.cpp
@@ -68,7 +74,7 @@ add_library(fw_nmpc_lib
 )
 
 add_executable(fw_nmpc
-  src/fw_nmpc.cpp
+  src/nonlinear_mpc.cpp
 )
 
 add_dependencies(fw_nmpc ${PROJECT_NAME}_gencfg)
