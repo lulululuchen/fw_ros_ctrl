@@ -344,7 +344,7 @@ class NonlinearMPC {
         void publishNMPCInfo(ros::Time t_iter_start, uint64_t t_ctrl, uint64_t t_preeval, uint64_t t_prep, uint64_t t_fb);
         void publishNMPCStates();
         void publishNMPCVisualizations();
-        int populateOcclusionMarkerArray(visualization_msgs::MarkerArray::Ptr occ_detections_msg);
+        bool populateOcclusionMarkerArray(visualization_msgs::MarkerArray::Ptr occ_detections_msg);
 
         // aircarft state conversions / calculations
         void calculateSpeedStatesHorizon();

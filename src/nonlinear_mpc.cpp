@@ -844,9 +844,9 @@ void NonlinearMPC::publishNMPCVisualizations()
     // occlusion detections
     if (control_parameters_.enable_terrain_feedback) {
         auto occ_detections_msg = boost::make_shared<visualization_msgs::MarkerArray>();
-        int counter = populateOcclusionMarkerArray(occ_detections_msg);
+        bool something_to_visualize = populateOcclusionMarkerArray(occ_detections_msg);
         // publish
-        if (counter > -1) {
+        if (something_to_visualize) {
             // TODO: would be nice to use TRIANGLE_LIST and show the actual full triangle detection from the mesh (would need to store the vertices in the obj pre-eval)
             nmpc_occ_detect_pub_.publish(occ_detections_msg);
         }
@@ -886,18 +886,13 @@ void NonlinearMPC::publishNMPCVisualizations()
     unit_gnd_vel_ref_pub_.publish(unit_gnd_vel_ref_msg);
 } // publishNMPCVisualizations
 
-int NonlinearMPC::populateOcclusionMarkerArray(visualization_msgs::MarkerArray::Ptr occ_detections_msg)
+bool NonlinearMPC::populateOcclusionMarkerArray(visualization_msgs::MarkerArray::Ptr occ_detections_msg)
 {
     // TODO: these visualization functions should be moved to a separate node
 
-    int marker_counter = -1;
+    const int num_markers = 2;
 
-    // keep track of what buffer rung we're on such that we don't overwrite others in the buffer that are still visualized
-    static int psuedo_buffer_head = -1;
-    psuedo_buffer_head++;
-    if (psuedo_buffer_head >= len_occ_buffer_) {
-        psuedo_buffer_head = 0; // reset
-    }
+    bool something_to_visualize = false;
 
     // keep them alive as long as they are stored in the buffer
     ros::Duration lifetime(node_parameters_.iteration_timestep * len_occ_buffer_);
@@ -911,22 +906,28 @@ int NonlinearMPC::populateOcclusionMarkerArray(visualization_msgs::MarkerArray::
         // check if we had any detections
         if (occ_[j_buf].getDetectionCountAtHead()) {
 
+            // mark that we have something to visualize
+            something_to_visualize = true;
+
             // get head for current buffer
             int buffer_head = occ_[j_buf].getBufferHead();
 
             // for length of data in current buffer head
             for (int i_data = 0; i_data < len_occ_data_; i_data++) {
 
+                // check for a detection
                 if (occ_[j_buf].detections_[buffer_head][i_data]) {
 
-                    marker_counter++;
+                    // keep unique marker id's
+                    int marker_id = num_markers * (i_data + OcclusionDetector::LEN_DATA_MAX
+                        * (buffer_head + OcclusionDetector::LEN_BUFFER_MAX * j_buf));
 
                     // define surface normal marker (arrow)
                     visualization_msgs::Marker surf_normal;
                     surf_normal.header.frame_id = "map";
                     surf_normal.header.stamp = ros::Time();
                     surf_normal.ns = "surface_normals";
-                    surf_normal.id = marker_counter + psuedo_buffer_head*len_occ_data_;
+                    surf_normal.id = marker_id;
                     surf_normal.type = visualization_msgs::Marker::ARROW;
                     surf_normal.action = visualization_msgs::Marker::ADD;
                     // NED->ENU
@@ -951,14 +952,12 @@ int NonlinearMPC::populateOcclusionMarkerArray(visualization_msgs::MarkerArray::
                     // push back surface normal marker
                     occ_detections_msg->markers.push_back(surf_normal);
 
-                    marker_counter++;
-
                     // define surface plane marker (flat cylinder)
                     visualization_msgs::Marker surf_plane;
                     surf_plane.header.frame_id = "map";
                     surf_plane.header.stamp = ros::Time();
                     surf_plane.ns = "surface_normals";
-                    surf_plane.id = marker_counter + psuedo_buffer_head*len_occ_data_;
+                    surf_plane.id = 1 + marker_id;
                     surf_plane.type = visualization_msgs::Marker::CYLINDER;
                     surf_plane.action = visualization_msgs::Marker::ADD;
                     // NED->ENU
@@ -981,7 +980,7 @@ int NonlinearMPC::populateOcclusionMarkerArray(visualization_msgs::MarkerArray::
         }
     }
 
-    return marker_counter;
+    return something_to_visualize;
 } // populateOcclusionMarkerArray
 
 /*
