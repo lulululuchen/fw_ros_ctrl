@@ -60,13 +60,13 @@ void NonlinearMPCObjectives::jacobianHAGL(double *jac,
 */
 
 /*
-    RELATIVE TERRAIN DISTANCE (RTD) OBJECTIVE
+    RADIAL TERRAIN DISTANCE (RTD) OBJECTIVE
 */
 
 double NonlinearMPCObjectives::calculateRTDConstraint(const double rel_ground_sp_sq, const double rtd_constr_0, const double rtd_constr_scaler)
 {
     /*
-        Relative Terrain Distance (RTD) Constraint
+        Radial Terrain Distance (RTD) Constraint
 
         inputs:
         rel_ground_sp_sq    ground speed relative to the occlusion squared [m^2/s^2]
@@ -82,7 +82,7 @@ double NonlinearMPCObjectives::calculateRTDConstraint(const double rel_ground_sp
 double NonlinearMPCObjectives::calculateRTDDelta(const double rel_ground_sp_sq, const double rtd_delta_0, const double rtd_delta_scaler)
 {
     /*
-        Relative Terrain Distance (RTD) Delta
+        Radial Terrain Distance (RTD) Delta
 
         inputs:
         rel_ground_sp_sq   ground speed relative to the occlusion squared [m^2/s^2]
@@ -101,7 +101,7 @@ void NonlinearMPCObjectives::calculateRTDCostAndJacobian(double &rtd_cost, doubl
     const double rtd_constr_0, const double rtd_constr_scaler, const double rtd_delta_0, const double rtd_delta_scaler)
 {
     /*
-        Relative Terrain Distance (RTD) huber cost, jacobian, and inverse priority
+        Radial Terrain Distance (RTD) huber cost, jacobian, and inverse priority
 
         inputs:
         TODO
@@ -348,7 +348,7 @@ void NonlinearMPCObjectives::jacobianTDToSurface(double *jac, const Eigen::Vecto
 } // jacobianTDToSurface
 
 /*
-    END RELATIVE TERRAIN DISTANCE (RTD) OBJECTIVE
+    END RADIAL TERRAIN DISTANCE (RTD) OBJECTIVE
 */
 
 } // namespace fw_nmpc

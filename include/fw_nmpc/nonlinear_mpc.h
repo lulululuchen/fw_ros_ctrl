@@ -480,7 +480,7 @@ class NonlinearMPC {
         /* objective priorities */
         Eigen::Matrix<double, ACADO_N+1, 1> inv_prio_aoa_;  // inverse priority of soft angle of attack
         Eigen::Matrix<double, ACADO_N+1, 1> inv_prio_hagl_; // inverse priority of soft height above ground level (HAGL)
-        Eigen::Matrix<double, ACADO_N+1, 1> inv_prio_rtd_;  // inverse priority of soft relative terrain distance (RTD)
+        Eigen::Matrix<double, ACADO_N+1, 1> inv_prio_rtd_;  // inverse priority of soft radial terrain distance (RTD)
 
         /* timing */
         ros::Time t_last_ctrl_; // time of last control action [s]

@@ -572,15 +572,15 @@ void NonlinearMPC::parametersCallbackSoftConstraints(const fw_ctrl::soft_constra
     // soft angle of attack parameters
     huber_aoa_p_.setConstraint(config.aoa_p*DEG_TO_RAD);
     huber_aoa_p_.setDelta(config.delta_aoa*DEG_TO_RAD);
-    huber_aoa_p_.setCostAtOne(config.sig_aoa_1);
+    huber_aoa_p_.setCostAtOne(config.cost_aoa_1);
     huber_aoa_m_.setConstraint(config.aoa_m*DEG_TO_RAD);
     huber_aoa_m_.setDelta(config.delta_aoa*DEG_TO_RAD);
-    huber_aoa_m_.setCostAtOne(config.sig_aoa_1);
+    huber_aoa_m_.setCostAtOne(config.cost_aoa_1);
 
     // soft height above ground level parameters
     huber_hagl_.setConstraint(config.hagl_offset); // nadir terrain offset [m]
     huber_hagl_.setDelta(config.delta_hagl); // nadir terrain buffer [m]
-    huber_hagl_.setCostAtOne(config.sig_hagl_1);
+    huber_hagl_.setCostAtOne(config.cost_hagl_1);
 
     // soft radial terrain distance parameters
     huber_rtd_params_.constr_0 = config.rtd_offset; // radial terrain offset [m]
@@ -721,18 +721,18 @@ void NonlinearMPC::publishNMPCStates()
         nmpc_online_data.soft_aoa[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_SOFT_AOA];
         nmpc_online_data.jac_soft_aoa_0[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_AOA];
         nmpc_online_data.jac_soft_aoa_1[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_AOA+1];
-        nmpc_online_data.soft_h[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_SOFT_HAGL];
-        nmpc_online_data.jac_soft_h_0[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_HAGL];
-        nmpc_online_data.jac_soft_h_1[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_HAGL+1];
-        nmpc_online_data.jac_soft_h_2[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_HAGL+2];
-        nmpc_online_data.jac_soft_h_3[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_HAGL+3];
-        nmpc_online_data.soft_r[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_SOFT_RTD];
-        nmpc_online_data.jac_soft_r_0[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_RTD];
-        nmpc_online_data.jac_soft_r_1[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_RTD+1];
-        nmpc_online_data.jac_soft_r_2[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_RTD+2];
-        nmpc_online_data.jac_soft_r_3[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_RTD+3];
-        nmpc_online_data.jac_soft_r_4[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_RTD+4];
-        nmpc_online_data.jac_soft_r_5[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_RTD+5];
+        nmpc_online_data.soft_hagl[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_SOFT_HAGL];
+        nmpc_online_data.jac_soft_hagl_0[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_HAGL];
+        nmpc_online_data.jac_soft_hagl_1[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_HAGL+1];
+        nmpc_online_data.jac_soft_hagl_2[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_HAGL+2];
+        nmpc_online_data.jac_soft_hagl_3[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_HAGL+3];
+        nmpc_online_data.soft_rtd[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_SOFT_RTD];
+        nmpc_online_data.jac_soft_rtd_0[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_RTD];
+        nmpc_online_data.jac_soft_rtd_1[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_RTD+1];
+        nmpc_online_data.jac_soft_rtd_2[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_RTD+2];
+        nmpc_online_data.jac_soft_rtd_3[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_RTD+3];
+        nmpc_online_data.jac_soft_rtd_4[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_RTD+4];
+        nmpc_online_data.jac_soft_rtd_5[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_RTD+5];
     }
 
     /* objective references */
@@ -744,8 +744,8 @@ void NonlinearMPC::publishNMPCStates()
         nmpc_obj_ref.phi[i] = (float)acadoVariables.y[ACADO_NY * i + IDX_Y_PHI];
         nmpc_obj_ref.theta[i] = (float)acadoVariables.y[ACADO_NY * i + IDX_Y_THETA];
         nmpc_obj_ref.soft_aoa[i] = (float)acadoVariables.y[ACADO_NY * i + IDX_Y_SOFT_AOA];
-        nmpc_obj_ref.soft_h[i] = (float)acadoVariables.y[ACADO_NY * i + IDX_Y_SOFT_HAGL];
-        nmpc_obj_ref.soft_r[i] = (float)acadoVariables.y[ACADO_NY * i + IDX_Y_SOFT_RTD];
+        nmpc_obj_ref.soft_hagl[i] = (float)acadoVariables.y[ACADO_NY * i + IDX_Y_SOFT_HAGL];
+        nmpc_obj_ref.soft_rtd[i] = (float)acadoVariables.y[ACADO_NY * i + IDX_Y_SOFT_RTD];
 
         nmpc_obj_ref.u_T[i] = (float)acadoVariables.y[ACADO_NY * i + IDX_Y_U_T];
         nmpc_obj_ref.phi_ref[i] = (float)acadoVariables.y[ACADO_NY * i + IDX_Y_PHI_REF];
@@ -758,8 +758,8 @@ void NonlinearMPC::publishNMPCStates()
     nmpc_objN_ref.phi = (float)acadoVariables.yN[IDX_Y_PHI];
     nmpc_objN_ref.theta = (float)acadoVariables.yN[IDX_Y_THETA];
     nmpc_objN_ref.soft_aoa = (float)acadoVariables.yN[IDX_Y_SOFT_AOA];
-    nmpc_objN_ref.soft_h = (float)acadoVariables.yN[IDX_Y_SOFT_HAGL];
-    nmpc_objN_ref.soft_r = (float)acadoVariables.yN[IDX_Y_SOFT_RTD];
+    nmpc_objN_ref.soft_hagl = (float)acadoVariables.yN[IDX_Y_SOFT_HAGL];
+    nmpc_objN_ref.soft_rtd = (float)acadoVariables.yN[IDX_Y_SOFT_RTD];
 
     /* auxiliary outputs */
 

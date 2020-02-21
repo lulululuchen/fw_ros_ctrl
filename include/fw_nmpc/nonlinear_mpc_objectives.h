@@ -23,7 +23,7 @@ class NonlinearMPCObjectives {
         /* Height Above Ground Level (HAGL) Objective */
         void jacobianHAGL(double *jac, double *corners, const double h12, const double h34, const double de, const double terr_dis);
 
-        /* Relative Terrain Distance (RTD) Objective */
+        /* Radial Terrain Distance (RTD) Objective */
         double calculateRTDConstraint(const double rel_ground_sp_sq, const double rtd_constr_0, const double rtd_constr_scaler);
         double calculateRTDDelta(const double rel_ground_sp_sq, const double rtd_delta_0, const double rtd_delta_scaler);
         void calculateRTDCostAndJacobian(double &rtd_cost, double *rtd_jac, const int len_jac, double &rtd_inv_prio,
