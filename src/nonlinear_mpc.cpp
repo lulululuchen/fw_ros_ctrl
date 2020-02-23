@@ -565,6 +565,11 @@ void NonlinearMPC::parametersCallbackOcclusionDetection(const fw_ctrl::occlusion
     len_occ_buffer_ = constrain(config.len_occ_buffer, 1, OcclusionDetector::LEN_BUFFER_MAX);
     rtd_node_interval_ = constrain(config.rtd_node_interval, 1, ACADO_N+1);
     surfel_radius_ = std::max(config.surfel_radius, 0.0);
+
+    for (int i = 0; i < NUM_OCC_BUF; i++) {
+        occ_[i].setDataLength(len_occ_data_);
+        occ_[i].setBufferLength(len_occ_buffer_);
+    }
 } // parametersCallbackOcclusionDetection
 
 void NonlinearMPC::parametersCallbackSoftConstraints(const fw_ctrl::soft_constraintsConfig &config, const uint32_t& level)
