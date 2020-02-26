@@ -179,7 +179,9 @@ class NonlinearMPC {
         ros::Publisher nmpc_meas_pub_;
         ros::Publisher nmpc_obj_ref_pub_;
         ros::Publisher nmpc_objN_ref_pub_;
-        ros::Publisher nmpc_occ_detect_pub_;
+        ros::Publisher nmpc_occ_normals_pub_;
+        ros::Publisher nmpc_occ_planes_pub_;
+        ros::Publisher nmpc_occ_rays_pub_;
         ros::Publisher nmpc_online_data_pub_;
         ros::Publisher nmpc_states_pub_;
         ros::Publisher nmpc_traj_pred_pub_;
@@ -344,7 +346,7 @@ class NonlinearMPC {
         void publishNMPCInfo(ros::Time t_iter_start, uint64_t t_ctrl, uint64_t t_preeval, uint64_t t_prep, uint64_t t_fb);
         void publishNMPCStates();
         void publishNMPCVisualizations();
-        bool populateOcclusionMarkerArray(visualization_msgs::MarkerArray::Ptr occ_detections_msg);
+        bool populateOcclusionLists(visualization_msgs::Marker::Ptr rays_msg, visualization_msgs::Marker::Ptr normals_msg, visualization_msgs::Marker::Ptr planes_msg);
 
         // aircarft state conversions / calculations
         void calculateSpeedStatesHorizon();

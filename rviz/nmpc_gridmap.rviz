@@ -11,8 +11,8 @@ Panels:
         - /Path1
         - /Path2
         - /Polygon1
-        - /MarkerArray1
-        - /MarkerArray1/Namespaces1
+        - /Marker1
+        - /Marker2
       Splitter Ratio: 0.5617647171020508
     Tree Height: 370
   - Class: rviz/Selection
@@ -162,13 +162,29 @@ Visualization Manager:
       Topic: /outline_map
       Unreliable: false
       Value: true
-    - Class: rviz/MarkerArray
+    - Class: rviz/Marker
       Enabled: true
-      Marker Topic: /nmpc/occ_detect
-      Name: MarkerArray
+      Marker Topic: /nmpc/occ_normals
+      Name: Marker
       Namespaces:
         surface_normals: true
-      Queue Size: 300
+      Queue Size: 100
+      Value: true
+    - Class: rviz/Marker
+      Enabled: true
+      Marker Topic: /nmpc/occ_planes
+      Name: Marker
+      Namespaces:
+        surface_planes: true
+      Queue Size: 100
+      Value: true
+    - Class: rviz/Marker
+      Enabled: true
+      Marker Topic: /nmpc/occ_rays
+      Name: Marker
+      Namespaces:
+        rays: true
+      Queue Size: 100
       Value: true
   Enabled: true
   Global Options:
@@ -198,25 +214,25 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 277.8404846191406
+      Distance: 442.8002014160156
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -160.25840759277344
-        Y: -110.24637603759766
-        Z: 54.244815826416016
+        X: -378.5458984375
+        Y: 153.48402404785156
+        Z: -72.68556213378906
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.494800329208374
+      Pitch: 0.654800295829773
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz)
-      Yaw: 4.085845947265625
+      Yaw: 0.30268052220344543
     Saved: ~
 Window Geometry:
   Displays:
@@ -234,5 +250,5 @@ Window Geometry:
   Views:
     collapsed: true
   Width: 1100
-  X: 67
-  Y: 503
+  X: 820
+  Y: 27

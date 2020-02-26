@@ -129,7 +129,9 @@ NonlinearMPC::NonlinearMPC() :
     nmpc_meas_pub_ = nmpc_.advertise<fw_ctrl::NMPCMeasurements>("/nmpc/measurements",10);
     nmpc_obj_ref_pub_ = nmpc_.advertise<fw_ctrl::NMPCObjRef>("/nmpc/obj_ref",10);
     nmpc_objN_ref_pub_ = nmpc_.advertise<fw_ctrl::NMPCObjNRef>("/nmpc/objN_ref",10);
-    nmpc_occ_detect_pub_ = nmpc_.advertise<visualization_msgs::MarkerArray>("/nmpc/occ_detect",1);
+    nmpc_occ_normals_pub_ = nmpc_.advertise<visualization_msgs::Marker>("/nmpc/occ_normals",1);
+    nmpc_occ_planes_pub_ = nmpc_.advertise<visualization_msgs::Marker>("/nmpc/occ_planes",1);
+    nmpc_occ_rays_pub_ = nmpc_.advertise<visualization_msgs::Marker>("/nmpc/occ_rays",1);
     nmpc_online_data_pub_ = nmpc_.advertise<fw_ctrl::NMPCOnlineData>("/nmpc/online_data",10);
     nmpc_states_pub_ = nmpc_.advertise<fw_ctrl::NMPCStates>("/nmpc/states",10);
     nmpc_traj_pred_pub_ = nmpc_.advertise<nav_msgs::Path>("/nmpc/traj_pred",1);
@@ -846,15 +848,17 @@ void NonlinearMPC::publishNMPCVisualizations()
     }
     nmpc_traj_pred_pub_.publish(nmpc_traj_pred);
 
-    // occlusion detections
-    if (control_parameters_.enable_terrain_feedback) {
-        auto occ_detections_msg = boost::make_shared<visualization_msgs::MarkerArray>();
-        bool something_to_visualize = populateOcclusionMarkerArray(occ_detections_msg);
-        // publish
-        if (something_to_visualize) {
-            // TODO: would be nice to use TRIANGLE_LIST and show the actual full triangle detection from the mesh (would need to store the vertices in the obj pre-eval)
-            nmpc_occ_detect_pub_.publish(occ_detections_msg);
+    // rays, normals, and planes
+    if (control_parameters_.enable_terrain_feedback && grid_map_valid_) {
+        auto normals_msg = boost::make_shared<visualization_msgs::Marker>();
+        auto planes_msg = boost::make_shared<visualization_msgs::Marker>();
+        auto rays_msg = boost::make_shared<visualization_msgs::Marker>();
+        bool occlusions_to_visualize = populateOcclusionLists(rays_msg, normals_msg, planes_msg);
+        if (occlusions_to_visualize) {
+            nmpc_occ_normals_pub_.publish(normals_msg);
+            nmpc_occ_planes_pub_.publish(planes_msg);
         }
+        nmpc_occ_rays_pub_.publish(rays_msg);
     }
 
     // unit ground velocity setpoints
@@ -891,28 +895,87 @@ void NonlinearMPC::publishNMPCVisualizations()
     unit_gnd_vel_ref_pub_.publish(unit_gnd_vel_ref_msg);
 } // publishNMPCVisualizations
 
-bool NonlinearMPC::populateOcclusionMarkerArray(visualization_msgs::MarkerArray::Ptr occ_detections_msg)
+bool NonlinearMPC::populateOcclusionLists(visualization_msgs::Marker::Ptr rays_msg,
+    visualization_msgs::Marker::Ptr normals_msg, visualization_msgs::Marker::Ptr planes_msg)
 {
-    // TODO: these visualization functions should be moved to a separate node
+    bool occlusions_to_visualize = false;
 
-    const int num_markers = 2;
-
-    bool something_to_visualize = false;
+    // rays
+    rays_msg->header.frame_id = "map";
+    rays_msg->header.stamp = ros::Time();
+    rays_msg->ns = "rays";
+    rays_msg->id = 0;
+    rays_msg->type = visualization_msgs::Marker::LINE_LIST;
+    rays_msg->action = visualization_msgs::Marker::ADD;
+    rays_msg->pose.orientation.w = 1.0;
+    rays_msg->scale.x = 0.5; // line width
+    rays_msg->color.a = 1.0; // alpha
+    rays_msg->color.r = 1.0;
+    rays_msg->color.g = 0.0;
+    rays_msg->color.b = 0.0;
+    rays_msg->lifetime = ros::Duration(node_parameters_.nmpc_iteration_rate);
 
     // keep them alive as long as they are stored in the buffer
     ros::Duration lifetime(node_parameters_.iteration_timestep * len_occ_buffer_);
 
-    // set surfel dimensions
-    const double cylinder_width = std::max(surfel_radius_*2.0, 1.0);
+    // occlusion normals
+    normals_msg->header.frame_id = "map";
+    normals_msg->header.stamp = ros::Time();
+    normals_msg->ns = "surface_normals";
+    normals_msg->id = 1;
+    normals_msg->type = visualization_msgs::Marker::LINE_LIST;
+    normals_msg->action = visualization_msgs::Marker::ADD;
+    normals_msg->pose.orientation.w = 1.0;
+    normals_msg->scale.x = 1.0; // line width
+    normals_msg->color.a = 1.0; // alpha
+    normals_msg->color.r = 1.0;
+    normals_msg->color.g = 0.0;
+    normals_msg->color.b = 0.0;
+    normals_msg->lifetime = lifetime;
+    double len_normal = 5.0;
+
+    // occlusion plane
+    planes_msg->header.frame_id = "map";
+    planes_msg->header.stamp = ros::Time();
+    planes_msg->ns = "surface_planes";
+    planes_msg->id = 2;
+    planes_msg->type = visualization_msgs::Marker::LINE_LIST;
+    planes_msg->action = visualization_msgs::Marker::ADD;
+    planes_msg->pose.orientation.w = 1.0;
+    planes_msg->scale.x = std::max(2.0 * surfel_radius_, 2.0); // line width
+    planes_msg->color.a = 1.0; // alpha
+    planes_msg->color.r = 1.0;
+    planes_msg->color.g = 0.0;
+    planes_msg->color.b = 0.0;
+    planes_msg->lifetime = lifetime;
+    double len_plane = 1.0;
 
     // for all buffers
     for (int j_buf = 0; j_buf < NUM_OCC_BUF; j_buf++) {
+
+        // for length of data in current buffer head
+        for (int i_data = 0; i_data < len_occ_data_; i_data++) {
+
+            geometry_msgs::Point p;
+            p.x = occ_[j_buf].ray_list_[i_data][IDX_OCC_POS];
+            p.y = occ_[j_buf].ray_list_[i_data][IDX_OCC_POS+1];
+            p.z = occ_[j_buf].ray_list_[i_data][IDX_OCC_POS+2];
+
+            rays_msg->points.push_back(p);
+
+            p.x = occ_[j_buf].ray_list_[i_data][IDX_OCC_POS] + occ_[j_buf].ray_list_[i_data][IDX_OCC_NORMAL] * occ_[j_buf].ray_list_[i_data][IDX_OCC_RAY_LEN];
+            p.y = occ_[j_buf].ray_list_[i_data][IDX_OCC_POS+1] + occ_[j_buf].ray_list_[i_data][IDX_OCC_NORMAL+1] * occ_[j_buf].ray_list_[i_data][IDX_OCC_RAY_LEN];
+            p.z = occ_[j_buf].ray_list_[i_data][IDX_OCC_POS+2] + occ_[j_buf].ray_list_[i_data][IDX_OCC_NORMAL+2] * occ_[j_buf].ray_list_[i_data][IDX_OCC_RAY_LEN];
+
+            rays_msg->points.push_back(p);
+
+        } // end i_data loop
 
         // check if we had any detections
         if (occ_[j_buf].getDetectionCountAtHead()) {
 
             // mark that we have something to visualize
-            something_to_visualize = true;
+            occlusions_to_visualize = true;
 
             // get head for current buffer
             int buffer_head = occ_[j_buf].getBufferHead();
@@ -923,70 +986,37 @@ bool NonlinearMPC::populateOcclusionMarkerArray(visualization_msgs::MarkerArray:
                 // check for a detection
                 if (occ_[j_buf].detections_[buffer_head][i_data]) {
 
-                    // keep unique marker id's
-                    int marker_id = num_markers * (i_data + OcclusionDetector::LEN_DATA_MAX
-                        * (buffer_head + OcclusionDetector::LEN_BUFFER_MAX * j_buf));
+                    // surfel normals (lines)
 
-                    // define surface normal marker (arrow)
-                    visualization_msgs::Marker surf_normal;
-                    surf_normal.header.frame_id = "map";
-                    surf_normal.header.stamp = ros::Time();
-                    surf_normal.ns = "surface_normals";
-                    surf_normal.id = marker_id;
-                    surf_normal.type = visualization_msgs::Marker::ARROW;
-                    surf_normal.action = visualization_msgs::Marker::ADD;
-                    // NED->ENU
-                    surf_normal.pose.position.x = occ_[j_buf].attributes_[buffer_head][i_data][IDX_OCC_POS+1];
-                    surf_normal.pose.position.y = occ_[j_buf].attributes_[buffer_head][i_data][IDX_OCC_POS];
-                    surf_normal.pose.position.z = -occ_[j_buf].attributes_[buffer_head][i_data][IDX_OCC_POS+2];
-                    Eigen::Vector3d v(occ_[j_buf].attributes_[buffer_head][i_data][IDX_OCC_NORMAL+1],
-                        occ_[j_buf].attributes_[buffer_head][i_data][IDX_OCC_NORMAL],
-                        -occ_[j_buf].attributes_[buffer_head][i_data][IDX_OCC_NORMAL+2]);
-                    Eigen::Quaterniond q_enu_to_arrow;
-                    q_enu_to_arrow.setFromTwoVectors(Eigen::Vector3d::UnitX(), v);
-                    tf::quaternionEigenToMsg(q_enu_to_arrow, surf_normal.pose.orientation);
-                    surf_normal.scale.x = 8.0; // marker length
-                    surf_normal.scale.y = 1.0; // arrow width
-                    surf_normal.scale.z = 1.0; // arrow height
-                    surf_normal.color.a = 1.0; // alpha
-                    surf_normal.color.r = 1.0;
-                    surf_normal.color.g = 0.0;
-                    surf_normal.color.b = 0.0;
-                    surf_normal.lifetime = lifetime;
+                    geometry_msgs::Point p;
+                    p.x = occ_[j_buf].attributes_[buffer_head][i_data][IDX_OCC_POS+1];
+                    p.y = occ_[j_buf].attributes_[buffer_head][i_data][IDX_OCC_POS];
+                    p.z = -occ_[j_buf].attributes_[buffer_head][i_data][IDX_OCC_POS+2];
 
-                    // push back surface normal marker
-                    occ_detections_msg->markers.push_back(surf_normal);
+                    normals_msg->points.push_back(p);
+                    planes_msg->points.push_back(p); // same start point for plane
 
-                    // define surface plane marker (flat cylinder)
-                    visualization_msgs::Marker surf_plane;
-                    surf_plane.header.frame_id = "map";
-                    surf_plane.header.stamp = ros::Time();
-                    surf_plane.ns = "surface_normals";
-                    surf_plane.id = 1 + marker_id;
-                    surf_plane.type = visualization_msgs::Marker::CYLINDER;
-                    surf_plane.action = visualization_msgs::Marker::ADD;
-                    // NED->ENU
-                    surf_plane.pose.position = surf_normal.pose.position;
-                    Eigen::Quaterniond q_y_rot(0.7071, 0.0, 0.7071, 0.0);
-                    tf::quaternionEigenToMsg(q_enu_to_arrow * q_y_rot, surf_plane.pose.orientation);
-                    surf_plane.scale.x = cylinder_width; // cylinder width
-                    surf_plane.scale.y = cylinder_width; // cylinder width 2
-                    surf_plane.scale.z = 1.0; // cylinder height
-                    surf_plane.color.a = 1.0; // alpha
-                    surf_plane.color.r = 1.0;
-                    surf_plane.color.g = 0.0;
-                    surf_plane.color.b = 0.0;
-                    surf_plane.lifetime = lifetime;
+                    p.x = occ_[j_buf].attributes_[buffer_head][i_data][IDX_OCC_POS+1] + occ_[j_buf].attributes_[buffer_head][i_data][IDX_OCC_NORMAL+1] * len_normal;
+                    p.y = occ_[j_buf].attributes_[buffer_head][i_data][IDX_OCC_POS] + occ_[j_buf].attributes_[buffer_head][i_data][IDX_OCC_NORMAL] * len_normal;
+                    p.z = -occ_[j_buf].attributes_[buffer_head][i_data][IDX_OCC_POS+2] - occ_[j_buf].attributes_[buffer_head][i_data][IDX_OCC_NORMAL+2] * len_normal;
 
-                    // push back surface normal marker
-                    occ_detections_msg->markers.push_back(surf_plane);
-                }
-            }
-        }
-    }
+                    normals_msg->points.push_back(p);
 
-    return something_to_visualize;
-} // populateOcclusionMarkerArray
+                    // surfel plane
+
+                    p.x = occ_[j_buf].attributes_[buffer_head][i_data][IDX_OCC_POS+1] + occ_[j_buf].attributes_[buffer_head][i_data][IDX_OCC_NORMAL+1] * len_plane;
+                    p.y = occ_[j_buf].attributes_[buffer_head][i_data][IDX_OCC_POS] + occ_[j_buf].attributes_[buffer_head][i_data][IDX_OCC_NORMAL] * len_plane;
+                    p.z = -occ_[j_buf].attributes_[buffer_head][i_data][IDX_OCC_POS+2] - occ_[j_buf].attributes_[buffer_head][i_data][IDX_OCC_NORMAL+2] * len_plane;
+
+                    planes_msg->points.push_back(p);
+
+                } // endif check for detection at i_data
+            } // end i_data loop
+        } // endif check for any detections in buffer
+    } // end j_buf loop
+
+    return occlusions_to_visualize;
+} // populateOcclusionLists
 
 /*
     END PUBLISHERS
