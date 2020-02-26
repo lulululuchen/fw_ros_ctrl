@@ -27,6 +27,7 @@ void renormalizeUnitVelocity(Eigen::Vector3d &unit_vel);
 double calcAirDensity(const double static_pressure_pa, const double temperature_c);
 void calculateSpeedStates(double *air_vel, double *ground_vel,
     double &ground_sp_sq, double &ground_sp, double &inv_ground_sp, double *unit_ground_vel,
+    double &ground_sp_lat_sq, double &ground_sp_lat, double *unit_ground_vel_lat,
     double *air_polar, double *wind_vel);
 void ll2NE(double &north, double &east, const double lat, const double lon, const double lat_origin, const double lon_origin);
 double unwrapHeading(const double yaw_meas, const bool reset);

@@ -58,6 +58,7 @@ double calcAirDensity(const double static_pressure_pa, const double temperature_
 
 void calculateSpeedStates(double *air_vel, double *ground_vel,
     double &ground_sp_sq, double &ground_sp, double &inv_ground_sp, double *unit_ground_vel,
+    double &ground_sp_lat_sq, double &ground_sp_lat, double *unit_ground_vel_lat,
     double *air_polar, double *wind_vel)
 {
     const double v_cos_gamma = air_polar[0] * cos(air_polar[1]);
@@ -73,14 +74,19 @@ void calculateSpeedStates(double *air_vel, double *ground_vel,
     ground_vel[0] = air_vel[0] + wind_vel[0]; // vG_n
     ground_vel[1] = air_vel[1] + wind_vel[1]; // vG_e
     ground_vel[2] = air_vel[2] + wind_vel[2]; // vG_d
-    ground_sp_sq = ground_vel[0]*ground_vel[0] + ground_vel[1]*ground_vel[1] + ground_vel[2]*ground_vel[2]; // vG^2
+    ground_sp_lat_sq = ground_vel[0]*ground_vel[0] + ground_vel[1]*ground_vel[1]; // vG_lat^2
+    ground_sp_sq = ground_sp_lat_sq + ground_vel[2]*ground_vel[2]; // vG^2
     ground_sp = sqrt(ground_sp_sq); // vG
+    ground_sp_lat = sqrt(ground_sp_lat_sq); // vG_lat
 
     // unit ground speed
     inv_ground_sp = (ground_sp < 0.01) ? 100.0 : 1.0 / ground_sp;
     unit_ground_vel[0] = ground_vel[0] * inv_ground_sp; // vG_n unit
     unit_ground_vel[1] = ground_vel[1] * inv_ground_sp;	// vG_e unit
     unit_ground_vel[2] = ground_vel[2] * inv_ground_sp; // vG_d unit
+    const double inv_ground_sp_lat = (ground_sp_lat < 0.01) ? 100.0 : 1.0 / ground_sp_lat;
+    unit_ground_vel_lat[0] = ground_vel[0] * inv_ground_sp_lat; // vG_lat_n unit
+    unit_ground_vel_lat[1] = ground_vel[1] * inv_ground_sp_lat;	// vG_lat_e unit
 } // calculateSpeedStates
 
 void ll2NE(double &north, double &east, const double lat, const double lon, const double lat_origin, const double lon_origin)

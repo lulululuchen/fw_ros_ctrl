@@ -1035,6 +1035,7 @@ void NonlinearMPC::calculateSpeedStatesHorizon()
     for (int i = 0; i < ACADO_N; i++) {
         calculateSpeedStates(&spds_[i].air_vel[0], &spds_[i].ground_vel[0],
             spds_[i].ground_sp_sq, spds_[i].ground_sp, spds_[i].inv_ground_sp, &spds_[i].unit_ground_vel[0],
+            spds_[i].ground_sp_lat_sq, spds_[i].ground_sp_lat, &spds_[i].unit_ground_vel_lat[0],
             acadoVariables.x + (i * ACADO_NX + IDX_X_V), x0_wind_.data());
     }
 } // calculateSpeedStatesHorizon
@@ -1131,19 +1132,16 @@ void NonlinearMPC::detectOcclusions()
                 + ext_obj_.calculateRTDDelta(spds_[k_node].ground_sp_sq, huber_rtd_params_.delta_0, huber_rtd_params_.delta_scaler)
                 + map_resolution_;
 
-            // for normalizing lateral-directional unit vector -- TODO: add unit_ground_vel_lat to speed states calculations.. we use it a lot
-            double inv_one_minus_unit_vel_z_sq = 1.0 / (1.0 - spds_[k_node].unit_ground_vel[2] * spds_[k_node].unit_ground_vel[2]);
-
             // right ray direction
-            occ_[IDX_OCC_RIGHT].ray_list_[i][IDX_OCC_NORMAL] = spds_[k_node].unit_ground_vel[0] * inv_one_minus_unit_vel_z_sq; // N -> E
-            occ_[IDX_OCC_RIGHT].ray_list_[i][IDX_OCC_NORMAL+1] = -spds_[k_node].unit_ground_vel[1] * inv_one_minus_unit_vel_z_sq; // -E -> N
+            occ_[IDX_OCC_RIGHT].ray_list_[i][IDX_OCC_NORMAL] = spds_[k_node].unit_ground_vel_lat[0]; // N -> E
+            occ_[IDX_OCC_RIGHT].ray_list_[i][IDX_OCC_NORMAL+1] = -spds_[k_node].unit_ground_vel_lat[1]; // -E -> N
             occ_[IDX_OCC_RIGHT].ray_list_[i][IDX_OCC_NORMAL+2] = 0.0;
             // forward ray length
             occ_[IDX_OCC_RIGHT].ray_list_[i][IDX_OCC_RAY_LEN] = ray_length_0;
 
             // left ray direction
-            occ_[IDX_OCC_LEFT].ray_list_[i][IDX_OCC_NORMAL] = -spds_[k_node].unit_ground_vel[0] * inv_one_minus_unit_vel_z_sq; // -N -> E
-            occ_[IDX_OCC_LEFT].ray_list_[i][IDX_OCC_NORMAL+1] = spds_[k_node].unit_ground_vel[1] * inv_one_minus_unit_vel_z_sq; // E -> N
+            occ_[IDX_OCC_LEFT].ray_list_[i][IDX_OCC_NORMAL] = -spds_[k_node].unit_ground_vel_lat[0]; // -N -> E
+            occ_[IDX_OCC_LEFT].ray_list_[i][IDX_OCC_NORMAL+1] = spds_[k_node].unit_ground_vel_lat[1]; // E -> N
             occ_[IDX_OCC_LEFT].ray_list_[i][IDX_OCC_NORMAL+2] = 0.0;
             // forward ray length
             occ_[IDX_OCC_LEFT].ray_list_[i][IDX_OCC_RAY_LEN] = ray_length_0;
@@ -1681,12 +1679,9 @@ void NonlinearMPC::setObjectiveReferences()
         ground_vel(1) = spds_[i].ground_vel[1];
         ground_vel(2) = spds_[i].ground_vel[2];
 
-        // lateral-directional ground speed
-        double ground_sp_lat = ground_vel.segment(0,2).norm();
-
         // calculate the unit velocity reference at the current node
         gl_.calculateUnitVelocityReference(unit_ground_vel_sp, err_lat, err_lon, unit_err_lat,
-            veh_pos, ground_vel, ground_sp_lat, terrain_alt_horizon_(i), manual_control_sp_, path_sp_);
+            veh_pos, ground_vel, spds_[i].ground_sp_lat, terrain_alt_horizon_(i), manual_control_sp_, path_sp_);
 
         if (gl_.getUseOCCAsGuidance()) {
             // steer current guidance vector with terrain cost jacobians
@@ -1722,7 +1717,7 @@ void NonlinearMPC::setObjectiveReferences()
             }
             else if (control_parameters_.use_ff_roll_ref && path_sp_.type == PathTypes::LOITER && !manual_control_sp_.enabled) {
                 // feed-forward the path curvature when near to the track
-                const double lat_accel_ff = ground_sp_lat * ground_sp_lat / path_sp_.signed_radius / ONE_G;
+                const double lat_accel_ff = spds_[i].ground_sp_lat_sq / path_sp_.signed_radius / ONE_G;
                 const double track_proximity = 0.5 * (1.0 + cos(M_PI * unit_err_lat));
                 u_ref_(IDX_U_PHI_REF, i) = atan(lat_accel_ff) * track_proximity;
             }

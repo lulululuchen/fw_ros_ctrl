@@ -461,6 +461,9 @@ class NonlinearMPC {
             double ground_sp;
             double inv_ground_sp;
             double unit_ground_vel[3];
+            double ground_sp_lat_sq;
+            double ground_sp_lat;
+            double unit_ground_vel_lat[2];
         } spds_[ACADO_N+1];
 
         // terrain altitude at each node in the horizon
