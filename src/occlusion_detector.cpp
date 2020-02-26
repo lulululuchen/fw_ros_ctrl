@@ -69,6 +69,11 @@ void OcclusionDetector::castRays(const double map_origin_north, const double map
         // calculate ray length
         ray_length = ray_list_[i][IDX_OCC_RAY_LEN];
 
+        // re-init occ pos
+        occ_position[0] = 0.0;
+        occ_position[1] = 0.0;
+        occ_position[2] = 0.0;
+
         // cast the ray
         detections_[buffer_head_][i] = castRay(occ_position, occ_normal, occ_vertex_1, occ_vertex_2, occ_vertex_3,
             &ray_list_[i][IDX_OCC_POS], ray_length, &ray_list_[i][IDX_OCC_NORMAL],
@@ -174,11 +179,11 @@ int OcclusionDetector::castRay(double *occ_position, double *occ_normal, double 
     const double r0_rel[3] = {x0*map_resolution,y0*map_resolution,h0};
 
     /* relative end position */
-    const double x1 = (ray_length * ray_direction[0] - map_origin_east)/map_resolution;
-    const double y1 = (ray_length * ray_direction[1] - map_origin_north)/map_resolution;
+    const double x1 = (ray_origin[0] + ray_length * ray_direction[0] - map_origin_east)/map_resolution;
+    const double y1 = (ray_origin[1] + ray_length * ray_direction[1] - map_origin_north)/map_resolution;
 
     /* end height */
-    const double h1 = ray_length * ray_direction[2];
+    const double h1 = ray_origin[2] + ray_length * ray_direction[2];
 
     /* line deltas */
     const double dx = fabs(x1 - x0);
@@ -269,14 +274,16 @@ int OcclusionDetector::castRay(double *occ_position, double *occ_normal, double 
     const double x0_unit = x0 - x;
     const double y0_unit = y0 - y;
     if (y0_unit > x0_unit) {
-        /* check bottom-right triangle */
-        if (x0_unit*(map[idx_corner4]-map[idx_corner1]) + y0_unit*(map[idx_corner3] - map[idx_corner4]) > h0) {
+        /* check top-left triangle */
+        const double ht = map[idx_corner1] + x0_unit*(map[idx_corner3]-map[idx_corner2]) + y0_unit*(map[idx_corner2] - map[idx_corner1]);
+        if (ht > h0) {
             return occ_detected;
         }
     }
     else {
-        /* check top-left triangle */
-        if (x0_unit*(map[idx_corner3]-map[idx_corner2]) + y0_unit*(map[idx_corner2] - map[idx_corner1]) > h0) {
+        /* check bottom-right triangle */
+        const double ht = map[idx_corner1] + x0_unit*(map[idx_corner4]-map[idx_corner1]) + y0_unit*(map[idx_corner3] - map[idx_corner4]);
+        if (ht > h0) {
             return occ_detected;
         }
     }
@@ -706,7 +713,11 @@ int OcclusionDetector::castRay(double *occ_position, double *occ_normal, double 
         } /* / / / / / / / / / / / / / / / / / / / / / / / / / / / / / / */
 
         /* return if occlusion detected */
-        if (occ_detected > 0) {
+        if (occ_detected) {
+            // shift back origin -- TODO: make it so we dont subtract and add this..
+            occ_position[0] += map_origin_east;
+            occ_position[1] += map_origin_north;
+
             return occ_detected;
         }
 
@@ -721,10 +732,6 @@ int OcclusionDetector::castRay(double *occ_position, double *occ_normal, double 
         }
         last_step_was_vert = take_vert_step;
     }
-
-    // shift back origin -- TODO: make it so we dont subtract and add this..
-    occ_position[0] += map_origin_east;
-    occ_position[1] += map_origin_north;
 
     return occ_detected;
 } // castRay

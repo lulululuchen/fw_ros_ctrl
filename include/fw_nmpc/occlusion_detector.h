@@ -6,7 +6,7 @@ namespace fw_nmpc {
 enum IndexOcclusionAttributes {
     IDX_OCC_POS = 0, // occlusion detection position
     IDX_OCC_NORMAL = 3, // occlusion normal
-    IDX_OCC_RAY_LEN = 7 // ray length (only in ray list XXX: this may be a bad way to do this)
+    IDX_OCC_RAY_LEN = 6 // ray length (only in ray list XXX: this may be a bad way to do this)
 }; // occlusion attributes
 
 

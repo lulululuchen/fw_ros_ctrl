@@ -1080,33 +1080,40 @@ void NonlinearMPC::detectOcclusions()
         // update ray list
         const double ray_length_0 = huber_rtd_params_.constr_0 + huber_rtd_params_.delta_0 + map_resolution_;
         for (int i = 0; i < len_occ_data_; i++) {
+
+            // MPC node index
+            int k_node = i*ray_casting_interval_;
+
             // they all get the same ray origins
             for (int j = 0; j < NUM_OCC_BUF; j++) {
-                occ_[j].ray_list_[i][IDX_OCC_POS] = acadoVariables.x[ACADO_NX*i*ray_casting_interval_ + IDX_X_POS+1]; // E
-                occ_[j].ray_list_[i][IDX_OCC_POS+1] = acadoVariables.x[ACADO_NX*i*ray_casting_interval_ + IDX_X_POS]; // N
-                occ_[j].ray_list_[i][IDX_OCC_POS+2] = -acadoVariables.x[ACADO_NX*i*ray_casting_interval_ + IDX_X_POS+2]; // U
+                occ_[j].ray_list_[i][IDX_OCC_POS] = acadoVariables.x[ACADO_NX*k_node + IDX_X_POS+1]; // E
+                occ_[j].ray_list_[i][IDX_OCC_POS+1] = acadoVariables.x[ACADO_NX*k_node + IDX_X_POS]; // N
+                occ_[j].ray_list_[i][IDX_OCC_POS+2] = -acadoVariables.x[ACADO_NX*k_node + IDX_X_POS+2]; // U
             }
 
             // forward ray direction
-            occ_[IDX_OCC_FWD].ray_list_[i][IDX_OCC_NORMAL] = spds_[i].unit_ground_vel[1]; // E
-            occ_[IDX_OCC_FWD].ray_list_[i][IDX_OCC_NORMAL+1] = spds_[i].unit_ground_vel[0]; // N
-            occ_[IDX_OCC_FWD].ray_list_[i][IDX_OCC_NORMAL+2] = -spds_[i].unit_ground_vel[2]; // U
+            occ_[IDX_OCC_FWD].ray_list_[i][IDX_OCC_NORMAL] = spds_[k_node].unit_ground_vel[1]; // E
+            occ_[IDX_OCC_FWD].ray_list_[i][IDX_OCC_NORMAL+1] = spds_[k_node].unit_ground_vel[0]; // N
+            occ_[IDX_OCC_FWD].ray_list_[i][IDX_OCC_NORMAL+2] = -spds_[k_node].unit_ground_vel[2]; // U
             // forward ray length
             occ_[IDX_OCC_FWD].ray_list_[i][IDX_OCC_RAY_LEN]
-                = ext_obj_.calculateRTDConstraint(spds_[i].ground_sp_sq, huber_rtd_params_.constr_0, huber_rtd_params_.constr_scaler)
-                + ext_obj_.calculateRTDDelta(spds_[i].ground_sp_sq, huber_rtd_params_.delta_0, huber_rtd_params_.delta_scaler)
+                = ext_obj_.calculateRTDConstraint(spds_[k_node].ground_sp_sq, huber_rtd_params_.constr_0, huber_rtd_params_.constr_scaler)
+                + ext_obj_.calculateRTDDelta(spds_[k_node].ground_sp_sq, huber_rtd_params_.delta_0, huber_rtd_params_.delta_scaler)
                 + map_resolution_;
 
+            // for normalizing lateral-directional unit vector -- TODO: add unit_ground_vel_lat to speed states calculations.. we use it a lot
+            double inv_one_minus_unit_vel_z_sq = 1.0 / (1.0 - spds_[k_node].unit_ground_vel[2] * spds_[k_node].unit_ground_vel[2]);
+
             // right ray direction
-            occ_[IDX_OCC_RIGHT].ray_list_[i][IDX_OCC_NORMAL] = spds_[i].unit_ground_vel[0]; // N -> E
-            occ_[IDX_OCC_RIGHT].ray_list_[i][IDX_OCC_NORMAL+1] = -spds_[i].unit_ground_vel[1]; // -E -> N
+            occ_[IDX_OCC_RIGHT].ray_list_[i][IDX_OCC_NORMAL] = spds_[k_node].unit_ground_vel[0] * inv_one_minus_unit_vel_z_sq; // N -> E
+            occ_[IDX_OCC_RIGHT].ray_list_[i][IDX_OCC_NORMAL+1] = -spds_[k_node].unit_ground_vel[1] * inv_one_minus_unit_vel_z_sq; // -E -> N
             occ_[IDX_OCC_RIGHT].ray_list_[i][IDX_OCC_NORMAL+2] = 0.0;
             // forward ray length
             occ_[IDX_OCC_RIGHT].ray_list_[i][IDX_OCC_RAY_LEN] = ray_length_0;
 
             // left ray direction
-            occ_[IDX_OCC_LEFT].ray_list_[i][IDX_OCC_NORMAL] = -spds_[i].unit_ground_vel[0]; // -N -> E
-            occ_[IDX_OCC_LEFT].ray_list_[i][IDX_OCC_NORMAL+1] = spds_[i].unit_ground_vel[1]; // E -> N
+            occ_[IDX_OCC_LEFT].ray_list_[i][IDX_OCC_NORMAL] = -spds_[k_node].unit_ground_vel[0] * inv_one_minus_unit_vel_z_sq; // -N -> E
+            occ_[IDX_OCC_LEFT].ray_list_[i][IDX_OCC_NORMAL+1] = spds_[k_node].unit_ground_vel[1] * inv_one_minus_unit_vel_z_sq; // E -> N
             occ_[IDX_OCC_LEFT].ray_list_[i][IDX_OCC_NORMAL+2] = 0.0;
             // forward ray length
             occ_[IDX_OCC_LEFT].ray_list_[i][IDX_OCC_RAY_LEN] = ray_length_0;
