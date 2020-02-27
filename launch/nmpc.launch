@@ -10,7 +10,7 @@
 
     <!-- vehicle parameters -->
     <param name="/nmpc/veh/airsp_thres" type="double" value="4.0" />               <!-- airspeed measurement threshold [m/s] -->
-    <param name="/nmpc/veh/airsp_min" type="double" value="13.5" />                <!-- airspeed minimum [m/s] -->
+    <param name="/nmpc/veh/airsp_min" type="double" value="14.0" />                <!-- airspeed minimum [m/s] -->
     <param name="/nmpc/veh/airsp_max" type="double" value="20.0" />                <!-- airspeed maximum [m/s] -->
     <param name="/nmpc/veh/flaps_lim" type="double" value="13.0" />                <!-- flap maximum actuation [deg] -->
 
@@ -25,29 +25,29 @@
     <param name="/nmpc/prop/epsilon_T" type="double" value="2.0" />                <!-- thrust incidence [deg] -->
 
     <!-- control-augmented model dynamics -->
-    <param name="/nmpc/od/tau_phi" type="double" value="0.469" />                  <!-- control-augmented roll response time constant [s] -->
-    <param name="/nmpc/od/tau_theta" type="double" value="0.315" />                <!-- control-augmented pitch response time constant [s] -->
-    <param name="/nmpc/od/k_phi" type="double" value="1.19" />                     <!-- control-augmented roll response gain [s] -->
-    <param name="/nmpc/od/k_theta" type="double" value="0.965" />                  <!-- control-augmented pitch response gain [s] -->
-    <param name="/nmpc/od/tau_n" type="double" value="0.2" />                      <!-- propeller delay [s] -->
+    <param name="/nmpc/od/tau_roll" type="double" value="0.469" />                 <!-- control-augmented roll response time constant [s] -->
+    <param name="/nmpc/od/tau_pitch" type="double" value="0.315" />                <!-- control-augmented pitch response time constant [s] -->
+    <param name="/nmpc/od/k_roll" type="double" value="1.19" />                    <!-- control-augmented roll response gain [s] -->
+    <param name="/nmpc/od/k_pitch" type="double" value="0.965" />                  <!-- control-augmented pitch response gain [s] -->
+    <param name="/nmpc/od/tau_prop" type="double" value="0.2" />                   <!-- propeller delay [s] -->
 
     <!-- objective inverse squared output scaling -->
-    <param name="/nmpc/inv_y_scale_sq/vn" type="double" value="1e2" />             <!-- 1/0.1^2 -->
-    <param name="/nmpc/inv_y_scale_sq/ve" type="double" value="1e2" />             <!-- 1/0.1^2 -->
-    <param name="/nmpc/inv_y_scale_sq/vd" type="double" value="1e2" />             <!-- 1/0.1^2 -->
-    <param name="/nmpc/inv_y_scale_sq/v" type="double" value="1.0" />              <!--  -->
-    <param name="/nmpc/inv_y_scale_sq/phi" type="double" value="1.0" />            <!--  -->
-    <param name="/nmpc/inv_y_scale_sq/theta" type="double" value="1.0" />          <!--  -->
+    <param name="/nmpc/inv_y_scale_sq/pos_n" type="double" value="1e2" />          <!-- 1/0.1^2 -->
+    <param name="/nmpc/inv_y_scale_sq/pos_e" type="double" value="1e2" />          <!-- 1/0.1^2 -->
+    <param name="/nmpc/inv_y_scale_sq/airsp" type="double" value="1e2" />          <!-- 1/0.1^2 -->
+    <param name="/nmpc/inv_y_scale_sq/fpa" type="double" value="3.2828e3" />       <!-- 1/deg2rad(1)^2 -->
+    <param name="/nmpc/inv_y_scale_sq/heading" type="double" value="3.2828e3" />   <!-- 1/deg2rad(1)^2 -->
+    <param name="/nmpc/inv_y_scale_sq/soft_airsp" type="double" value="1.0" />     <!--  -->
     <param name="/nmpc/inv_y_scale_sq/soft_aoa" type="double" value="1.0" />       <!--  -->
-    <param name="/nmpc/inv_y_scale_sq/soft_h" type="double" value="1.0" />         <!--  -->
-    <param name="/nmpc/inv_y_scale_sq/soft_r" type="double" value="1.0" />         <!--  -->
-    <param name="/nmpc/inv_y_scale_sq/u_T" type="double" value="1e2" />            <!-- 1/0.1^2 -->
-    <param name="/nmpc/inv_y_scale_sq/phi_ref" type="double" value="3.2828e3" />   <!-- 1/deg2rad(1)^2 -->
-    <param name="/nmpc/inv_y_scale_sq/theta_ref" type="double" value="3.2828e3" /> <!-- 1/deg2rad(1)^2 -->
+    <param name="/nmpc/inv_y_scale_sq/soft_hagl" type="double" value="1.0" />      <!--  -->
+    <param name="/nmpc/inv_y_scale_sq/soft_rtd" type="double" value="1.0" />       <!--  -->
+    <param name="/nmpc/inv_y_scale_sq/throt" type="double" value="1e2" />          <!-- 1/0.1^2 -->
+    <param name="/nmpc/inv_y_scale_sq/roll_ref" type="double" value="3.2828e3" />  <!-- 1/deg2rad(1)^2 -->
+    <param name="/nmpc/inv_y_scale_sq/pitch_ref" type="double" value="3.2828e3" /> <!-- 1/deg2rad(1)^2 -->
 
     <!-- hard constraints -->
-    <param name="/nmpc/lb/u_T" type="double" value="0.0" />                        <!-- throttle lower bound -->
-    <param name="/nmpc/ub/u_T" type="double" value="1.0" />                        <!-- throttle upper bound -->
+    <param name="/nmpc/lb/throt" type="double" value="0.0" />                      <!-- throttle lower bound -->
+    <param name="/nmpc/ub/throt" type="double" value="1.0" />                      <!-- throttle upper bound -->
 
     <!-- path reference parameters XXX: this should not be here -->
     <param name="/nmpc/path/path_type" type="int" value="0" />                     <!-- path type, 0: const. alt. loiter; 1: line -->

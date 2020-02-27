@@ -1,5 +1,5 @@
 #include <fw_nmpc/occlusion_detector.h>
-#include <fw_nmpc/helpers.h>
+#include <fw_nmpc/common/helpers.h>
 
 namespace fw_nmpc {
 

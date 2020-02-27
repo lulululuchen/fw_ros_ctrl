@@ -1,8 +1,29 @@
 #include <fw_nmpc/nonlinear_mpc_objectives.h>
-#include <fw_nmpc/huber_constraint.h>
+#include <fw_nmpc/common/huber_constraint.h>
 #include <math.h>
 
 namespace fw_nmpc {
+
+/*
+    AIRSPEED OBJECTIVE
+*/
+
+void NonlinearMPCObjectives::jacobianAirsp(double *jac)
+{
+    /*
+        Jacobian of airspeed w.r.t.:
+        airspeed
+
+        Outputs:
+        jac[1]
+    */
+
+    jac[0] = 1.0;
+} // jacobianAirsp
+
+/*
+    END AIRSPEED OBJECTIVE
+*/
 
 /*
     ANGLE OF ATTACK (AOA) OBJECTIVE

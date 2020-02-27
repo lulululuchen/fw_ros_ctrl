@@ -1,4 +1,4 @@
-#include <fw_nmpc/helpers.h>
+#include <fw_nmpc/common/helpers.h>
 #include <math.h>
 
 namespace fw_nmpc {
@@ -36,12 +36,6 @@ double dot(const double v1[3], const double v2[3])
 {
     return v1[0]*v2[0] + v1[1]*v2[1] + v1[2]*v2[2];
 } // dot
-
-void renormalizeUnitVelocity(Eigen::Vector3d &unit_vel)
-{
-    // re-normalize decoupled (lat/lon) unit velocity
-    unit_vel.segment(0,2) *= 1.0 - unit_vel(2)*unit_vel(2);
-} // renormalizeUnitVelocity
 
 /*
     END MATH
@@ -123,8 +117,24 @@ void ll2NE(double &north, double &east, const double lat, const double lon, cons
 	east = dlon/atan2(1,Rn*cos(rlat0));
 } // ll2NE
 
+Eigen::Vector2d rotate2d(const Eigen::Vector2d &vec, const double angle)
+{
+    const double cos_angle = cos(angle);
+    const double sin_angle = sin(angle);
+    return Eigen::Vector2d(vec(0) * cos_angle + vec(1) * -sin_angle, vec(0) * sin_angle + vec(1) * cos_angle);
+} // rotate2d
+
+Eigen::Vector2d rotate2d(const double sinx, const double cosx, const Eigen::Vector2d &vec)
+{
+    Eigen::Matrix2d rot;
+    rot << cosx, -sinx, sinx, cosx;
+    return rot * vec;
+} // rotate2d
+
 double unwrapHeading(const double yaw_meas, const bool reset)
 {
+    // TODO: use fmod
+
     // XXX: once slip is included.. need to disambiguate heading (xi) vs yaw notation abuse here..
 
     // XXX: need a catch here to reset horizon yaw states once the wrap counter gets too high
@@ -156,6 +166,16 @@ double unwrapHeading(const double yaw_meas, const bool reset)
     last_unwrapped_yaw += delta_yaw;
     return last_unwrapped_yaw;
 } // unwrapHeading
+
+double wrapPi(double angle)
+{
+    angle = fmod(angle + M_PI, 2*M_PI);
+    if (angle < 0) {
+        angle += 2*M_PI;
+    }
+
+    return angle - M_PI;
+} /* wrapPi */
 
 /*
     END CONVERSIONS / TRANSFORMATIONS
