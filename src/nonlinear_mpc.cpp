@@ -617,6 +617,8 @@ void NonlinearMPC::publishNMPCStates()
     nmpc_online_data.tau_prop = (float)acadoVariables.od[IDX_OD_TAU_PROP];
     nmpc_online_data.flaps = (float)acadoVariables.od[IDX_OD_FLAPS];
     for (int i=0; i<ACADO_N+1; i++) { // all prior online data are held constant through the horizon
+        nmpc_online_data.fpa_ref[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_FPA_REF];
+        nmpc_online_data.jac_fpa_ref[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_FPA_REF];
         nmpc_online_data.heading_ref[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_HEADING_REF];
         nmpc_online_data.soft_airsp[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_SOFT_AIRSP];
         nmpc_online_data.jac_soft_airsp_0[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_AIRSP];
@@ -642,7 +644,7 @@ void NonlinearMPC::publishNMPCStates()
         nmpc_obj_ref.pos_n[i] = (float)acadoVariables.y[ACADO_NY * i + IDX_Y_POS];
         nmpc_obj_ref.pos_e[i] = (float)acadoVariables.y[ACADO_NY * i + IDX_Y_POS+1];
         nmpc_obj_ref.airsp[i] = (float)acadoVariables.y[ACADO_NY * i + IDX_Y_AIRSP];
-        nmpc_obj_ref.fpa[i] = (float)acadoVariables.y[ACADO_NY * i + IDX_Y_FPA];
+        nmpc_obj_ref.fpa[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_FPA_REF];//(float)acadoVariables.y[ACADO_NY * i + IDX_Y_FPA];
         nmpc_obj_ref.heading[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_HEADING_REF];//(float)acadoVariables.y[ACADO_NY * i + IDX_Y_HEADING];
         nmpc_obj_ref.soft_airsp[i] = (float)acadoVariables.y[ACADO_NY * i + IDX_Y_SOFT_AIRSP];
         nmpc_obj_ref.soft_aoa[i] = (float)acadoVariables.y[ACADO_NY * i + IDX_Y_SOFT_AOA];
@@ -655,7 +657,7 @@ void NonlinearMPC::publishNMPCStates()
     nmpc_objN_ref.pos_n = (float)acadoVariables.yN[IDX_Y_POS];
     nmpc_objN_ref.pos_e = (float)acadoVariables.yN[IDX_Y_POS+1];
     nmpc_objN_ref.airsp = (float)acadoVariables.yN[IDX_Y_AIRSP];
-    nmpc_objN_ref.fpa = (float)acadoVariables.yN[IDX_Y_FPA];
+    nmpc_objN_ref.fpa = (float)acadoVariables.od[ACADO_NOD * ACADO_N + IDX_OD_FPA_REF];//(float)acadoVariables.yN[IDX_Y_FPA];
     nmpc_objN_ref.heading = (float)acadoVariables.od[ACADO_NOD * ACADO_N + IDX_OD_HEADING_REF];//(float)acadoVariables.yN[IDX_Y_HEADING];
     nmpc_objN_ref.soft_airsp = (float)acadoVariables.yN[IDX_Y_SOFT_AIRSP];
     nmpc_objN_ref.soft_aoa = (float)acadoVariables.yN[IDX_Y_SOFT_AOA];
@@ -670,7 +672,8 @@ void NonlinearMPC::publishNMPCStates()
 
     if (manual_control_sp_.enabled) {
         double err_lon;
-        traj_gen_.getManualFPASetpoint(err_lon, manual_control_sp_, terrain_alt, x0_pos_(2), x0_vel_.norm(), x0_(IDX_X_AIRSP), x0_wind_(2));
+        double jac_fpa_sp[1];
+        traj_gen_.getManualFPASetpoint(err_lon, jac_fpa_sp, manual_control_sp_, terrain_alt, x0_pos_(2), x0_vel_.norm(), x0_(IDX_X_AIRSP), x0_wind_(2));
         nmpc_aux_output.path_error_lat = 0.0;
         nmpc_aux_output.path_error_lon = err_lon;
     }
@@ -734,7 +737,7 @@ void NonlinearMPC::publishNMPCVisualizations()
         nmpc_traj_ref.poses[i].pose.position.z = -x0_pos_(2);
         // NED->ENU
         tf::Quaternion q_ned;
-        q_ned.setRPY(y_(IDX_Y_ROLL_REF, i), y_(IDX_Y_FPA, i), od_(IDX_OD_HEADING_REF, i));
+        q_ned.setRPY(y_(IDX_Y_ROLL_REF, i), od_(IDX_OD_FPA_REF, i), od_(IDX_OD_HEADING_REF, i));
         tf::Quaternion q_enu = ned_enu_q_ * q_ned * aircraft_baselink_q_;
         quaternionTFToMsg(q_enu, nmpc_traj_ref.poses[i].pose.orientation);
     }
@@ -786,7 +789,7 @@ void NonlinearMPC::publishNMPCVisualizations()
         air_vel_ref.pose.position.y = acadoVariables.x[ACADO_NX * i + IDX_X_POS];
         air_vel_ref.pose.position.z = -acadoVariables.x[ACADO_NX * i + IDX_X_POS+2];
         tf::Quaternion q_ned;
-        q_ned.setRPY(y_(IDX_Y_ROLL_REF, i), y_(IDX_Y_FPA, i), od_(IDX_OD_HEADING_REF, i));
+        q_ned.setRPY(y_(IDX_Y_ROLL_REF, i), od_(IDX_OD_FPA_REF, i), od_(IDX_OD_HEADING_REF, i));
         tf::Quaternion q_enu = ned_enu_q_ * q_ned * aircraft_baselink_q_;
         tf::quaternionTFToMsg(q_enu, air_vel_ref.pose.orientation);
         air_vel_ref.scale.x = y_(IDX_Y_AIRSP, i); // marker length
@@ -1375,8 +1378,10 @@ void NonlinearMPC::setManualControlReferences()
     for (int i = 0; i < ACADO_N+1; i++) {
 
         // flight path angle reference
-        y_(IDX_Y_FPA, i) = traj_gen_.getManualFPASetpoint(err_lon, manual_control_sp_, terrain_alt_horizon_(i),
+        double jac_fpa_ref[1];
+        od_(IDX_OD_FPA_REF, i) = traj_gen_.getManualFPASetpoint(err_lon, jac_fpa_ref, manual_control_sp_, terrain_alt_horizon_(i),
             acadoVariables.x[i * ACADO_NX + IDX_X_POS+2], spds_[i].ground_sp, acadoVariables.x[i * ACADO_NX + IDX_X_AIRSP], x0_wind_(2));
+        od_(IDX_OD_JAC_FPA_REF, i) = jac_fpa_ref[0];
 
     } // end i loop
 
@@ -1409,7 +1414,9 @@ void NonlinearMPC::setPathFollowingReferences()
         veh_pos(1) = acadoVariables.x[i * ACADO_NX + IDX_X_POS+1];
         veh_pos(2) = acadoVariables.x[i * ACADO_NX + IDX_X_POS+2];
 
-        y_(IDX_Y_FPA, i) = traj_gen_.evaluateLongitudinalGuidance(err_lon, path_sp_, veh_pos, spds_[i].ground_sp, acadoVariables.x[i * ACADO_NX + IDX_X_AIRSP], x0_wind_(2));
+        double jac_fpa_ref[1];
+        od_(IDX_OD_FPA_REF, i) = traj_gen_.evaluateLongitudinalGuidance(err_lon, jac_fpa_ref, path_sp_, veh_pos, spds_[i].ground_sp, acadoVariables.x[i * ACADO_NX + IDX_X_AIRSP], x0_wind_(2));
+        od_(IDX_OD_JAC_FPA_REF, i) = jac_fpa_ref[0];
     }
 } // setPathFollowingReferences
 

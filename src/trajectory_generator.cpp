@@ -803,7 +803,7 @@ void TrajectoryGenerator::genTrajectoryToPath2D(Eigen::Ref<Eigen::MatrixXd> pos_
 
 } // genTrajectoryToPath2D
 
-double TrajectoryGenerator::evaluateLongitudinalGuidance(double &err_lon, const PathSetpoint &path_sp, const Eigen::Vector3d &veh_pos,
+double TrajectoryGenerator::evaluateLongitudinalGuidance(double &err_lon, double *jac_fpa_sp, const PathSetpoint &path_sp, const Eigen::Vector3d &veh_pos,
     const double ground_speed, const double airspeed, const double wind_vel_d)
 {
     double pos_d_ref;
@@ -819,7 +819,7 @@ double TrajectoryGenerator::evaluateLongitudinalGuidance(double &err_lon, const 
         // XXX: handle this
     }
 
-    return pwqg_.evaluate(err_lon, pos_d_ref, path_sp.dir(2), veh_pos(2), ground_speed, airspeed, wind_vel_d); // return fpa
+    return pwqg_.evaluate(err_lon, jac_fpa_sp, pos_d_ref, path_sp.dir(2), veh_pos(2), ground_speed, airspeed, wind_vel_d); // return fpa
 } // evaluateLongitudinalGuidance
 
 /*
@@ -830,24 +830,12 @@ double TrajectoryGenerator::evaluateLongitudinalGuidance(double &err_lon, const 
     MANUAL CONTROL
 */
 
-double TrajectoryGenerator::getManualFPASetpoint(double &err_lon, const ManualControlSetpoint &manual_control_sp,
+double TrajectoryGenerator::getManualFPASetpoint(double &err_lon, double *jac_fpa_sp, const ManualControlSetpoint &manual_control_sp,
     const double terr_alt, const double veh_pos_d, const double ground_speed, const double airspeed, const double wind_vel_d)
 {
     // NOTE: manual setpoints should ALREADY BE SET IN STRUCT after calling the updateManualSetpoint() function BEFORE this one
 
-    if (manual_control_sp.lon_mode == MCLongitudinalModes::FPA) {
-        // track the commanded flight path angle
-
-        err_lon = 0.0;
-
-        return manual_control_sp.fpa;
-    }
-    else if (manual_control_sp.lon_mode == MCLongitudinalModes::ALTITUDE) {
-        // track manual bearing and altitude setpoints
-
-        return pwqg_.evaluate(err_lon, -manual_control_sp.alt, 0.0, veh_pos_d, ground_speed, airspeed, wind_vel_d);
-    }
-    else if (manual_control_sp.lon_mode == MCLongitudinalModes::TERRAIN_ALTITUDE) {
+    if (manual_control_sp.lon_mode == MCLongitudinalModes::TERRAIN_ALTITUDE) {
         // track manual bearing and relative altitude setpoints
 
         // set absolute altitude based on node-wise terrain height
@@ -857,10 +845,21 @@ double TrajectoryGenerator::getManualFPASetpoint(double &err_lon, const ManualCo
         // TODO: for now flat.. could potentially calculate the slope based on the current course .. it is calculated anyway internally in the cost jacobian.
         const double unit_path_tangent_d = 0.0;
 
-        return pwqg_.evaluate(err_lon, -alt, unit_path_tangent_d, veh_pos_d, ground_speed, airspeed, wind_vel_d);
+        return pwqg_.evaluate(err_lon, jac_fpa_sp, -alt, unit_path_tangent_d, veh_pos_d, ground_speed, airspeed, wind_vel_d);
     }
+    else if (manual_control_sp.lon_mode == MCLongitudinalModes::ALTITUDE) {
+        // track manual bearing and altitude setpoints
 
-    return 0.0; // should not reach here..
+        return pwqg_.evaluate(err_lon, jac_fpa_sp, -manual_control_sp.alt, 0.0, veh_pos_d, ground_speed, airspeed, wind_vel_d);
+    }
+    else { // if (manual_control_sp.lon_mode == MCLongitudinalModes::FPA) {
+        // track the commanded flight path angle
+
+        err_lon = 0.0;
+        jac_fpa_sp[0] = 0.0;
+
+        return manual_control_sp.fpa;
+    }
 } // getFPASetpoint
 
 void TrajectoryGenerator::updateManualSetpoint(ManualControlSetpoint &setpoint, const ManualControlInput &input,

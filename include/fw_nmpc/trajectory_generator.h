@@ -92,7 +92,7 @@ class TrajectoryGenerator {
             const double veh_pos_d, const double heading, const double terr_alt, const double airsp_min, const double airsp_max,
             const double roll_lim);
 
-        double getManualFPASetpoint(double &err_lon, const ManualControlSetpoint &manual_control_sp,
+        double getManualFPASetpoint(double &err_lon, double *jac_fpa_sp, const ManualControlSetpoint &manual_control_sp,
             const double terr_alt, const double veh_pos_d, const double ground_speed, const double airspeed, const double wind_vel_d);
 
         // trajectory generation
@@ -102,7 +102,7 @@ class TrajectoryGenerator {
             Eigen::Vector2d pos_0, const Eigen::Vector2d &ground_vel_0, const double airspeed_0, const double heading_0, const Eigen::Vector2d &wind_vel,
             const double airspeed_nom, const double airspeed_max, const PathSetpoint &path_sp, const double roll_lim_rad);
 
-        double evaluateLongitudinalGuidance(double &err_lon, const PathSetpoint &path_sp, const Eigen::Vector3d &veh_pos,
+        double evaluateLongitudinalGuidance(double &err_lon, double *jac_fpa_sp, const PathSetpoint &path_sp, const Eigen::Vector3d &veh_pos,
             const double ground_speed, const double airspeed, const double wind_vel_d);
 
         // path following calculations

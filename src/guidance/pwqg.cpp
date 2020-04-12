@@ -22,7 +22,7 @@ double PWQG::calcTrackErrorBound(const double ground_speed)
     }
 } // calcTrackErrorBound
 
-double PWQG::evaluate(double &err_lon, const double d_ref, const double unit_path_tangent_d, const double veh_pos_d,
+double PWQG::evaluate(double &err_lon, double *jac_fpa_sp, const double d_ref, const double unit_path_tangent_d, const double veh_pos_d,
     const double ground_speed, const double airspeed, const double wind_vel_d)
 {
     /*
@@ -38,6 +38,10 @@ double PWQG::evaluate(double &err_lon, const double d_ref, const double unit_pat
 
         outputs:
         err_lon: longitudinal (vertical) signed track-error [m]
+        jac_fpa_sp: jacobian of the flight path angle setpoint // TODO: maybe add a disable for this if we don't care to calculate.. but it's pretty cheap anyway.
+            w.r.t.:
+            veh_pos_d
+            TODO...
 
         return:
         fpa_sp: flight path angle setpoint [rad]
@@ -47,28 +51,33 @@ double PWQG::evaluate(double &err_lon, const double d_ref, const double unit_pat
     err_lon = d_ref - veh_pos_d;
 
     // track-error boundaries
-    double err_b_lon;
+    double inv_err_b_lon;
     if (fix_vert_pos_err_bnd_) {
-        err_b_lon = vert_pos_err_bnd_;
+        inv_err_b_lon = 1.0 / vert_pos_err_bnd_;
     }
     else {
-        err_b_lon = calcTrackErrorBound(ground_speed); // longitudinal track-error boundary
+        inv_err_b_lon = 1.0 / calcTrackErrorBound(ground_speed); // longitudinal track-error boundary
     }
 
+    // on track FPA -- adjust for wind (small angle assumption)
+    const double fpa_path = constrain(-(ground_speed * unit_path_tangent_d - wind_vel_d) / airspeed, -fpa_app_max_, fpa_app_max_);
+
+    // unit track error shift
+    const double sign_fpa_path = (fpa_path < 0.0) ? -1.0 : 1.0;
+    const double delta_err_lon = sign_fpa_path * (sqrt(1.0 - sign_fpa_path * fpa_path / fpa_app_max_) - 1.0);
+
     // unit track error
-    const double unit_err_lon = constrain(fabs(err_lon)/err_b_lon, 0.0, 1.0);
+    const double unit_err_lon = constrain(err_lon * inv_err_b_lon + delta_err_lon, -1.0, 1.0);
 
-    // quadratic transition variables
-    const double thetal_lon = -unit_err_lon*(unit_err_lon - 2.0);
-
-    // sign of longitudinal position error
-    const double sign_e_lon = (err_lon < 0.0) ? 1.0 : -1.0; // note this is flipped to "up" = positive
-
-    // adjust for wind (small angle assumption)
-    const double fpa_path = -(ground_speed * unit_path_tangent_d - wind_vel_d) / airspeed;
-
-    // unit z velocity setpoint
-    return constrain((1.0 - thetal_lon) * fpa_path + thetal_lon * fpa_app_max_ * sign_e_lon, -fpa_app_max_, fpa_app_max_);
+    // FPA setpoint
+    if (unit_err_lon < 0.0) {
+        jac_fpa_sp[0] = 2.0 * inv_err_b_lon * fpa_app_max_ * (1.0 + unit_err_lon);
+        return -fpa_app_max_ * unit_err_lon * (unit_err_lon + 2.0);
+    }
+    else {
+        jac_fpa_sp[0] = -2.0 * inv_err_b_lon * fpa_app_max_ * (unit_err_lon - 1.0);
+        return fpa_app_max_ * unit_err_lon * (unit_err_lon - 2.0);
+    }
 } // evaluate
 
 } // namespace fw_nmpc

@@ -11,7 +11,7 @@
     <!-- vehicle parameters -->
     <param name="/nmpc/veh/airsp_thres" type="double" value="4.0" />               <!-- airspeed measurement threshold [m/s] -->
     <param name="/nmpc/veh/airsp_min" type="double" value="14.0" />                <!-- airspeed minimum [m/s] -->
-    <param name="/nmpc/veh/airsp_max" type="double" value="20.0" />                <!-- airspeed maximum [m/s] -->
+    <param name="/nmpc/veh/airsp_max" type="double" value="18.0" />                <!-- airspeed maximum [m/s] -->
     <param name="/nmpc/veh/flaps_lim" type="double" value="13.0" />                <!-- flap maximum actuation [deg] -->
 
     <!-- propeller parameters -->

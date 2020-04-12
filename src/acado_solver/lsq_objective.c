@@ -23,36 +23,40 @@ void lsq_obj_eval( const real_t *in, real_t *out, bool eval_end_term )
 
     /* online data */
 
+    /* flight path angle reference */
+    const double fpa_ref = in[22-idx_shift];
+    const double jac_fpa_ref = in[23-idx_shift];
+    
     /* heading reference */
-    const double heading_ref = in[22-idx_shift];
+    const double heading_ref = in[24-idx_shift];
 
     /* soft airsp */
-    const double soft_airsp = in[23-idx_shift];
-    const double jac_soft_airsp = in[24-idx_shift];
+    const double soft_airsp = in[25-idx_shift];
+    const double jac_soft_airsp = in[26-idx_shift];
 
     /* soft aoa */
-    const double soft_aoa = in[25-idx_shift];
+    const double soft_aoa = in[27-idx_shift];
     double jac_soft_aoa[2];
-    jac_soft_aoa[0] = in[26-idx_shift];
-    jac_soft_aoa[1] = in[27-idx_shift];
+    jac_soft_aoa[0] = in[28-idx_shift];
+    jac_soft_aoa[1] = in[29-idx_shift];
 
     /* soft height */
-    const double soft_hagl = in[28-idx_shift];
+    const double soft_hagl = in[30-idx_shift];
     double jac_soft_hagl[4];
-    jac_soft_hagl[0] = in[29-idx_shift];
-    jac_soft_hagl[1] = in[30-idx_shift];
-    jac_soft_hagl[2] = in[31-idx_shift];
-    jac_soft_hagl[3] = in[32-idx_shift];
+    jac_soft_hagl[0] = in[31-idx_shift];
+    jac_soft_hagl[1] = in[32-idx_shift];
+    jac_soft_hagl[2] = in[33-idx_shift];
+    jac_soft_hagl[3] = in[34-idx_shift];
 
     /* soft radial */
-    const double soft_rtd = in[33-idx_shift];
+    const double soft_rtd = in[35-idx_shift];
     double jac_soft_rtd[6];
-    jac_soft_rtd[0] = in[34-idx_shift];
-    jac_soft_rtd[1] = in[35-idx_shift];
-    jac_soft_rtd[2] = in[36-idx_shift];
-    jac_soft_rtd[3] = in[37-idx_shift];
-    jac_soft_rtd[4] = in[38-idx_shift];
-    jac_soft_rtd[5] = in[39-idx_shift];
+    jac_soft_rtd[0] = in[36-idx_shift];
+    jac_soft_rtd[1] = in[37-idx_shift];
+    jac_soft_rtd[2] = in[38-idx_shift];
+    jac_soft_rtd[3] = in[39-idx_shift];
+    jac_soft_rtd[4] = in[40-idx_shift];
+    jac_soft_rtd[5] = in[41-idx_shift];
 
     /* OBJECTIVES - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
 
@@ -60,7 +64,7 @@ void lsq_obj_eval( const real_t *in, real_t *out, bool eval_end_term )
     out[0] = in[0]; /* position north */
     out[1] = in[1]; /* position east */
     out[2] = in[3]; /* airspeed */
-    out[3] = in[4]; /* flight path angle */
+    out[3] = fpa_ref - in[4]; /* flight path angle */
     out[4] = wrapPi(in[5] - heading_ref); /* heading error */
     out[5] = soft_airsp;
     out[6] = soft_aoa;
@@ -83,7 +87,7 @@ void lsq_obj_eval( const real_t *in, real_t *out, bool eval_end_term )
         const double jac_pos_n = 1.0;
         const double jac_pos_e = 1.0;
         const double jac_airsp = 1.0;
-        const double jac_fpa = 1.0;
+        const double jac_fpa = -1.0;
         const double jac_heading = 1.0;
 
         /* lsq end term jacobian w.r.t. states */
@@ -116,7 +120,7 @@ void lsq_obj_eval( const real_t *in, real_t *out, bool eval_end_term )
         out[35] = 0.0;
         out[36] = 0.0; /* - - - - - - - - - - - - - - - - - -d(fpa)/d(x) */
         out[37] = 0.0;
-        out[38] = 0.0;
+        out[38] = jac_fpa_ref;
         out[39] = 0.0;
         out[40] = jac_fpa;
         out[41] = 0.0;
@@ -175,7 +179,7 @@ void lsq_obj_eval( const real_t *in, real_t *out, bool eval_end_term )
         const double jac_pos_n = 1.0;
         const double jac_pos_e = 1.0;
         const double jac_airsp = 1.0;
-        const double jac_fpa = 1.0;
+        const double jac_fpa = -1.0;
         const double jac_heading = 1.0;
         const double jac_throt = 1.0;
         const double jac_pitch_ref = 1.0;
@@ -211,7 +215,7 @@ void lsq_obj_eval( const real_t *in, real_t *out, bool eval_end_term )
         out[38] = 0.0;
         out[39] = 0.0; /* - - - - - - - - - - - - - - - - - -d(fpa)/d(x) */
         out[40] = 0.0;
-        out[41] = 0.0;
+        out[41] = jac_fpa_ref;
         out[42] = 0.0;
         out[43] = jac_fpa;
         out[44] = 0.0;
@@ -340,3 +344,4 @@ void acado_evaluateLSQEndTerm( const real_t *in, real_t *out )
 {
     lsq_obj_eval(in, out, true);
 } /* acado_evaluateLSQEndTerm */
+

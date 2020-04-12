@@ -232,14 +232,16 @@ class NonlinearMPC {
             IDX_OD_K_PITCH,
             IDX_OD_TAU_PROP,
             IDX_OD_FLAPS,
+            IDX_OD_FPA_REF,
+            IDX_OD_JAC_FPA_REF,
             IDX_OD_HEADING_REF,
             IDX_OD_SOFT_AIRSP, // externally evaluated objectives and jacobians
             IDX_OD_JAC_SOFT_AIRSP,
             IDX_OD_SOFT_AOA,
             IDX_OD_JAC_SOFT_AOA,
-            IDX_OD_SOFT_HAGL = 15,
+            IDX_OD_SOFT_HAGL = 17,
             IDX_OD_JAC_SOFT_HAGL,
-            IDX_OD_SOFT_RTD = 20,
+            IDX_OD_SOFT_RTD = 22,
             IDX_OD_JAC_SOFT_RTD
         }; // online data
         const int IDX_OD_OBJ = IDX_OD_SOFT_AIRSP; // starting index of externally evaluated objectives and jacobians
