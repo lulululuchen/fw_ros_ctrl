@@ -12,10 +12,10 @@ find_package(catkin REQUIRED COMPONENTS
 generate_dynamic_reconfigure_options(
   cfg/fw_ctrl.cfg
   cfg/control.cfg
-  cfg/guidance.cfg
   cfg/manual_control.cfg
   cfg/occlusion_detection.cfg
   cfg/soft_constraints.cfg
+  cfg/trajectory_generation.cfg
 )
 
 add_message_files(
@@ -42,6 +42,8 @@ catkin_package(
 
 include_directories(
   include
+  include/guidance
+  include/common
   src
   src/acado_solver
   src/acado_solver/qpoases/INCLUDE
@@ -51,11 +53,9 @@ include_directories(
 
 add_library(fw_nmpc_lib
   src/nonlinear_mpc.cpp
-  src/guidance_logic.cpp
-  src/helpers.cpp
-  src/huber_constraint.cpp
   src/nonlinear_mpc_objectives.cpp
   src/occlusion_detector.cpp
+  src/trajectory_generator.cpp
   src/acado_solver/acado_auxiliary_functions.c
   src/acado_solver/acado_integrator.c
   src/acado_solver/acado_qpoases_interface.cpp
@@ -71,6 +71,10 @@ add_library(fw_nmpc_lib
   src/acado_solver/qpoases/SRC/Utils.cpp
   src/acado_solver/qpoases/SRC/EXTRAS/SolutionAnalysis.cpp
   src/acado_solver/lsq_objective.c
+  src/common/helpers.cpp
+  src/common/huber_constraint.cpp
+  src/guidance/npfg.cpp
+  src/guidance/pwqg.cpp
 )
 
 add_executable(fw_nmpc

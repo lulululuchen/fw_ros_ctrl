@@ -17,6 +17,9 @@ class NonlinearMPCObjectives {
 
         static constexpr double MIN_SURFEL_RADIUS = 0.1;   // minimum surfel radius for occlusions (below this implies we consider only points) [m]
 
+        /* Airspeed Objective */
+        void jacobianAirsp(double *jac);
+
         /* Angle of Attack (AoA) Objective */
         void jacobianAOA(double *jac);
 

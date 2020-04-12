@@ -26,7 +26,7 @@
                         <curve_0>
                             <axes>
                                 <x_axis>
-                                    <field>v/0</field>
+                                    <field></field>
                                     <field_type>1</field_type>
                                     <scale>
                                         <absolute_maximum>1000</absolute_maximum>
@@ -53,7 +53,7 @@
                                 </y_axis>
                             </axes>
                             <color>
-                                <custom_color>#ef2929</custom_color>
+                                <custom_color>#555753</custom_color>
                                 <type>1</type>
                             </color>
                             <data>
@@ -63,7 +63,7 @@
                             </data>
                             <style>
                                 <lines_interpolate>false</lines_interpolate>
-                                <pen_style>4</pen_style>
+                                <pen_style>2</pen_style>
                                 <pen_width>2</pen_width>
                                 <render_antialias>false</render_antialias>
                                 <steps_invert>false</steps_invert>
@@ -72,12 +72,12 @@
                                 <type>0</type>
                             </style>
                             <subscriber_queue_size>100</subscriber_queue_size>
-                            <title>Airspeed Reference</title>
+                            <title>Airspeed Ref.</title>
                         </curve_0>
                         <curve_1>
                             <axes>
                                 <x_axis>
-                                    <field>v</field>
+                                    <field></field>
                                     <field_type>1</field_type>
                                     <scale>
                                         <absolute_maximum>1000</absolute_maximum>
@@ -104,7 +104,7 @@
                                 </y_axis>
                             </axes>
                             <color>
-                                <custom_color>#a40000</custom_color>
+                                <custom_color>#ef2929</custom_color>
                                 <type>1</type>
                             </color>
                             <data>
@@ -129,7 +129,7 @@
                     <legend>
                         <visible>true</visible>
                     </legend>
-                    <plot_rate>30</plot_rate>
+                    <plot_rate>10</plot_rate>
                     <title>Airspeed</title>
                 </column_0>
             </row_0>
@@ -153,8 +153,8 @@
                         <curve_0>
                             <axes>
                                 <x_axis>
-                                    <field>header/stamp</field>
-                                    <field_type>0</field_type>
+                                    <field></field>
+                                    <field_type>1</field_type>
                                     <scale>
                                         <absolute_maximum>1000</absolute_maximum>
                                         <absolute_minimum>0</absolute_minimum>
@@ -162,11 +162,11 @@
                                         <relative_minimum>-1000</relative_minimum>
                                         <type>0</type>
                                     </scale>
-                                    <topic>/mavros/wind_estimation</topic>
-                                    <type>geometry_msgs/TwistWithCovarianceStamped</type>
+                                    <topic>/nmpc/obj_ref</topic>
+                                    <type>fw_ctrl/NMPCObjRef</type>
                                 </x_axis>
                                 <y_axis>
-                                    <field>twist/twist/linear/y</field>
+                                    <field>fpa/0</field>
                                     <field_type>0</field_type>
                                     <scale>
                                         <absolute_maximum>1000</absolute_maximum>
@@ -175,12 +175,12 @@
                                         <relative_minimum>-1000</relative_minimum>
                                         <type>0</type>
                                     </scale>
-                                    <topic>/mavros/wind_estimation</topic>
-                                    <type>geometry_msgs/TwistWithCovarianceStamped</type>
+                                    <topic>/nmpc/obj_ref</topic>
+                                    <type>fw_ctrl/NMPCObjRef</type>
                                 </y_axis>
                             </axes>
                             <color>
-                                <custom_color>#729fcf</custom_color>
+                                <custom_color>#555753</custom_color>
                                 <type>1</type>
                             </color>
                             <data>
@@ -190,7 +190,7 @@
                             </data>
                             <style>
                                 <lines_interpolate>false</lines_interpolate>
-                                <pen_style>1</pen_style>
+                                <pen_style>2</pen_style>
                                 <pen_width>2</pen_width>
                                 <render_antialias>false</render_antialias>
                                 <steps_invert>false</steps_invert>
@@ -199,13 +199,13 @@
                                 <type>0</type>
                             </style>
                             <subscriber_queue_size>100</subscriber_queue_size>
-                            <title>w_n</title>
+                            <title>FPA Ref.</title>
                         </curve_0>
                         <curve_1>
                             <axes>
                                 <x_axis>
-                                    <field>header/stamp</field>
-                                    <field_type>0</field_type>
+                                    <field></field>
+                                    <field_type>1</field_type>
                                     <scale>
                                         <absolute_maximum>1000</absolute_maximum>
                                         <absolute_minimum>0</absolute_minimum>
@@ -213,11 +213,11 @@
                                         <relative_minimum>-1000</relative_minimum>
                                         <type>0</type>
                                     </scale>
-                                    <topic>/mavros/wind_estimation</topic>
-                                    <type>geometry_msgs/TwistWithCovarianceStamped</type>
+                                    <topic>/nmpc/measurements</topic>
+                                    <type>fw_ctrl/NMPCMeasurements</type>
                                 </x_axis>
                                 <y_axis>
-                                    <field>twist/twist/linear/x</field>
+                                    <field>fpa</field>
                                     <field_type>0</field_type>
                                     <scale>
                                         <absolute_maximum>1000</absolute_maximum>
@@ -226,12 +226,12 @@
                                         <relative_minimum>-1000</relative_minimum>
                                         <type>0</type>
                                     </scale>
-                                    <topic>/mavros/wind_estimation</topic>
-                                    <type>geometry_msgs/TwistWithCovarianceStamped</type>
+                                    <topic>/nmpc/measurements</topic>
+                                    <type>fw_ctrl/NMPCMeasurements</type>
                                 </y_axis>
                             </axes>
                             <color>
-                                <custom_color>#8ae234</custom_color>
+                                <custom_color>#ef2929</custom_color>
                                 <type>1</type>
                             </color>
                             <data>
@@ -250,14 +250,14 @@
                                 <type>0</type>
                             </style>
                             <subscriber_queue_size>100</subscriber_queue_size>
-                            <title>w_e</title>
+                            <title>FPA</title>
                         </curve_1>
                     </curves>
                     <legend>
                         <visible>true</visible>
                     </legend>
-                    <plot_rate>30</plot_rate>
-                    <title>Wind Estimate</title>
+                    <plot_rate>10</plot_rate>
+                    <title>Flight Path Angle</title>
                 </column_0>
             </row_1>
             <row_2>
@@ -280,8 +280,8 @@
                         <curve_0>
                             <axes>
                                 <x_axis>
-                                    <field>header/stamp</field>
-                                    <field_type>0</field_type>
+                                    <field></field>
+                                    <field_type>1</field_type>
                                     <scale>
                                         <absolute_maximum>1000</absolute_maximum>
                                         <absolute_minimum>0</absolute_minimum>
@@ -289,11 +289,11 @@
                                         <relative_minimum>-1000</relative_minimum>
                                         <type>0</type>
                                     </scale>
-                                    <topic>/mavros/vfr_hud</topic>
-                                    <type>mavros_msgs/VFR_HUD</type>
+                                    <topic>/nmpc/obj_ref</topic>
+                                    <type>fw_ctrl/NMPCObjRef</type>
                                 </x_axis>
                                 <y_axis>
-                                    <field>groundspeed</field>
+                                    <field>heading/0</field>
                                     <field_type>0</field_type>
                                     <scale>
                                         <absolute_maximum>1000</absolute_maximum>
@@ -302,12 +302,63 @@
                                         <relative_minimum>-1000</relative_minimum>
                                         <type>0</type>
                                     </scale>
-                                    <topic>/mavros/vfr_hud</topic>
-                                    <type>mavros_msgs/VFR_HUD</type>
+                                    <topic>/nmpc/obj_ref</topic>
+                                    <type>fw_ctrl/NMPCObjRef</type>
                                 </y_axis>
                             </axes>
                             <color>
-                                <custom_color>#2e3436</custom_color>
+                                <custom_color>#555753</custom_color>
+                                <type>1</type>
+                            </color>
+                            <data>
+                                <circular_buffer_capacity>1000</circular_buffer_capacity>
+                                <time_frame_length>10</time_frame_length>
+                                <type>3</type>
+                            </data>
+                            <style>
+                                <lines_interpolate>false</lines_interpolate>
+                                <pen_style>2</pen_style>
+                                <pen_width>2</pen_width>
+                                <render_antialias>false</render_antialias>
+                                <steps_invert>false</steps_invert>
+                                <sticks_baseline>0</sticks_baseline>
+                                <sticks_orientation>2</sticks_orientation>
+                                <type>0</type>
+                            </style>
+                            <subscriber_queue_size>100</subscriber_queue_size>
+                            <title>Heading Ref.</title>
+                        </curve_0>
+                        <curve_1>
+                            <axes>
+                                <x_axis>
+                                    <field></field>
+                                    <field_type>1</field_type>
+                                    <scale>
+                                        <absolute_maximum>1000</absolute_maximum>
+                                        <absolute_minimum>0</absolute_minimum>
+                                        <relative_maximum>0</relative_maximum>
+                                        <relative_minimum>-1000</relative_minimum>
+                                        <type>0</type>
+                                    </scale>
+                                    <topic>/nmpc/measurements</topic>
+                                    <type>fw_ctrl/NMPCMeasurements</type>
+                                </x_axis>
+                                <y_axis>
+                                    <field>heading</field>
+                                    <field_type>0</field_type>
+                                    <scale>
+                                        <absolute_maximum>1000</absolute_maximum>
+                                        <absolute_minimum>0</absolute_minimum>
+                                        <relative_maximum>0</relative_maximum>
+                                        <relative_minimum>-1000</relative_minimum>
+                                        <type>0</type>
+                                    </scale>
+                                    <topic>/nmpc/measurements</topic>
+                                    <type>fw_ctrl/NMPCMeasurements</type>
+                                </y_axis>
+                            </axes>
+                            <color>
+                                <custom_color>#ef2929</custom_color>
                                 <type>1</type>
                             </color>
                             <data>
@@ -326,14 +377,14 @@
                                 <type>0</type>
                             </style>
                             <subscriber_queue_size>100</subscriber_queue_size>
-                            <title>abs. ground speed</title>
-                        </curve_0>
+                            <title>Heading</title>
+                        </curve_1>
                     </curves>
                     <legend>
                         <visible>true</visible>
                     </legend>
-                    <plot_rate>30</plot_rate>
-                    <title>Ground Speed</title>
+                    <plot_rate>10</plot_rate>
+                    <title>Heading</title>
                 </column_0>
             </row_2>
         </plots>

@@ -5,10 +5,10 @@
 
 namespace fw_nmpc {
 
-const double DEG_TO_RAD = 0.017453292519943;    // degrees to radians XXX: is there really no other function already built in for this?
-const double AIR_GAS_CONST = 287.1;             // [J/(kg*K)]
-const double ABSOLUTE_NULL_CELSIUS = -273.15;   // [C]
-const double ONE_G = 9.81;                      // [m/s^2]
+static const double DEG_TO_RAD = 0.017453292519943;    // degrees to radians XXX: is there really no other function already built in for this?
+static const double AIR_GAS_CONST = 287.1;             // [J/(kg*K)]
+static const double ABSOLUTE_NULL_CELSIUS = -273.15;   // [C]
+static const double ONE_G = 9.81;                      // [m/s^2]
 
 /*
  * compilation of helpful functions common to fw_nmpc
@@ -21,7 +21,6 @@ double constrain(const double x, const double xmin, const double xmax);
 // math
 void cross(double *v, const double v1[3], const double v2[3]);
 double dot(const double v1[3], const double v2[3]);
-void renormalizeUnitVelocity(Eigen::Vector3d &unit_vel);
 
 // conversions / transformations
 double calcAirDensity(const double static_pressure_pa, const double temperature_c);
@@ -30,7 +29,10 @@ void calculateSpeedStates(double *air_vel, double *ground_vel,
     double &ground_sp_lat_sq, double &ground_sp_lat, double *unit_ground_vel_lat,
     double *air_polar, double *wind_vel);
 void ll2NE(double &north, double &east, const double lat, const double lon, const double lat_origin, const double lon_origin);
+Eigen::Vector2d rotate2d(const Eigen::Vector2d &vec, const double angle);
+Eigen::Vector2d rotate2d(const double sinx, const double cosx, const Eigen::Vector2d &vec);
 double unwrapHeading(const double yaw_meas, const bool reset);
+double wrapPi(double angle);
 
 // terrain interpretation functions
 double getTerrainAltitude(const double pos_n, const double pos_e, const double pos_n_origin, const double pos_e_origin,

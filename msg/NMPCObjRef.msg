@@ -1,16 +1,17 @@
 # ROS message containing NMPC objective references
 # Thomas Stastny | thomas.stastny@mavt.ethz.ch
 
-float32[50] vn        # unit ground speed, north [~]
-float32[50] ve        # unit ground speed, east [~]
-float32[50] vd        # unit ground speed, down [~]
-float32[50] v         # airspeed [m/s]
-float32[50] phi       # roll angle [rad]
-float32[50] theta     # pitch angle [rad]
-float32[50] soft_aoa  # soft angle of attack [~]
-float32[50] soft_hagl # soft height above ground level (HAGL) [~]
-float32[50] soft_rtd  # soft radial terrain distance (RTD) [~]
+float32[50] pos_n       # position north [m]
+float32[50] pos_e       # position east [m]
+float32[50] airsp       # airspeed [m/s]
+float32[50] fpa         # flight path angle [rad]
+float32[50] heading     # heading angle [rad]
+float32[50] soft_airsp  # soft airspeed [~]
+float32[50] soft_aoa    # soft angle of attack (AoA) [~]
+float32[50] soft_hagl   # soft height above ground level (HAGL) [~]
+float32[50] soft_rtd    # soft radial terrain distance (RTD) [~]
 
-float32[50] u_T       # throttle input [~]
-float32[50] phi_ref   # roll angle reference [rad]
-float32[50] theta_ref # pitch angle reference [rad]
+
+float32[50] throt       # throttle input [~]
+float32[50] roll_ref    # roll angle reference [rad]
+float32[50] pitch_ref   # pitch angle reference [rad]

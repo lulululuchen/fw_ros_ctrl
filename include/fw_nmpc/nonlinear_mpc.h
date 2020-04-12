@@ -89,20 +89,22 @@
 #include "acado_auxiliary_functions.h"
 
 // fw_nmpc
-#include <fw_nmpc/guidance_logic.h>
-#include <fw_nmpc/helpers.h>
-#include <fw_nmpc/huber_constraint.h>
+#include <fw_nmpc/common/helpers.h>
+#include <fw_nmpc/common/huber_constraint.h>
+#include <fw_nmpc/guidance/npfg.h>
+#include <fw_nmpc/guidance/pwqg.h>
 #include <fw_nmpc/nonlinear_mpc_objectives.h>
 #include <fw_nmpc/occlusion_detector.h>
+#include <fw_nmpc/trajectory_generator.h>
 
 // dynamic reconfigure
 #include <dynamic_reconfigure/server.h>
 #include <fw_ctrl/fw_ctrlConfig.h>
 #include <fw_ctrl/controlConfig.h>
-#include <fw_ctrl/guidanceConfig.h>
 #include <fw_ctrl/manual_controlConfig.h>
 #include <fw_ctrl/occlusion_detectionConfig.h>
 #include <fw_ctrl/soft_constraintsConfig.h>
+#include <fw_ctrl/trajectory_generationConfig.h>
 
 ACADOvariables acadoVariables;
 ACADOworkspace acadoWorkspace;
@@ -110,7 +112,6 @@ ACADOworkspace acadoWorkspace;
 namespace fw_nmpc {
 
 const int MAX_SIZE_TERR_ARRAY = 300000; // maximum allowed size of the local terrain map
-const double  MANUAL_CONTROL_DZ = 0.06; // dead-zone for stick on manual control
 
 /* indexing enumeration */
 
@@ -150,12 +151,12 @@ class NonlinearMPC {
     private:
 
         /* node handles */
-        ros::NodeHandle nmpc_;                          // nmpc node handle
-        ros::NodeHandle control_config_nh_;             // node handle for dynamic reconfig of control params
-        ros::NodeHandle guidance_config_nh_;            // node handle for dynamic reconfig of guidance params
-        ros::NodeHandle manual_control_config_nh_;      // node handle for dynamic reconfig of manual control params
-        ros::NodeHandle occlusion_detection_config_nh_; // node handle for dynamic reconfig of occlusion detection params
-        ros::NodeHandle soft_constraints_config_nh_;    // node handle for dynamic reconfig of soft constraints params
+        ros::NodeHandle nmpc_;                              // nmpc node handle
+        ros::NodeHandle control_config_nh_;                 // node handle for dynamic reconfig of control params
+        ros::NodeHandle manual_control_config_nh_;          // node handle for dynamic reconfig of manual control params
+        ros::NodeHandle occlusion_detection_config_nh_;     // node handle for dynamic reconfig of occlusion detection params
+        ros::NodeHandle soft_constraints_config_nh_;        // node handle for dynamic reconfig of soft constraints params
+        ros::NodeHandle trajectory_generation_config_nh_;   // node handle for dynamic reconfig of trajectory generation params
 
         /* subscribers */
         ros::Subscriber act_sub_;
@@ -185,60 +186,66 @@ class NonlinearMPC {
         ros::Publisher nmpc_online_data_pub_;
         ros::Publisher nmpc_states_pub_;
         ros::Publisher nmpc_traj_pred_pub_;
+        ros::Publisher nmpc_traj_ref_pub_;
         ros::Publisher obctrl_status_pub_;
         ros::Publisher thrust_pub_;
-        ros::Publisher unit_gnd_vel_ref_pub_;
+        ros::Publisher air_vel_ref_pub_;
 
         /* indexing */
 
-        enum IndexStates {
+        enum IndexStates { // TODO: change the greek symbols to the actual state names
             IDX_X_POS = 0,
-            IDX_X_V = 3,
-            IDX_X_GAMMA,
-            IDX_X_XI,
-            IDX_X_PHI,
-            IDX_X_THETA,
-            IDX_X_NPROP
+            IDX_X_AIRSP = 3,
+            IDX_X_FPA,
+            IDX_X_HEADING,
+            IDX_X_ROLL,
+            IDX_X_PITCH,
+            IDX_X_PROP_SP
         }; // states
 
         enum IndexControls {
-            IDX_U_U_T = 0,
-            IDX_U_PHI_REF,
-            IDX_U_THETA_REF
+            IDX_U_THROT = 0,
+            IDX_U_ROLL_REF,
+            IDX_U_PITCH_REF
         }; // controls
 
         enum IndexOutputs {
-            IDX_Y_VN = 0,
-            IDX_Y_VE,
-            IDX_Y_VD,
-            IDX_Y_V,
-            IDX_Y_PHI,
-            IDX_Y_THETA,
+            IDX_Y_POS = 0,
+            IDX_Y_AIRSP = 2,
+            IDX_Y_FPA,
+            IDX_Y_HEADING,
+            IDX_Y_SOFT_AIRSP,
             IDX_Y_SOFT_AOA,
             IDX_Y_SOFT_HAGL,
             IDX_Y_SOFT_RTD,
-            IDX_Y_U_T,
-            IDX_Y_PHI_REF,
-            IDX_Y_THETA_REF
+            IDX_Y_THROT,
+            IDX_Y_ROLL_REF,
+            IDX_Y_PITCH_REF
         }; // outputs
 
-        enum IndexOnlineData {
-            IDX_OD_RHO = 0, // online parameters
-            IDX_OD_W,
-            IDX_OD_TAU_PHI = 4,
-            IDX_OD_TAU_THETA,
-            IDX_OD_K_PHI,
-            IDX_OD_K_THETA,
-            IDX_OD_TAU_N,
-            IDX_OD_DELTA_F,
-            IDX_OD_SOFT_AOA, // externally evaluated objectives and jacobians
+        enum IndexOnlineData { // TODO: change the greek symbols to the actual state names
+            IDX_OD_AIR_DENSITY = 0, // online parameters
+            IDX_OD_WIND,
+            IDX_OD_TAU_ROLL = 4,
+            IDX_OD_TAU_PITCH,
+            IDX_OD_K_ROLL,
+            IDX_OD_K_PITCH,
+            IDX_OD_TAU_PROP,
+            IDX_OD_FLAPS,
+            IDX_OD_FPA_REF,
+            IDX_OD_JAC_FPA_REF,
+            IDX_OD_HEADING_REF,
+            IDX_OD_SOFT_AIRSP, // externally evaluated objectives and jacobians
+            IDX_OD_JAC_SOFT_AIRSP,
+            IDX_OD_SOFT_AOA,
             IDX_OD_JAC_SOFT_AOA,
-            IDX_OD_SOFT_HAGL = 13,
+            IDX_OD_SOFT_HAGL = 17,
             IDX_OD_JAC_SOFT_HAGL,
-            IDX_OD_SOFT_RTD = 18,
+            IDX_OD_SOFT_RTD = 22,
             IDX_OD_JAC_SOFT_RTD
         }; // online data
-        const int IDX_OD_OBJ = IDX_OD_SOFT_AOA; // starting index of externally evaluated objectives and jacobians
+        const int IDX_OD_OBJ = IDX_OD_SOFT_AIRSP; // starting index of externally evaluated objectives and jacobians
+        const int LEN_JAC_SOFT_AIRSP = IDX_OD_SOFT_AOA - IDX_OD_JAC_SOFT_AIRSP; // how many states we are taking the jacobian w.r.t.
         const int LEN_JAC_SOFT_AOA = IDX_OD_SOFT_HAGL - IDX_OD_JAC_SOFT_AOA; // how many states we are taking the jacobian w.r.t.
         const int LEN_JAC_SOFT_HAGL = IDX_OD_SOFT_RTD - IDX_OD_JAC_SOFT_HAGL; // how many states we are taking the jacobian w.r.t.
         const int LEN_JAC_SOFT_RTD = 6; // how many states we are taking the jacobian w.r.t.
@@ -295,7 +302,7 @@ class NonlinearMPC {
             double tau_pitch;
             double k_roll;
             double k_pitch;
-            double tau_n_prop;
+            double tau_prop;
         } model_parameters_;
 
         // control parameters
@@ -317,10 +324,6 @@ class NonlinearMPC {
         dynamic_reconfigure::Server<fw_ctrl::controlConfig> serverControl;
         dynamic_reconfigure::Server<fw_ctrl::controlConfig>::CallbackType f_control;
 
-        // The dynamic reconfigure server + callback for guidance parameters
-        dynamic_reconfigure::Server<fw_ctrl::guidanceConfig> serverGuidance;
-        dynamic_reconfigure::Server<fw_ctrl::guidanceConfig>::CallbackType f_guidance;
-
         // The dynamic reconfigure server + callback for manual control configuration
         dynamic_reconfigure::Server<fw_ctrl::manual_controlConfig> serverManualControl;
         dynamic_reconfigure::Server<fw_ctrl::manual_controlConfig>::CallbackType f_manual_control;
@@ -333,11 +336,15 @@ class NonlinearMPC {
         dynamic_reconfigure::Server<fw_ctrl::soft_constraintsConfig> serverSoftConstraints;
         dynamic_reconfigure::Server<fw_ctrl::soft_constraintsConfig>::CallbackType f_soft_constraints;
 
+        // The dynamic reconfigure server + callback for trajectory generation parameters
+        dynamic_reconfigure::Server<fw_ctrl::trajectory_generationConfig> serverTrajectoryGeneration;
+        dynamic_reconfigure::Server<fw_ctrl::trajectory_generationConfig>::CallbackType f_trajectory_generation;
+
         void parametersCallbackControl(const fw_ctrl::controlConfig &config, const uint32_t& level);
-        void parametersCallbackGuidance(const fw_ctrl::guidanceConfig &config, const uint32_t& level);
         void parametersCallbackManualControl(const fw_ctrl::manual_controlConfig &config, const uint32_t& level);
         void parametersCallbackOcclusionDetection(const fw_ctrl::occlusion_detectionConfig &config, const uint32_t& level);
         void parametersCallbackSoftConstraints(const fw_ctrl::soft_constraintsConfig &config, const uint32_t& level);
+        void parametersCallbackTrajectoryGeneration(const fw_ctrl::trajectory_generationConfig &config, const uint32_t& level);
 
         /* functions */
 
@@ -359,12 +366,16 @@ class NonlinearMPC {
 
         // objective pre-evaluation functions
         void detectOcclusions();
-        void evaluateAOAObjective();
-        void evaluateHAGLObjective();
-        void evaluateRTDObjective();
+        void evaluateSoftAirspeedObjective();
+        void evaluateSoftAOAObjective();
+        void evaluateSoftHAGLObjective();
+        void evaluateSoftRTDObjective();
         void findNearestRayOrigins();
         void preEvaluateObjectives();
+        void setControlObjectiveReferences();
+        void setManualControlReferences();
         void setOcclusionWindows();
+        void setPathFollowingReferences();
 
         // NMPC functions
         void applyControl();                // apply current optimal control
@@ -376,7 +387,7 @@ class NonlinearMPC {
         void updateAcadoOD();               // update ACADO online data
         void updateAcadoW();                // update ACADO weighting matrices
         void updateAcadoX0();               // update ACADO state measurements
-        void updateAcadoY();                // update ACADO references
+        void updateAcadoY();                // update ACADO objective references
         void updateObjectiveParameters();
 
         // initialization
@@ -423,9 +434,7 @@ class NonlinearMPC {
         /* solver matrices */
         Eigen::Matrix<double, ACADO_NX, 1> x0_;             // measured states
         Eigen::Matrix<double, ACADO_NU, 1> u_;              // currently applied controls
-        Eigen::Matrix<double, ACADO_NU, ACADO_N> u_ref_;    // control reference horizon
-        Eigen::Matrix<double, ACADO_NY, ACADO_N> y_;        // objective references
-        Eigen::Matrix<double, ACADO_NYN, 1> yN_;            // end term objective references
+        Eigen::Matrix<double, ACADO_NY, ACADO_N+1> y_;      // objective references (including end term)
         Eigen::Matrix<double, ACADO_NY, 1> inv_y_scale_sq_; // inverse output scale squared diagonal
         Eigen::Matrix<double, ACADO_NY, 1> w_;              // weight diagonal (before scaling / prioritization)
         Eigen::Matrix<double, ACADO_NOD, ACADO_N+1> od_;    // online data
@@ -443,10 +452,11 @@ class NonlinearMPC {
         Eigen::Matrix<int, ACADO_N+1, 1> nearest_ray_origin_;   // closest ray origin to each MPC node
         double surfel_radius_;                                  // occlusion surfel radius [m] (=0 implies a point)
 
-        /* guidance logic */
-        GuidanceLogic gl_;                          // object containing various guidance logic functionality
-        ManualControlSetpoint manual_control_sp_;   // structure for manual control setpoints
-        PathSetpoint path_sp_;                      // structure for path setpoints
+        /* reference trajectories */
+        TrajectoryGenerator traj_gen_;                  // object containing guidance logic and relevant functionality for generating desired trajectories
+        ManualControlSetpoint manual_control_sp_;       // structure for manual control setpoints
+        ManualControlInput manual_control_input_;       // structure for raw manual control inputs
+        PathSetpoint path_sp_;                          // structure for path setpoints
 
         /* external objective evaluation functions */
         NonlinearMPCObjectives ext_obj_;
@@ -470,6 +480,7 @@ class NonlinearMPC {
         Eigen::Matrix<double, ACADO_N+1, 1> terrain_alt_horizon_;
 
         /* soft constraints */
+        ExponentialHuberConstraint huber_airsp_{"lower"};
         ExponentialHuberConstraint huber_aoa_p_{"upper"};
         ExponentialHuberConstraint huber_aoa_m_{"lower"};
         ExponentialHuberConstraint huber_hagl_{"lower"};
@@ -483,9 +494,10 @@ class NonlinearMPC {
         } huber_rtd_params_;
 
         /* objective priorities */
-        Eigen::Matrix<double, ACADO_N+1, 1> inv_prio_aoa_;  // inverse priority of soft angle of attack
-        Eigen::Matrix<double, ACADO_N+1, 1> inv_prio_hagl_; // inverse priority of soft height above ground level (HAGL)
-        Eigen::Matrix<double, ACADO_N+1, 1> inv_prio_rtd_;  // inverse priority of soft radial terrain distance (RTD)
+        Eigen::Matrix<double, ACADO_N+1, 1> inv_prio_airsp_;    // inverse priority of soft airspeed
+        Eigen::Matrix<double, ACADO_N+1, 1> inv_prio_aoa_;      // inverse priority of soft angle of attack
+        Eigen::Matrix<double, ACADO_N+1, 1> inv_prio_hagl_;     // inverse priority of soft height above ground level (HAGL)
+        Eigen::Matrix<double, ACADO_N+1, 1> inv_prio_rtd_;      // inverse priority of soft radial terrain distance (RTD)
 
         /* timing */
         ros::Time t_last_ctrl_; // time of last control action [s]

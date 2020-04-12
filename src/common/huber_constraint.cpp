@@ -1,4 +1,4 @@
-#include <fw_nmpc/huber_constraint.h>
+#include <fw_nmpc/common/huber_constraint.h>
 #include <math.h>
 
 namespace fw_nmpc {

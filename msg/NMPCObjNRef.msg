@@ -1,12 +1,12 @@
 # ROS message containing NMPC end term objective references
 # Thomas Stastny | thomas.stastny@mavt.ethz.ch
 
-float32 vn        # unit ground speed, north [~]
-float32 ve        # unit ground speed, east [~]
-float32 vd        # unit ground speed, down [~]
-float32 v         # airspeed [m/s]
-float32 phi       # roll angle [rad]
-float32 theta     # pitch angle [rad]
-float32 soft_aoa  # soft angle of attack [~]
-float32 soft_hagl # soft height above ground level (HAGL) [~]
-float32 soft_rtd  # soft radial terrain distance (RTD) [~]
+float32 pos_n       # position north [m]
+float32 pos_e       # position east [m]
+float32 airsp       # airspeed [m/s]
+float32 fpa         # flight path angle [rad]
+float32 heading     # heading angle [rad]
+float32 soft_airsp  # soft airspeed [~]
+float32 soft_aoa    # soft angle of attack (AoA) [~]
+float32 soft_hagl   # soft height above ground level (HAGL) [~]
+float32 soft_rtd    # soft radial terrain distance (RTD) [~]
