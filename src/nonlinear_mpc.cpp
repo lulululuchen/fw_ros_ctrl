@@ -89,7 +89,6 @@ NonlinearMPC::NonlinearMPC() :
     occ_window_start_(Eigen::Matrix<int, ACADO_N+1, 1>::Zero()),
     nearest_ray_origin_(Eigen::Matrix<int, ACADO_N+1, 1>::Zero()),
     surfel_radius_(0.0),
-    n_approach_neglect_(0),
     terrain_alt_horizon_(Eigen::Matrix<double, ACADO_N+1, 1>::Zero()),
     inv_prio_airsp_(Eigen::Matrix<double, ACADO_N+1, 1>::Ones()),
     inv_prio_aoa_(Eigen::Matrix<double, ACADO_N+1, 1>::Ones()),
@@ -486,7 +485,6 @@ void NonlinearMPC::parametersCallbackTrajectoryGeneration(const fw_ctrl::traject
     traj_gen_.setNPFGParams(config.en_min_ground_speed, config.min_ground_speed_g, config.min_ground_speed_e_max,
         config.nte_fraction, config.lat_p_gain, config.lat_time_const, config.wind_ratio_buf);
     traj_gen_.setPWQGParams(config.fix_vert_pos_err_bnd, config.lon_time_const, config.fpa_app_max * DEG_TO_RAD, config.vert_pos_err_bnd);
-    n_approach_neglect_ = constrain(config.n_approach_neglect, 0, ACADO_N+1);
 
     traj_gen_.enableOffTrackRollFF(config.en_off_track_roll_ff);
     traj_gen_.setMode(TrajectoryGenerator::TGMode::GUIDE_TO_PATH_FROM_CURRENT_HEADING); // for now, disallow the alternative
@@ -1677,13 +1675,6 @@ void NonlinearMPC::prioritizeObjectives()
         y_(IDX_Y_AIRSP, ACADO_N) = y_(IDX_Y_AIRSP, ACADO_N) * inv_prio + (1.0 - inv_prio) * control_parameters_.airsp_ref;  // y airsp ref
         acadoVariables.WN[ACADO_NYN*IDX_Y_FPA+IDX_Y_FPA] *= inv_prio;                                                       // y fpa
         acadoVariables.WN[ACADO_NYN*IDX_Y_HEADING+IDX_Y_HEADING] *= inv_prio;                                               // y heading
-    }
-
-    // neglect approach trajectory feed-forwards // TODO: see if this is actually needed.. (need to check high wind scenarios)
-    for (int i=0; i<n_approach_neglect_; i++) {
-        acadoVariables.W[ACADO_NY*ACADO_NY*i+ACADO_NY*IDX_Y_AIRSP+IDX_Y_AIRSP] = 0.0;
-        acadoVariables.W[ACADO_NY*ACADO_NY*i+ACADO_NY*IDX_Y_FPA+IDX_Y_FPA] = 0.0;
-        acadoVariables.W[ACADO_NY*ACADO_NY*i+ACADO_NY*IDX_Y_HEADING+IDX_Y_HEADING] = 0.0;
     }
 
     // TODO: should we de-prioritize off-nominal airspeed refs and feed-forward heading refs when far from the position setpoints?

@@ -457,7 +457,6 @@ class NonlinearMPC {
         ManualControlSetpoint manual_control_sp_;       // structure for manual control setpoints
         ManualControlInput manual_control_input_;       // structure for raw manual control inputs
         PathSetpoint path_sp_;                          // structure for path setpoints
-        int n_approach_neglect_;                        // number of nodes from 0 we neglect generated heading and airspeed reference trajectories
 
         /* external objective evaluation functions */
         NonlinearMPCObjectives ext_obj_;
