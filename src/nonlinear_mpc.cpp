@@ -89,6 +89,7 @@ NonlinearMPC::NonlinearMPC() :
     occ_window_start_(Eigen::Matrix<int, ACADO_N+1, 1>::Zero()),
     nearest_ray_origin_(Eigen::Matrix<int, ACADO_N+1, 1>::Zero()),
     surfel_radius_(0.0),
+    aoa_p_(0.1222),
     terrain_alt_horizon_(Eigen::Matrix<double, ACADO_N+1, 1>::Zero()),
     inv_prio_airsp_(Eigen::Matrix<double, ACADO_N+1, 1>::Ones()),
     inv_prio_aoa_(Eigen::Matrix<double, ACADO_N+1, 1>::Ones()),
@@ -461,6 +462,7 @@ void NonlinearMPC::parametersCallbackSoftConstraints(const fw_ctrl::soft_constra
     huber_airsp_.setCostAtOne(config.cost_airsp_1);
 
     // soft angle of attack parameters
+    aoa_p_ = config.aoa_p*DEG_TO_RAD; // needed for pitch ref constraint
     huber_aoa_p_.setConstraint(config.aoa_p*DEG_TO_RAD);
     huber_aoa_p_.setDelta(config.delta_aoa*DEG_TO_RAD);
     huber_aoa_p_.setCostAtOne(config.cost_aoa_1);
@@ -1718,7 +1720,7 @@ void NonlinearMPC::updateAcadoConstraints()
 
         acadoVariables.ubValues[ACADO_NU * i + IDX_U_THROT] = ub_(IDX_U_THROT);
         acadoVariables.ubValues[ACADO_NU * i + IDX_U_ROLL_REF] = ub_(IDX_U_ROLL_REF);
-        acadoVariables.ubValues[ACADO_NU * i + IDX_U_PITCH_REF] = ub_(IDX_U_PITCH_REF);
+        acadoVariables.ubValues[ACADO_NU * i + IDX_U_PITCH_REF] = std::min(ub_(IDX_U_PITCH_REF), acadoVariables.x[ACADO_NX * i + IDX_X_FPA] + aoa_p_);
     }
 
 } // updateAcadoConstraints

@@ -480,6 +480,7 @@ class NonlinearMPC {
         Eigen::Matrix<double, ACADO_N+1, 1> terrain_alt_horizon_;
 
         /* soft constraints */
+        double aoa_p_;
         ExponentialHuberConstraint huber_airsp_{"lower"};
         ExponentialHuberConstraint huber_aoa_p_{"upper"};
         ExponentialHuberConstraint huber_aoa_m_{"lower"};
