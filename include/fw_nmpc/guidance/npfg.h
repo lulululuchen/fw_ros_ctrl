@@ -17,6 +17,7 @@ class NPFG {
 
         // gets
         double getAirspeedRef() { return airspeed_ref_; }
+        Eigen::Vector2d getAirVelRef() { return air_vel_ref_; }
         double getBearingFeas() { return feas_; }
         Eigen::Vector2d getBearingVec() { return bearing_vec_; }
         double getLateralAccel() { return lateral_accel_; }
@@ -66,6 +67,7 @@ class NPFG {
         double airspeed_nom_;           // nominal airspeed reference [m/s]
         double airspeed_max_;           // maximum airspeed reference [m/s]
         double airspeed_ref_;           // airspeed reference [m/s]
+        Eigen::Vector2d air_vel_ref_;   // air velocity reference [m/s]
         double wind_ratio_buf_;         // percentage buffer of bearing feasibility at lambda = 90 deg (NOTE: this is constant to avoid oscillations)
 
         double inv_nte_fraction_;       // 1 / ( fraction of the normalized track error for which we consider full ground speed compensation )

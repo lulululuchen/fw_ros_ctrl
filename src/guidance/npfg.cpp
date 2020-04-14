@@ -16,6 +16,7 @@ NPFG::NPFG() :
     airspeed_nom_(14.0),
     airspeed_max_(20.0),
     airspeed_ref_(14.0),
+    air_vel_ref_(Eigen::Vector2d(1.0, 0.0)),
     wind_ratio_buf_(0.1),
     inv_nte_fraction_(0.5),
     min_ground_speed_e_(0.0),
@@ -411,6 +412,7 @@ void NPFG::evaluate(const Eigen::Vector2d &ground_vel, const Eigen::Vector2d &wi
         air_vel_ref = calcRefAirVelocityFB(wind_vel, bearing_vec_, wind_cross_bearing, wind_dot_bearing, wind_speed, airspeed, use_backwards_solution);
         airspeed_ref_ = calcRefAirspeed(wind_vel, bearing_vec_, wind_cross_bearing, wind_dot_bearing, wind_speed, min_ground_speed);
     }
+    air_vel_ref_ = air_vel_ref; // TODO: this is only used for output right now, disambiguate naming...
 
     // air velocity curvature adjustment -- feedback
     adjustRefAirVelForCurvature(air_vel_ref, wind_vel, unit_path_tangent, wind_speed, airspeed, feas_, track_proximity, p_gain_adj_, use_backwards_solution);
