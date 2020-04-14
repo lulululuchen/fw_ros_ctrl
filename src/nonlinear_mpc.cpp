@@ -409,6 +409,7 @@ void NonlinearMPC::parametersCallbackControl(const fw_ctrl::controlConfig &confi
 
     // objective references
     control_parameters_.airsp_ref = config.airsp_ref;
+    control_parameters_.airsp_max = std::min(config.airsp_max, veh_parameters_.airsp_max);
 
     // terrain avoidance parameters
     control_parameters_.enable_terrain_feedback = config.enable_terrain_feedback;
@@ -457,7 +458,7 @@ void NonlinearMPC::parametersCallbackOcclusionDetection(const fw_ctrl::occlusion
 void NonlinearMPC::parametersCallbackSoftConstraints(const fw_ctrl::soft_constraintsConfig &config, const uint32_t& level)
 {
     // soft airspeed parameters
-    huber_airsp_.setConstraint(config.airsp_min); // should be set to something just below desired airspeed min [m/s]
+    huber_airsp_.setConstraint(config.airsp_soft_min); // should be set to something just below desired airspeed min [m/s]
     huber_airsp_.setDelta(config.delta_airsp); // should lead to somewhere close to desired airspeed min [m/s]
     huber_airsp_.setCostAtOne(config.cost_airsp_1);
 
@@ -1035,9 +1036,18 @@ void NonlinearMPC::detectOcclusions()
             }
 
             // forward ray direction
-            occ_[IDX_OCC_FWD].ray_list_[i][IDX_OCC_NORMAL] = spds_[k_node].unit_ground_vel[1]; // E
-            occ_[IDX_OCC_FWD].ray_list_[i][IDX_OCC_NORMAL+1] = spds_[k_node].unit_ground_vel[0]; // N
-            occ_[IDX_OCC_FWD].ray_list_[i][IDX_OCC_NORMAL+2] = -spds_[k_node].unit_ground_vel[2]; // U
+            if (spds_[k_node].ground_sp < 0.01) {
+                // cast from air velocity vector
+                const double inv_airsp = 1.0 / acadoVariables.x[ACADO_NX*k_node + IDX_X_AIRSP];
+                occ_[IDX_OCC_FWD].ray_list_[i][IDX_OCC_NORMAL] = spds_[k_node].air_vel[1] * inv_airsp; // E
+                occ_[IDX_OCC_FWD].ray_list_[i][IDX_OCC_NORMAL+1] = spds_[k_node].air_vel[0] * inv_airsp; // N
+                occ_[IDX_OCC_FWD].ray_list_[i][IDX_OCC_NORMAL+2] = -spds_[k_node].air_vel[2] * inv_airsp; // U
+            }
+            else {
+                occ_[IDX_OCC_FWD].ray_list_[i][IDX_OCC_NORMAL] = spds_[k_node].unit_ground_vel[1]; // E
+                occ_[IDX_OCC_FWD].ray_list_[i][IDX_OCC_NORMAL+1] = spds_[k_node].unit_ground_vel[0]; // N
+                occ_[IDX_OCC_FWD].ray_list_[i][IDX_OCC_NORMAL+2] = -spds_[k_node].unit_ground_vel[2]; // U
+            }
             // forward ray length
             occ_[IDX_OCC_FWD].ray_list_[i][IDX_OCC_RAY_LEN]
                 = ext_obj_.calculateRTDConstraint(spds_[k_node].ground_sp_sq, huber_rtd_params_.constr_0, huber_rtd_params_.constr_scaler)
@@ -1048,7 +1058,7 @@ void NonlinearMPC::detectOcclusions()
             occ_[IDX_OCC_RIGHT].ray_list_[i][IDX_OCC_NORMAL] = spds_[k_node].unit_ground_vel_lat[0]; // N -> E
             occ_[IDX_OCC_RIGHT].ray_list_[i][IDX_OCC_NORMAL+1] = -spds_[k_node].unit_ground_vel_lat[1]; // -E -> N
             occ_[IDX_OCC_RIGHT].ray_list_[i][IDX_OCC_NORMAL+2] = 0.0;
-            // forward ray length
+            // right ray length
             occ_[IDX_OCC_RIGHT].ray_list_[i][IDX_OCC_RAY_LEN] = ray_length_0;
 
             // left ray direction
@@ -1403,7 +1413,7 @@ void NonlinearMPC::setPathFollowingReferences()
     traj_gen_.setDT(node_parameters_.iteration_timestep);
     traj_gen_.genTrajectoryToPath2D(y_pos_, y_airsp_, y_heading_, y_phi_ref_, ACADO_N+1,
         x0_pos_.segment(0,2), x0_vel_.segment(0,2), x0_(IDX_X_AIRSP), x0_(IDX_X_HEADING), x0_wind_.segment(0,2),
-        control_parameters_.airsp_ref, veh_parameters_.airsp_max, path_sp_, control_parameters_.roll_lim_rad);
+        control_parameters_.airsp_ref, control_parameters_.airsp_max, path_sp_, control_parameters_.roll_lim_rad);
 
     // evaluate longitudinal guidance at every node with current state prediction // XXX: this is more of a feedback term currently, need to extend windy guidance to 3D for a proper 3D trajectory generation
     Eigen::Vector3d veh_pos;
@@ -1457,6 +1467,7 @@ void NonlinearMPC::applyControl()
         theta_ref = 0.0;
         re_init_horizon_ = true;
         obctrl_status_ = OffboardControlStatus::BAD_SOLUTION;
+        ROS_ERROR("applyControl: NaN(s) in control solution");
     }
     else {
         // constrain to bounds XXX: adapt these if necessary once we start playing with the constraints

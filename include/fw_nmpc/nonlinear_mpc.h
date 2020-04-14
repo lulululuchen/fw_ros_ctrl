@@ -308,6 +308,7 @@ class NonlinearMPC {
         struct ControlParameters {
             double roll_lim_rad;
             double airsp_ref;
+            double airsp_max;
             bool enable_terrain_feedback;
             double tau_terr;
             bool use_ff_roll_ref;
