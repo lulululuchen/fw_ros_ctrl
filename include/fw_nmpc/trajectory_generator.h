@@ -105,6 +105,10 @@ class TrajectoryGenerator {
         double evaluateLongitudinalGuidance(double &err_lon, double *jac_fpa_sp, const PathSetpoint &path_sp, const Eigen::Vector3d &veh_pos,
             const double ground_speed, const double airspeed, const double wind_vel_d);
 
+        void evaluateLateralDirectionalGuidance(double &airsp_ref, double &heading_ref, double &roll_ref,
+            const Eigen::Vector2d &pos, const Eigen::Vector2d &ground_vel, const double ground_speed, const Eigen::Vector2d &wind_vel,
+            const double airspeed_nom, const double airspeed_max, const PathSetpoint &path_sp, const double roll_lim_rad);
+
         // path following calculations
 
         static double calcRefPoseOnLine(Eigen::Vector3d &closest_pt_on_path, const Eigen::Vector3d &pt_on_line, const Eigen::Vector3d &unit_dir_vec, const Eigen::Vector3d& veh_pos);

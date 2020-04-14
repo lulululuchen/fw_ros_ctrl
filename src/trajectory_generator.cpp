@@ -822,6 +822,40 @@ double TrajectoryGenerator::evaluateLongitudinalGuidance(double &err_lon, double
     return pwqg_.evaluate(err_lon, jac_fpa_sp, pos_d_ref, path_sp.dir(2), veh_pos(2), ground_speed, airspeed, wind_vel_d); // return fpa
 } // evaluateLongitudinalGuidance
 
+void TrajectoryGenerator::evaluateLateralDirectionalGuidance(double &airsp_ref, double &heading_ref, double &roll_ref,
+    const Eigen::Vector2d &pos, const Eigen::Vector2d &ground_vel, const double ground_speed, const Eigen::Vector2d &wind_vel,
+    const double airspeed_nom, const double airspeed_max, const PathSetpoint &path_sp, const double roll_lim_rad)
+{
+    // npfg params
+    npfg_.setAirspeedMax(airspeed_max); // XXX: consider augmenting these for any demanded fpa usage
+    npfg_.setAirspeedNom(airspeed_nom);
+
+    // path geometry
+    Eigen::Vector2d closest_pt_on_path, unit_path_tangent;
+    double path_curvature;
+    if (path_sp.type == PathTypes::LOITER) {
+        calcRefPoseOnLoiter2D(closest_pt_on_path, unit_path_tangent, path_sp.pos.segment(0,2), path_sp.signed_radius, pos, ground_vel, ground_speed);
+        npfg_.setPathCurvature(1.0 / path_sp.signed_radius);
+    }
+    else if (path_sp.type == PathTypes::LINE) {
+        calcRefPoseOnLine2D(closest_pt_on_path, path_sp.pos.segment(0,2), unit_path_tangent, pos);
+        npfg_.setPathCurvature(0.0);
+    }
+    else {
+        // XXX ..
+    }
+    Eigen::Vector2d track_error_vec = closest_pt_on_path - pos;
+
+    // evaluate guidance
+    npfg_.evaluate(ground_vel, wind_vel, track_error_vec, unit_path_tangent);
+
+    // get guidance outputs
+    Eigen::Vector2d air_vel_ref = npfg_.getAirVelRef();
+    airsp_ref = npfg_.getAirspeedRef();
+    heading_ref = atan2f(air_vel_ref(1), air_vel_ref(0));
+    roll_ref = constrain(atanf(npfg_.getLateralAccel() * INV_ONE_G), -roll_lim_rad, roll_lim_rad);
+} // evaluateLateralDirectionalGuidance
+
 /*
     END TRAJECTORY GENERATION
 */
