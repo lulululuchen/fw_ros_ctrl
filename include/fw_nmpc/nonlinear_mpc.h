@@ -48,6 +48,7 @@
 #include <fw_ctrl/NMPCObjRef.h>
 #include <fw_ctrl/NMPCOnlineData.h>
 #include <fw_ctrl/NMPCStates.h>
+#include <fw_ctrl/WindGroundTruth.h>
 #include <geometry_msgs/Quaternion.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/TwistStamped.h>
@@ -137,6 +138,7 @@ class NonlinearMPC {
         void sysStatusCb(const mavros_msgs::State::ConstPtr& msg);
         void tempCCb(const sensor_msgs::Temperature::ConstPtr& msg);
         void windEstCb(const geometry_msgs::TwistWithCovarianceStamped::ConstPtr& msg);
+        void windGndTruthCb(const visualization_msgs::MarkerArray::ConstPtr& msg);
 
         /* functions */
         void checkSubs();
@@ -170,6 +172,7 @@ class NonlinearMPC {
         ros::Subscriber sys_status_ext_sub_;
         ros::Subscriber temp_c_sub_;
         ros::Subscriber wind_est_sub_;
+        ros::Subscriber wind_ground_truth_sub_;
 
         /* publishers */
         ros::Publisher att_sp_pub_;
@@ -190,6 +193,7 @@ class NonlinearMPC {
         ros::Publisher obctrl_status_pub_;
         ros::Publisher thrust_pub_;
         ros::Publisher air_vel_ref_pub_;
+        ros::Publisher wind_ground_truth_pub_;
 
         /* indexing */
 
@@ -402,6 +406,7 @@ class NonlinearMPC {
         tf::Quaternion ned_enu_q_;                  // ned to enu (or visa versa) quaternion
         tf::Quaternion aircraft_baselink_q_;        // aircraft to baselink (or visa versa) quaternion
         Eigen::Vector3d translate_world_to_home_;   // XXX: for now.. ground truth to "map" frame translation
+        tf::Quaternion q_ned_;                      // current ned quaternion
 
         /* pixhawk states / estimates */
         double flaps_normalized_;   // normalized flaps setting
@@ -418,6 +423,7 @@ class NonlinearMPC {
         Eigen::Vector3d x0_vel_;    // local velocity (ned) [m]
         Eigen::Vector3d x0_euler_;  // attitude (euler angles - RPY) [rad]
         Eigen::Vector3d x0_wind_;   // wind estimate (ned) [m/s]
+        Eigen::Vector3d wind_ground_truth_;
 
         /* virtual states */
         double n_prop_virt_;        // virtual propeller speed state [rps]

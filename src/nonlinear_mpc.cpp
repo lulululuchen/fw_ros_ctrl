@@ -67,6 +67,7 @@ NonlinearMPC::NonlinearMPC() :
     x0_vel_(Eigen::Vector3d::Zero()),
     x0_euler_(Eigen::Vector3d::Zero()),
     x0_wind_(Eigen::Vector3d::Zero()),
+    wind_ground_truth_(Eigen::Vector3d::Zero()),
     n_prop_virt_(0.0),
     map_origin_north_(0.0),
     map_origin_east_(0.0),
@@ -119,6 +120,7 @@ NonlinearMPC::NonlinearMPC() :
     sys_status_ext_sub_ = nmpc_.subscribe("/mavros/extended_state", 1, &NonlinearMPC::sysStatusExtCb, this);
     temp_c_sub_ = nmpc_.subscribe("/mavros/imu/temperature_imu", 1, &NonlinearMPC::tempCCb, this);
     wind_est_sub_ = nmpc_.subscribe("/mavros/wind_estimation", 1, &NonlinearMPC::windEstCb, this);
+    wind_ground_truth_sub_ = nmpc_.subscribe("/uav_1/aero_force_vis_0/body_0", 1, &NonlinearMPC::windGndTruthCb, this);
 
     /* publishers */
     att_sp_pub_ = nmpc_.advertise<geometry_msgs::PoseStamped>("/mavros/setpoint_attitude/attitude", 1);
@@ -139,6 +141,7 @@ NonlinearMPC::NonlinearMPC() :
     obctrl_status_pub_ = nmpc_.advertise<std_msgs::Int32>("/nmpc/status", 1);
     thrust_pub_ = nmpc_.advertise<mavros_msgs::Thrust>("/mavros/setpoint_attitude/thrust", 1);
     air_vel_ref_pub_ = nmpc_.advertise<visualization_msgs::MarkerArray>("/nmpc/air_vel_ref",1);
+    wind_ground_truth_pub_ = nmpc_.advertise<fw_ctrl::WindGroundTruth>("/nmpc/wind_ground_truth",1);
 
     /* dynamic reconfigure */
 
@@ -290,10 +293,10 @@ void NonlinearMPC::imuCb(const sensor_msgs::Imu::ConstPtr& msg) // imu msg callb
     tf::quaternionMsgToTF(msg->orientation, q_enu); // MAVROS only publishes ENU orientation
 
     // convert to NED
-    tf::Quaternion q_ned = ned_enu_q_ * q_enu * aircraft_baselink_q_; // XXX: maybe should just add a publisher for the ned quaternion already stored in MAVROS?
+    q_ned_ = ned_enu_q_ * q_enu * aircraft_baselink_q_; // XXX: maybe should just add a publisher for the ned quaternion already stored in MAVROS?
 
     double roll, pitch, yaw;
-    tf::Matrix3x3(q_ned).getRPY(roll, pitch, yaw);
+    tf::Matrix3x3(q_ned_).getRPY(roll, pitch, yaw);
 
     x0_euler_(0) = roll;
     x0_euler_(1) = pitch;
@@ -358,6 +361,36 @@ void NonlinearMPC::windEstCb(const geometry_msgs::TwistWithCovarianceStamped::Co
     x0_wind_(1) = msg->twist.twist.linear.x;
     x0_wind_(2) = -msg->twist.twist.linear.z;
 } // windEstCb
+
+void NonlinearMPC::windGndTruthCb(const visualization_msgs::MarkerArray::ConstPtr& msg) // wind ground truth msg callback
+{
+    tf::Vector3 wind_frd;
+    wind_frd.setX(msg->markers[1].points[1].x - msg->markers[1].points[0].x); // F -> F
+    wind_frd.setY(-(msg->markers[1].points[1].y - msg->markers[1].points[0].y)); // L -> R
+    wind_frd.setZ(-(msg->markers[1].points[1].z - msg->markers[1].points[0].z)); // U -> D
+
+    // rotate body to inertial frame
+    tf::Vector3 wind_ned = tf::quatRotate(q_ned_, wind_frd);
+    wind_ground_truth_(0) = wind_ned.getX();
+    wind_ground_truth_(1) = wind_ned.getY();
+    wind_ground_truth_(2) = wind_ned.getZ();
+
+    // ground truth
+    fw_ctrl::WindGroundTruth wind_msg;
+    wind_msg.north = wind_ground_truth_(0);
+    wind_msg.east = wind_ground_truth_(1);
+    wind_msg.down = wind_ground_truth_(2);
+    double wind_speed = wind_ground_truth_.norm();
+    wind_msg.speed = wind_speed;
+    wind_msg.azimuth = (wind_speed < 0.01) ? 0.0 : atan2f(wind_ground_truth_(1), wind_ground_truth_(0));
+    wind_msg.inclination = (wind_speed < 0.01) ? 0.0 : -asinf(wind_ground_truth_(2) / wind_speed);
+    // ekf2
+    wind_speed = x0_wind_.norm();
+    wind_msg.ekf2_speed = wind_speed;
+    wind_msg.ekf2_azimuth = (wind_speed < 0.01) ? 0.0 : atan2f(x0_wind_(1), x0_wind_(0));
+    wind_msg.ekf2_inclination = (wind_speed < 0.01) ? 0.0 : -asinf(x0_wind_(2) / wind_speed);
+    wind_ground_truth_pub_.publish(wind_msg);
+}
 
 void NonlinearMPC::checkSubs()
 {

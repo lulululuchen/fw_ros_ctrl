@@ -28,6 +28,7 @@ add_message_files(
   NMPCObjRef.msg
   NMPCOnlineData.msg
   NMPCStates.msg
+  WindGroundTruth.msg
 )
 
 generate_messages(
