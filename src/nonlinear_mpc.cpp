@@ -120,7 +120,7 @@ NonlinearMPC::NonlinearMPC() :
     sys_status_ext_sub_ = nmpc_.subscribe("/mavros/extended_state", 1, &NonlinearMPC::sysStatusExtCb, this);
     temp_c_sub_ = nmpc_.subscribe("/mavros/imu/temperature_imu", 1, &NonlinearMPC::tempCCb, this);
     wind_est_sub_ = nmpc_.subscribe("/mavros/wind_estimation", 1, &NonlinearMPC::windEstCb, this);
-    wind_ground_truth_sub_ = nmpc_.subscribe("/uav_1/aero_force_vis_0/body_0", 1, &NonlinearMPC::windGndTruthCb, this);
+    wind_ground_truth_sub_ = nmpc_.subscribe("/uav_1/aero_force_vis_0", 1, &NonlinearMPC::windGndTruthCb, this);
 
     /* publishers */
     att_sp_pub_ = nmpc_.advertise<geometry_msgs::PoseStamped>("/mavros/setpoint_attitude/attitude", 1);
@@ -365,12 +365,12 @@ void NonlinearMPC::windEstCb(const geometry_msgs::TwistWithCovarianceStamped::Co
 void NonlinearMPC::windGndTruthCb(const visualization_msgs::MarkerArray::ConstPtr& msg) // wind ground truth msg callback
 {
     tf::Vector3 wind_frd;
-    wind_frd.setX(msg->markers[1].points[1].x - msg->markers[1].points[0].x); // F -> F
-    wind_frd.setY(-(msg->markers[1].points[1].y - msg->markers[1].points[0].y)); // L -> R
-    wind_frd.setZ(-(msg->markers[1].points[1].z - msg->markers[1].points[0].z)); // U -> D
+    wind_frd.setX(msg->markers[0].points[1].x - msg->markers[0].points[0].x); // F -> F
+    wind_frd.setY(-(msg->markers[0].points[1].y - msg->markers[0].points[0].y)); // L -> R
+    wind_frd.setZ(-(msg->markers[0].points[1].z - msg->markers[0].points[0].z)); // U -> D
 
     // rotate body to inertial frame
-    tf::Vector3 wind_ned = tf::quatRotate(q_ned_, wind_frd);
+    tf::Vector3 wind_ned = tf::quatRotate(q_ned_, wind_frd); // TODO: replace this with either the ground truth attitude, or bring in inertial wind to begin with
     wind_ground_truth_(0) = wind_ned.getX();
     wind_ground_truth_(1) = wind_ned.getY();
     wind_ground_truth_(2) = wind_ned.getZ();
@@ -442,7 +442,7 @@ void NonlinearMPC::parametersCallbackControl(const fw_ctrl::controlConfig &confi
 
     // objective references
     control_parameters_.airsp_ref = config.airsp_ref;
-    control_parameters_.airsp_max = std::min(config.airsp_max, veh_parameters_.airsp_max);
+    control_parameters_.airsp_max = config.airsp_max;
 
     // terrain avoidance parameters
     control_parameters_.enable_terrain_feedback = config.enable_terrain_feedback;
@@ -1437,16 +1437,21 @@ void NonlinearMPC::setManualControlReferences()
 
 void NonlinearMPC::setPathFollowingReferences()
 {
-    Eigen::Ref<Eigen::MatrixXd> y_pos_ = y_.block(IDX_Y_POS, 0, 2, ACADO_N+1);
-    Eigen::Ref<Eigen::MatrixXd> y_phi_ref_ = y_.block(IDX_Y_ROLL_REF, 0, 1, ACADO_N+1);
-    Eigen::Ref<Eigen::MatrixXd> y_airsp_ = y_.block(IDX_Y_AIRSP, 0, 1, ACADO_N+1);
-    Eigen::Ref<Eigen::MatrixXd> y_heading_ = od_.block(IDX_OD_HEADING_REF, 0, 1, ACADO_N+1);
+    const double airsp_max = std::min(control_parameters_.airsp_max, veh_parameters_.airsp_max);
+    bool excess_wind = x0_wind_.segment(0,2).norm() > airsp_max;
 
-    // generate a 2D trajectory to the path
-    traj_gen_.setDT(node_parameters_.iteration_timestep);
-    traj_gen_.genTrajectoryToPath2D(y_pos_, y_airsp_, y_heading_, y_phi_ref_, ACADO_N+1,
-        x0_pos_.segment(0,2), x0_vel_.segment(0,2), x0_(IDX_X_AIRSP), x0_(IDX_X_HEADING), x0_wind_.segment(0,2),
-        control_parameters_.airsp_ref, control_parameters_.airsp_max, path_sp_, control_parameters_.roll_lim_rad);
+    if (!excess_wind) {
+        Eigen::Ref<Eigen::MatrixXd> y_pos_ = y_.block(IDX_Y_POS, 0, 2, ACADO_N+1);
+        Eigen::Ref<Eigen::MatrixXd> y_phi_ref_ = y_.block(IDX_Y_ROLL_REF, 0, 1, ACADO_N+1);
+        Eigen::Ref<Eigen::MatrixXd> y_airsp_ = y_.block(IDX_Y_AIRSP, 0, 1, ACADO_N+1);
+        Eigen::Ref<Eigen::MatrixXd> y_heading_ = od_.block(IDX_OD_HEADING_REF, 0, 1, ACADO_N+1);
+
+        // generate a 2D trajectory to the path
+        traj_gen_.setDT(node_parameters_.iteration_timestep); // XXX: does this need to be set here every time? -- maybe move it up to the dyn reconfig callback
+        traj_gen_.genTrajectoryToPath2D(y_pos_, y_airsp_, y_heading_, y_phi_ref_, ACADO_N+1,
+            x0_pos_.segment(0,2), x0_vel_.segment(0,2), x0_(IDX_X_AIRSP), x0_(IDX_X_HEADING), x0_wind_.segment(0,2),
+            control_parameters_.airsp_ref, airsp_max, path_sp_, control_parameters_.roll_lim_rad);
+    }
 
     // evaluate longitudinal guidance at every node with current state prediction // XXX: this is more of a feedback term currently, need to extend windy guidance to 3D for a proper 3D trajectory generation
     Eigen::Vector3d veh_pos;
@@ -1458,8 +1463,30 @@ void NonlinearMPC::setPathFollowingReferences()
         veh_pos(2) = acadoVariables.x[i * ACADO_NX + IDX_X_POS+2];
 
         double jac_fpa_ref[1];
-        od_(IDX_OD_FPA_REF, i) = traj_gen_.evaluateLongitudinalGuidance(err_lon, jac_fpa_ref, path_sp_, veh_pos, spds_[i].ground_sp, acadoVariables.x[i * ACADO_NX + IDX_X_AIRSP], x0_wind_(2));
+        od_(IDX_OD_FPA_REF, i) = traj_gen_.evaluateLongitudinalGuidance(err_lon, jac_fpa_ref, path_sp_, veh_pos, spds_[i].ground_sp,
+            acadoVariables.x[i * ACADO_NX + IDX_X_AIRSP], x0_wind_(2));
         od_(IDX_OD_JAC_FPA_REF, i) = jac_fpa_ref[0];
+
+        if (excess_wind) {
+            // excess wind case, TODO: something better than this.
+            y_.block(IDX_Y_POS, 0, 2, ACADO_N+1) = veh_pos.segment(0,2); // these are not actually used in this case.. more just for visualization
+
+            // kill the position weights -- TODO: this should probably be done in the prioritization function to keep things orderly/easy to follow..
+            if (i < ACADO_N) {
+                acadoVariables.W[ACADO_NY*ACADO_NY*i+ACADO_NY*IDX_Y_POS+IDX_Y_POS] = 0.0; // y pos_n
+                acadoVariables.W[ACADO_NY*ACADO_NY*i+ACADO_NY*(IDX_Y_POS+1)+IDX_Y_POS+1] = 0.0; // y pos_e
+            }
+            else {
+                acadoVariables.WN[ACADO_NYN*IDX_Y_POS+IDX_Y_POS] = 0.0; // y pos_n
+                acadoVariables.WN[ACADO_NYN*(IDX_Y_POS+1)+IDX_Y_POS+1] = 0.0; // y pos_e
+            }
+
+            // evaluate the lateral-directional guidance at each node
+            Eigen::Vector2d ground_vel(spds_[i].ground_vel[0], spds_[i].ground_vel[1]);
+            traj_gen_.evaluateLateralDirectionalGuidance(y_(IDX_Y_AIRSP, i), od_(IDX_OD_HEADING_REF, i), y_(IDX_Y_ROLL_REF, i),
+                veh_pos.segment(0,2), ground_vel, spds_[i].ground_sp, x0_wind_.segment(0,2), control_parameters_.airsp_ref, airsp_max,
+                path_sp_, control_parameters_.roll_lim_rad);
+        }
     }
 } // setPathFollowingReferences
 
