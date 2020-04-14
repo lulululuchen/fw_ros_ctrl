@@ -217,10 +217,10 @@ void NonlinearMPCObjectives::calculateRTDCostAndJacobian(double &rtd_cost, doubl
 void NonlinearMPCObjectives::calculateVelocityJacobianMatrix(Eigen::Matrix<double, 3, 3> &J_vel,
     const double airspeed, const double fpa, const double heading)
 {
-    const double cos_fpa = cos(fpa);
-    const double sin_fpa = sin(fpa);
-    const double cos_heading = cos(heading);
-    const double sin_heading = sin(heading);
+    const double cos_fpa = cosf(fpa);
+    const double sin_fpa = sinf(fpa);
+    const double cos_heading = cosf(heading);
+    const double sin_heading = sinf(heading);
 
     J_vel(0,0) = cos_fpa * cos_heading;
     J_vel(0,1) = cos_fpa * sin_heading;

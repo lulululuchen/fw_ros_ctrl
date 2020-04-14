@@ -1809,13 +1809,13 @@ void NonlinearMPC::updateAcadoX0()
         }
         else {
             x0_(IDX_X_FPA) = -asinf(airsp_vec(2)/airsp); // flight path angle
-            x0_(IDX_X_HEADING) = unwrapHeading(atan2(airsp_vec(1),airsp_vec(0)), re_init_horizon_); // heading
+            x0_(IDX_X_HEADING) = unwrapHeading(atan2f(airsp_vec(1),airsp_vec(0)), re_init_horizon_); // heading
         }
     }
     else {
         x0_(IDX_X_AIRSP) = airsp; // airspeed
         x0_(IDX_X_FPA) = -asinf(airsp_vec(2)/airsp); // flight path angle
-        x0_(IDX_X_HEADING) = unwrapHeading(atan2(airsp_vec(1),airsp_vec(0)), re_init_horizon_); // heading
+        x0_(IDX_X_HEADING) = unwrapHeading(atan2f(airsp_vec(1),airsp_vec(0)), re_init_horizon_); // heading
     }
 
     // attitude

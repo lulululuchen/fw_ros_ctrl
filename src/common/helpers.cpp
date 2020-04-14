@@ -55,14 +55,14 @@ void calculateSpeedStates(double *air_vel, double *ground_vel,
     double &ground_sp_lat_sq, double &ground_sp_lat, double *unit_ground_vel_lat,
     double *air_polar, double *wind_vel)
 {
-    const double v_cos_gamma = air_polar[0] * cos(air_polar[1]);
-    const double cos_xi = cos(air_polar[2]);
-    const double sin_xi = sin(air_polar[2]);
+    const double v_cos_gamma = air_polar[0] * cosf(air_polar[1]);
+    const double cos_xi = cosf(air_polar[2]);
+    const double sin_xi = sinf(air_polar[2]);
 
     // airspeed
     air_vel[0] = v_cos_gamma * cos_xi; // v_n
     air_vel[1] = v_cos_gamma * sin_xi; // v_e
-    air_vel[2] = -air_polar[0] * sin(air_polar[1]); // v_d
+    air_vel[2] = -air_polar[0] * sinf(air_polar[1]); // v_d
 
     // ground speed
     ground_vel[0] = air_vel[0] + wind_vel[0]; // vG_n
@@ -119,8 +119,8 @@ void ll2NE(double &north, double &east, const double lat, const double lon, cons
 
 Eigen::Vector2d rotate2d(const Eigen::Vector2d &vec, const double angle)
 {
-    const double cos_angle = cos(angle);
-    const double sin_angle = sin(angle);
+    const double cos_angle = cosf(angle);
+    const double sin_angle = sinf(angle);
     return Eigen::Vector2d(vec(0) * cos_angle + vec(1) * -sin_angle, vec(0) * sin_angle + vec(1) * cos_angle);
 } // rotate2d
 
