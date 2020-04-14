@@ -125,12 +125,114 @@
                             <subscriber_queue_size>100</subscriber_queue_size>
                             <title>Airspeed</title>
                         </curve_1>
+                        <curve_2>
+                            <axes>
+                                <x_axis>
+                                    <field>speed</field>
+                                    <field_type>1</field_type>
+                                    <scale>
+                                        <absolute_maximum>1000</absolute_maximum>
+                                        <absolute_minimum>0</absolute_minimum>
+                                        <relative_maximum>0</relative_maximum>
+                                        <relative_minimum>-1000</relative_minimum>
+                                        <type>0</type>
+                                    </scale>
+                                    <topic>/nmpc/wind_ground_truth</topic>
+                                    <type>fw_ctrl/WindGroundTruth</type>
+                                </x_axis>
+                                <y_axis>
+                                    <field>speed</field>
+                                    <field_type>0</field_type>
+                                    <scale>
+                                        <absolute_maximum>1000</absolute_maximum>
+                                        <absolute_minimum>0</absolute_minimum>
+                                        <relative_maximum>0</relative_maximum>
+                                        <relative_minimum>-1000</relative_minimum>
+                                        <type>0</type>
+                                    </scale>
+                                    <topic>/nmpc/wind_ground_truth</topic>
+                                    <type>fw_ctrl/WindGroundTruth</type>
+                                </y_axis>
+                            </axes>
+                            <color>
+                                <custom_color>#729fcf</custom_color>
+                                <type>1</type>
+                            </color>
+                            <data>
+                                <circular_buffer_capacity>1000</circular_buffer_capacity>
+                                <time_frame_length>10</time_frame_length>
+                                <type>3</type>
+                            </data>
+                            <style>
+                                <lines_interpolate>false</lines_interpolate>
+                                <pen_style>3</pen_style>
+                                <pen_width>2</pen_width>
+                                <render_antialias>false</render_antialias>
+                                <steps_invert>false</steps_invert>
+                                <sticks_baseline>0</sticks_baseline>
+                                <sticks_orientation>2</sticks_orientation>
+                                <type>0</type>
+                            </style>
+                            <subscriber_queue_size>100</subscriber_queue_size>
+                            <title>GT Wind Speed</title>
+                        </curve_2>
+                        <curve_3>
+                            <axes>
+                                <x_axis>
+                                    <field>ekf2_speed</field>
+                                    <field_type>1</field_type>
+                                    <scale>
+                                        <absolute_maximum>1000</absolute_maximum>
+                                        <absolute_minimum>0</absolute_minimum>
+                                        <relative_maximum>0</relative_maximum>
+                                        <relative_minimum>-1000</relative_minimum>
+                                        <type>0</type>
+                                    </scale>
+                                    <topic>/nmpc/wind_ground_truth</topic>
+                                    <type>fw_ctrl/WindGroundTruth</type>
+                                </x_axis>
+                                <y_axis>
+                                    <field>ekf2_speed</field>
+                                    <field_type>0</field_type>
+                                    <scale>
+                                        <absolute_maximum>1000</absolute_maximum>
+                                        <absolute_minimum>0</absolute_minimum>
+                                        <relative_maximum>0</relative_maximum>
+                                        <relative_minimum>-1000</relative_minimum>
+                                        <type>0</type>
+                                    </scale>
+                                    <topic>/nmpc/wind_ground_truth</topic>
+                                    <type>fw_ctrl/WindGroundTruth</type>
+                                </y_axis>
+                            </axes>
+                            <color>
+                                <custom_color>#204a87</custom_color>
+                                <type>1</type>
+                            </color>
+                            <data>
+                                <circular_buffer_capacity>1000</circular_buffer_capacity>
+                                <time_frame_length>10</time_frame_length>
+                                <type>3</type>
+                            </data>
+                            <style>
+                                <lines_interpolate>false</lines_interpolate>
+                                <pen_style>1</pen_style>
+                                <pen_width>2</pen_width>
+                                <render_antialias>false</render_antialias>
+                                <steps_invert>false</steps_invert>
+                                <sticks_baseline>0</sticks_baseline>
+                                <sticks_orientation>2</sticks_orientation>
+                                <type>0</type>
+                            </style>
+                            <subscriber_queue_size>100</subscriber_queue_size>
+                            <title>EKF2 Wind Speed</title>
+                        </curve_3>
                     </curves>
                     <legend>
                         <visible>true</visible>
                     </legend>
-                    <plot_rate>30</plot_rate>
-                    <title>Airspeed</title>
+                    <plot_rate>10</plot_rate>
+                    <title>Speeds</title>
                 </column_0>
             </row_0>
             <row_1>
@@ -166,7 +268,7 @@
                                     <type>geometry_msgs/TwistWithCovarianceStamped</type>
                                 </x_axis>
                                 <y_axis>
-                                    <field>twist/twist/linear/y</field>
+                                    <field>twist/twist/linear/z</field>
                                     <field_type>0</field_type>
                                     <scale>
                                         <absolute_maximum>1000</absolute_maximum>
@@ -180,7 +282,7 @@
                                 </y_axis>
                             </axes>
                             <color>
-                                <custom_color>#729fcf</custom_color>
+                                <custom_color>#4e9a06</custom_color>
                                 <type>1</type>
                             </color>
                             <data>
@@ -199,13 +301,13 @@
                                 <type>0</type>
                             </style>
                             <subscriber_queue_size>100</subscriber_queue_size>
-                            <title>w_n</title>
+                            <title>EKF2 Wind Z</title>
                         </curve_0>
                         <curve_1>
                             <axes>
                                 <x_axis>
-                                    <field>header/stamp</field>
-                                    <field_type>0</field_type>
+                                    <field></field>
+                                    <field_type>1</field_type>
                                     <scale>
                                         <absolute_maximum>1000</absolute_maximum>
                                         <absolute_minimum>0</absolute_minimum>
@@ -213,11 +315,11 @@
                                         <relative_minimum>-1000</relative_minimum>
                                         <type>0</type>
                                     </scale>
-                                    <topic>/mavros/wind_estimation</topic>
-                                    <type>geometry_msgs/TwistWithCovarianceStamped</type>
+                                    <topic>/nmpc/wind_ground_truth</topic>
+                                    <type>fw_ctrl/WindGroundTruth</type>
                                 </x_axis>
                                 <y_axis>
-                                    <field>twist/twist/linear/x</field>
+                                    <field>down</field>
                                     <field_type>0</field_type>
                                     <scale>
                                         <absolute_maximum>1000</absolute_maximum>
@@ -226,8 +328,8 @@
                                         <relative_minimum>-1000</relative_minimum>
                                         <type>0</type>
                                     </scale>
-                                    <topic>/mavros/wind_estimation</topic>
-                                    <type>geometry_msgs/TwistWithCovarianceStamped</type>
+                                    <topic>/nmpc/wind_ground_truth</topic>
+                                    <type>fw_ctrl/WindGroundTruth</type>
                                 </y_axis>
                             </axes>
                             <color>
@@ -241,7 +343,7 @@
                             </data>
                             <style>
                                 <lines_interpolate>false</lines_interpolate>
-                                <pen_style>1</pen_style>
+                                <pen_style>3</pen_style>
                                 <pen_width>2</pen_width>
                                 <render_antialias>false</render_antialias>
                                 <steps_invert>false</steps_invert>
@@ -250,14 +352,14 @@
                                 <type>0</type>
                             </style>
                             <subscriber_queue_size>100</subscriber_queue_size>
-                            <title>w_e</title>
+                            <title>GT Wind Z</title>
                         </curve_1>
                     </curves>
                     <legend>
                         <visible>true</visible>
                     </legend>
-                    <plot_rate>30</plot_rate>
-                    <title>Wind Estimate</title>
+                    <plot_rate>10</plot_rate>
+                    <title>Wind Z</title>
                 </column_0>
             </row_1>
             <row_2>
@@ -280,8 +382,8 @@
                         <curve_0>
                             <axes>
                                 <x_axis>
-                                    <field>header/stamp</field>
-                                    <field_type>0</field_type>
+                                    <field>ekf2_azimuth</field>
+                                    <field_type>1</field_type>
                                     <scale>
                                         <absolute_maximum>1000</absolute_maximum>
                                         <absolute_minimum>0</absolute_minimum>
@@ -289,11 +391,11 @@
                                         <relative_minimum>-1000</relative_minimum>
                                         <type>0</type>
                                     </scale>
-                                    <topic>/mavros/vfr_hud</topic>
-                                    <type>mavros_msgs/VFR_HUD</type>
+                                    <topic>/nmpc/wind_ground_truth</topic>
+                                    <type>fw_ctrl/WindGroundTruth</type>
                                 </x_axis>
                                 <y_axis>
-                                    <field>groundspeed</field>
+                                    <field>ekf2_azimuth</field>
                                     <field_type>0</field_type>
                                     <scale>
                                         <absolute_maximum>1000</absolute_maximum>
@@ -302,8 +404,8 @@
                                         <relative_minimum>-1000</relative_minimum>
                                         <type>0</type>
                                     </scale>
-                                    <topic>/mavros/vfr_hud</topic>
-                                    <type>mavros_msgs/VFR_HUD</type>
+                                    <topic>/nmpc/wind_ground_truth</topic>
+                                    <type>fw_ctrl/WindGroundTruth</type>
                                 </y_axis>
                             </axes>
                             <color>
@@ -326,14 +428,65 @@
                                 <type>0</type>
                             </style>
                             <subscriber_queue_size>100</subscriber_queue_size>
-                            <title>abs. ground speed</title>
+                            <title>EKF2</title>
                         </curve_0>
+                        <curve_1>
+                            <axes>
+                                <x_axis>
+                                    <field></field>
+                                    <field_type>1</field_type>
+                                    <scale>
+                                        <absolute_maximum>1000</absolute_maximum>
+                                        <absolute_minimum>0</absolute_minimum>
+                                        <relative_maximum>0</relative_maximum>
+                                        <relative_minimum>-1000</relative_minimum>
+                                        <type>0</type>
+                                    </scale>
+                                    <topic>/nmpc/wind_ground_truth</topic>
+                                    <type>fw_ctrl/WindGroundTruth</type>
+                                </x_axis>
+                                <y_axis>
+                                    <field>azimuth</field>
+                                    <field_type>0</field_type>
+                                    <scale>
+                                        <absolute_maximum>1000</absolute_maximum>
+                                        <absolute_minimum>0</absolute_minimum>
+                                        <relative_maximum>0</relative_maximum>
+                                        <relative_minimum>-1000</relative_minimum>
+                                        <type>0</type>
+                                    </scale>
+                                    <topic>/nmpc/wind_ground_truth</topic>
+                                    <type>fw_ctrl/WindGroundTruth</type>
+                                </y_axis>
+                            </axes>
+                            <color>
+                                <custom_color>#888a85</custom_color>
+                                <type>1</type>
+                            </color>
+                            <data>
+                                <circular_buffer_capacity>1000</circular_buffer_capacity>
+                                <time_frame_length>10</time_frame_length>
+                                <type>3</type>
+                            </data>
+                            <style>
+                                <lines_interpolate>false</lines_interpolate>
+                                <pen_style>3</pen_style>
+                                <pen_width>2</pen_width>
+                                <render_antialias>false</render_antialias>
+                                <steps_invert>false</steps_invert>
+                                <sticks_baseline>0</sticks_baseline>
+                                <sticks_orientation>2</sticks_orientation>
+                                <type>0</type>
+                            </style>
+                            <subscriber_queue_size>100</subscriber_queue_size>
+                            <title>GT</title>
+                        </curve_1>
                     </curves>
                     <legend>
                         <visible>true</visible>
                     </legend>
-                    <plot_rate>30</plot_rate>
-                    <title>Ground Speed</title>
+                    <plot_rate>10</plot_rate>
+                    <title>Wind Azimuth</title>
                 </column_0>
             </row_2>
         </plots>
