@@ -7,7 +7,9 @@ PWQG::PWQG() :
     fix_vert_pos_err_bnd_(true),
     time_const_(5.0),
     fpa_app_max_(0.34),
-    vert_pos_err_bnd_(5.0)
+    vert_pos_err_bnd_(5.0),
+    pos_carrot_scale_(1.0),
+    pos_carrot_dyn_(CarrotDynamics::LINEAR)
 {} // PWQG
 
 double PWQG::calcTrackErrorBound(const double ground_speed)
@@ -22,7 +24,43 @@ double PWQG::calcTrackErrorBound(const double ground_speed)
     }
 } // calcTrackErrorBound
 
-double PWQG::evaluate(double &err_lon, double *jac_fpa_sp, const double d_ref, const double unit_path_tangent_d, const double veh_pos_d,
+double PWQG::calcPositionCarrot(const double veh_pos_d, const double d_ref, const double ground_speed)
+{
+    // position error
+    const double err_lon = d_ref - veh_pos_d;
+
+    if (pos_carrot_dyn_ == CarrotDynamics::QUADRATIC) {
+
+        // track-error boundaries
+        double inv_err_b_lon, eb;
+        if (fix_vert_pos_err_bnd_) {
+            eb = vert_pos_err_bnd_;
+            inv_err_b_lon = 1.0 / eb;
+        }
+        else {
+            eb = calcTrackErrorBound(ground_speed);
+            inv_err_b_lon = 1.0 / eb; // longitudinal track-error boundary
+        }
+
+        const double unit_err_lon = constrain(err_lon * inv_err_b_lon, -1.0, 1.0);
+
+        // position carrot offset
+        return unit_err_lon * eb * pos_carrot_scale_;
+    }
+    else { // pos_carrot_dyn_ == CarrotDynamics::LINEAR
+
+        // position carrot offset
+        if (fix_vert_pos_err_bnd_) {
+            return constrain(err_lon, -vert_pos_err_bnd_, vert_pos_err_bnd_) * pos_carrot_scale_;
+        }
+        else {
+            const double eb = calcTrackErrorBound(ground_speed);
+            return constrain(err_lon, -eb, eb) * pos_carrot_scale_;
+        }
+    }
+} // calcPositionCarrot
+
+double PWQG::evaluate(double &err_lon, double *jac_fpa_sp, bool &feas, const double d_ref, const double unit_path_tangent_d, const double veh_pos_d,
     const double ground_speed, const double airspeed, const double wind_vel_d)
 {
     /*
@@ -42,6 +80,7 @@ double PWQG::evaluate(double &err_lon, double *jac_fpa_sp, const double d_ref, c
             w.r.t.:
             veh_pos_d
             TODO...
+        feas: tracking feasibility
 
         return:
         fpa_sp: flight path angle setpoint [rad]
@@ -60,7 +99,11 @@ double PWQG::evaluate(double &err_lon, double *jac_fpa_sp, const double d_ref, c
     }
 
     // on track FPA -- adjust for wind (small angle assumption)
-    const double fpa_path = constrain(-(ground_speed * unit_path_tangent_d - wind_vel_d) / airspeed, -fpa_app_max_, fpa_app_max_);
+    const double fpa_path_uncnstr = -(ground_speed * unit_path_tangent_d - wind_vel_d) / airspeed;
+    const double fpa_path = constrain(fpa_path_uncnstr, -fpa_app_max_, fpa_app_max_);
+
+    // tracking feasibility
+    feas = fabs(fpa_path_uncnstr) < fpa_app_max_;
 
     // unit track error shift
     const double sign_fpa_path = (fpa_path < 0.0) ? -1.0 : 1.0;

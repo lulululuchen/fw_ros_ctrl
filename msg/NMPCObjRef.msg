@@ -3,6 +3,7 @@
 
 float32[50] pos_n       # position north [m]
 float32[50] pos_e       # position east [m]
+float32[50] pos_d       # position down [m]
 float32[50] airsp       # airspeed [m/s]
 float32[50] fpa         # flight path angle [rad]
 float32[50] heading     # heading angle [rad]

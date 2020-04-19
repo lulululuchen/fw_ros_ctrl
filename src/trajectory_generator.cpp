@@ -17,8 +17,10 @@ TrajectoryGenerator::TrajectoryGenerator() :
     dt_(0.1),
     cross_err_thres_(0.1),
     track_err_thres_(0.1),
-    tg_mode_(TGMode::GUIDE_TO_PATH),
-    en_off_track_roll_ff_(false)
+    lateral_mode_(LateralMode::GUIDE_TO_PATH_FROM_CURRENT_HEADING),
+    longitudinal_mode_(LongitudinalMode::GUIDE_ALONG_LATERAL_TRAJECTORY),
+    en_off_track_roll_ff_(false),
+    en_vert_pos_carrot_(false)
 {} // TrajectoryGenerator
 
 /*
@@ -40,12 +42,15 @@ void TrajectoryGenerator::setNPFGParams(bool en_min_ground_speed, const double m
     npfg_.setWindRatioBuf(wind_ratio_buf);
 } // setNPFGParams
 
-void TrajectoryGenerator::setPWQGParams(const double fix_vert_pos_err_bnd, const double time_const, const double fpa_app_max, const double vert_pos_err_bnd)
+void TrajectoryGenerator::setPWQGParams(const double fix_vert_pos_err_bnd, const double time_const, const double fpa_app_max, const double vert_pos_err_bnd,
+    const double pos_carrot_scale, PWQG::CarrotDynamics pos_carrot_dyn)
 {
     pwqg_.setFixedVertPosErrBound(fix_vert_pos_err_bnd);
     pwqg_.setTimeConstant(time_const);
     pwqg_.setVertPosErrBound(vert_pos_err_bnd);
     pwqg_.setFPAAppMax(fpa_app_max);
+    pwqg_.setCarrotScale(pos_carrot_scale);
+    pwqg_.setCarrotDynamics(pos_carrot_dyn);
 } // setPWQGParams
 
 /*
@@ -281,11 +286,10 @@ void TrajectoryGenerator::genTrajectoryToPath2D(Eigen::Ref<Eigen::MatrixXd> pos_
 
     // START SAMPLE TO PATH -------------------------------------------------------------------- START SAMPLE TO PATH //
 
-    if (tg_mode_ == TGMode::GUIDE_TO_PATH_FROM_CURRENT_HEADING) { // ------------------------------------------------ //
+    if (lateral_mode_ == LateralMode::GUIDE_TO_PATH_FROM_CURRENT_HEADING) { // ------------------------------------------------ //
         // follow guidance and propagate point mass dynamics until we reach the path
 
         if (path_sp.type == PathTypes::LOITER) {
-            calcRefPoseOnLoiter2D(closest_pt_on_path, unit_path_tangent, path_sp.pos.segment(0,2), path_sp.signed_radius, pos_k, ground_vel_k, ground_speed_k);
             path_curvature = 1.0 / path_sp.signed_radius;
         }
         else if (path_sp.type == PathTypes::LINE) {
@@ -378,7 +382,7 @@ void TrajectoryGenerator::genTrajectoryToPath2D(Eigen::Ref<Eigen::MatrixXd> pos_
             k++;
         }
 
-        // point on next path (snap propagated position to path)
+        // point on path (snap propagated position to path)
         if (path_sp.type == PathTypes::LOITER) {
             calcRefPoseOnLoiter2D(closest_pt_on_path, unit_path_tangent, path_sp.pos.segment(0,2), path_sp.signed_radius, pos_k, ground_vel_k, ground_speed_k);
         }
@@ -389,11 +393,10 @@ void TrajectoryGenerator::genTrajectoryToPath2D(Eigen::Ref<Eigen::MatrixXd> pos_
 
         dt_run_over = 0.0;
     }
-    else { // default: tg_mode_ == TGMode::GUIDE_TO_PATH  // -------------------------------------------------------- //
+    else { // default: lateral_mode_ == LateralMode::GUIDE_TO_PATH  // -------------------------------------------------------- //
         // follow guidance vector field to path
 
         if (path_sp.type == PathTypes::LOITER) {
-            calcRefPoseOnLoiter2D(closest_pt_on_path, unit_path_tangent, path_sp.pos.segment(0,2), path_sp.signed_radius, pos_k, ground_vel_k, ground_speed_k);
             path_curvature = 1.0 / path_sp.signed_radius;
         }
         else if (path_sp.type == PathTypes::LINE) {
@@ -623,11 +626,10 @@ void TrajectoryGenerator::genTrajectoryToPath2D(Eigen::Ref<Eigen::MatrixXd> pos_
     if (k < len_traj) {
         // this means we diverged from the track and need to follow infeasible guidance logic from here
 
-        if (tg_mode_ == TGMode::GUIDE_TO_PATH_FROM_CURRENT_HEADING) { // ------------------------------------------- //
+        if (lateral_mode_ == LateralMode::GUIDE_TO_PATH_FROM_CURRENT_HEADING) { // ------------------------------------------- //
             // follow guidance and propagate point mass dynamics
 
             if (path_sp.type == PathTypes::LOITER) {
-                calcRefPoseOnLoiter2D(closest_pt_on_path, unit_path_tangent, path_sp.pos.segment(0,2), path_sp.signed_radius, pos_k, ground_vel_k, ground_speed_k);
                 path_curvature = 1.0 / path_sp.signed_radius;
             }
             else if (path_sp.type == PathTypes::LINE) {
@@ -712,11 +714,10 @@ void TrajectoryGenerator::genTrajectoryToPath2D(Eigen::Ref<Eigen::MatrixXd> pos_
                 k++;
             }
         }
-        else { // default: tg_mode_ == TGMode::GUIDE_TO_PATH  // ---------------------------------------------------- //
+        else { // default: lateral_mode_ == LateralMode::GUIDE_TO_PATH  // ---------------------------------------------------- //
             // follow guidance vector field to path
 
             if (path_sp.type == PathTypes::LOITER) {
-                calcRefPoseOnLoiter2D(closest_pt_on_path, unit_path_tangent, path_sp.pos.segment(0,2), path_sp.signed_radius, pos_k, ground_vel_k, ground_speed_k);
                 path_curvature = 1.0 / path_sp.signed_radius;
             }
             else if (path_sp.type == PathTypes::LINE) {
@@ -803,6 +804,636 @@ void TrajectoryGenerator::genTrajectoryToPath2D(Eigen::Ref<Eigen::MatrixXd> pos_
 
 } // genTrajectoryToPath2D
 
+// TODO: this is pretty much identical to the other function (genTrajectoryToPath2D) .. could just keep this and just ignore the extra arrays when unused?
+void TrajectoryGenerator::genTrajectoryToPath(Eigen::Ref<Eigen::MatrixXd> pos_traj, Eigen::Ref<Eigen::MatrixXd> airsp_traj,
+    Eigen::Ref<Eigen::MatrixXd> heading_traj, Eigen::Ref<Eigen::MatrixXd> roll_traj, double *ground_speed_traj, double *closest_pt_on_path_d, const int len_traj,
+    Eigen::Vector2d pos_0, const Eigen::Vector2d &ground_vel_0, const double airspeed_0, const double heading_0, const Eigen::Vector2d &wind_vel,
+    const double airspeed_nom, const double airspeed_max, const PathSetpoint &path_sp, const double roll_lim_rad)
+{
+    // check that we are not in the circle center
+    if (path_sp.type == PathTypes::LOITER) {
+        Eigen::Vector2d radial_dist = pos_0 - path_sp.pos.segment(0,2);
+        if (radial_dist.norm() < 0.1) {
+            pos_0 = path_sp.pos.segment(0,2) + Eigen::Vector2d(0.1, 0.0);
+        }
+    }
+
+    // npfg params
+    npfg_.setAirspeedMax(airspeed_max); // XXX: consider augmenting these for any demanded fpa usage
+    npfg_.setAirspeedNom(airspeed_nom);
+
+    // initialize
+    Eigen::Vector2d pos_k = pos_0;
+    Eigen::Vector2d ground_vel_k = ground_vel_0;
+    double ground_speed_k = ground_vel_k.norm();;
+    Eigen::Vector2d unit_air_vel(cosf(heading_0), sinf(heading_0));
+    double airspeed_k = airspeed_0;
+    double wind_speed = wind_vel.norm();
+    double dt_run_over = 0.0;
+    double path_curvature;
+
+    // allocate
+    Eigen::Vector2d unit_path_tangent;
+    Eigen::Vector2d closest_pt_on_path;
+    Eigen::Vector3d closest_pt_on_path_3d;
+    Eigen::Vector3d pos_k_3d;
+
+    int k = 0;
+
+    // TODO: ENCAPSULATE
+
+    // START SAMPLE TO PATH -------------------------------------------------------------------- START SAMPLE TO PATH //
+
+    if (lateral_mode_ == LateralMode::GUIDE_TO_PATH_FROM_CURRENT_HEADING) { // ------------------------------------------------ //
+        // follow guidance and propagate point mass dynamics until we reach the path
+
+        if (path_sp.type == PathTypes::LOITER) {
+            path_curvature = 1.0 / path_sp.signed_radius;
+        }
+        else if (path_sp.type == PathTypes::LINE) {
+            unit_path_tangent = path_sp.dir.segment(0,2).normalized();
+            path_curvature = 0.0;
+        }
+        else {
+            // XXX: handle this
+        }
+        npfg_.setPathCurvature(path_curvature);
+
+        bool converged = false;
+        while (!converged && k < len_traj) {
+
+            ground_speed_k = ground_vel_k.norm();
+
+            if (path_sp.type == PathTypes::LOITER) {
+                calcRefPoseOnLoiter2D(closest_pt_on_path, unit_path_tangent, path_sp.pos.segment(0,2), path_sp.signed_radius, pos_k, ground_vel_k, ground_speed_k);
+                closest_pt_on_path_3d(2) = path_sp.pos(2);
+            }
+            else if (path_sp.type == PathTypes::LINE) {
+                pos_k_3d << pos_k, 0.0; // z component actually unused here..
+                calcRefPoseOnLine(closest_pt_on_path_3d, path_sp.pos, path_sp.dir, pos_k_3d);
+                closest_pt_on_path.segment(0,2) = closest_pt_on_path_3d.segment(0,2);
+            }
+            else {
+                // XXX: handle this
+            }
+            Eigen::Vector2d track_error_vec = closest_pt_on_path - pos_k;
+
+            const double track_error = track_error_vec.norm();
+            Eigen::Vector2d unit_track_error;
+            if (track_error < track_err_thres_) {
+                unit_track_error = track_error_vec;
+            }
+            else {
+                unit_track_error = track_error_vec / track_error;
+            }
+
+            const double track_error_bound = npfg_.calcTrackErrorBound(ground_speed_k);
+
+            const double normalized_track_error = constrain(fabs(track_error / track_error_bound), 0.0, 1.0);
+
+            const double look_ahead_angle = npfg_.calcLookAheadAngle(normalized_track_error);
+
+            double track_proximity, inv_track_proximity;
+            Eigen::Vector2d bearing_vec = npfg_.calcBearingVec(track_proximity, inv_track_proximity, unit_track_error, unit_path_tangent, look_ahead_angle);
+
+            // *feedback airspeed for gain adjustment
+            const double p_gain_adj = npfg_.adjustPGain(wind_speed / airspeed_k, inv_track_proximity);
+
+            double wind_cross_bearing, wind_dot_bearing;
+            npfg_.trigWindToBearing(wind_cross_bearing, wind_dot_bearing, wind_vel, bearing_vec);
+
+            // adjust along-bearing minimum ground speed for constant set point and/or track error
+            double min_ground_speed = npfg_.calcMinGroundSpeed(normalized_track_error);
+
+            // get the heading reference assuming any airspeed incrementing is instantaneously achieved
+            Eigen::Vector2d air_vel_ref = npfg_.calcRefAirVelocityFF(wind_vel, bearing_vec, wind_cross_bearing, wind_dot_bearing, wind_speed, min_ground_speed, false);
+            airspeed_k = air_vel_ref.norm(); // instantaneous airspeed tracking
+
+            const double feas = npfg_.calcBearingFeas(wind_cross_bearing, wind_dot_bearing, airspeed_k, wind_speed);
+
+            // air velocity curvature adjustment -- feedback
+            Eigen::Vector2d air_vel_ref_curv = air_vel_ref;
+            npfg_.adjustRefAirVelForCurvature(air_vel_ref_curv, wind_vel, unit_path_tangent, wind_speed, airspeed_k, feas, track_proximity, p_gain_adj, false);
+
+            // acceleration *feedback
+            const double lateral_accel = npfg_.calcLateralAccel(airspeed_k * unit_air_vel, air_vel_ref_curv, airspeed_k, p_gain_adj);
+
+            // output
+            pos_traj.block(0,k,2,1) = pos_k;
+            airsp_traj(0, k) = airspeed_k; // instantaneous airspeed tracking
+            heading_traj(0, k) = atan2f(air_vel_ref(1), air_vel_ref(0)); // setting heading *reference
+            roll_traj(0, k) = (en_off_track_roll_ff_) ? constrain(atanf(lateral_accel * INV_ONE_G), -roll_lim_rad, roll_lim_rad) : 0.0; // feed-forward guidance roll commands
+            ground_speed_traj[k] = ground_speed_k;
+            closest_pt_on_path_d[k] = closest_pt_on_path_3d(2);
+
+            // propagate
+            const double inv_airspeed_k = 1.0 / airspeed_k;
+            ground_vel_k = unit_air_vel * airspeed_k + wind_vel;
+            pos_k += dt_ * ground_vel_k;
+            const double mult = dt_ * lateral_accel * inv_airspeed_k;
+            unit_air_vel(0) += mult * -unit_air_vel(1);
+            unit_air_vel(1) += mult * unit_air_vel(0);
+            unit_air_vel.normalize();
+
+            // check if converged
+            const double dot_heading_err = unit_air_vel(0) * air_vel_ref(0) + unit_air_vel(1) * air_vel_ref(1);
+            const double cross_heading_err = (unit_air_vel(0) * air_vel_ref(1) - unit_air_vel(1) * air_vel_ref(0))* inv_airspeed_k;
+            bool dir_cond = dot_heading_err > 0.0 && fabs(cross_heading_err) < cross_err_thres_; // directional condition
+            bool pos_cond = track_error < track_err_thres_; // positional condition
+            converged = dir_cond && pos_cond;
+
+            k++;
+        }
+
+        // point on path (snap propagated position to path)
+        if (path_sp.type == PathTypes::LOITER) {
+            calcRefPoseOnLoiter2D(closest_pt_on_path, unit_path_tangent, path_sp.pos.segment(0,2), path_sp.signed_radius, pos_k, ground_vel_k, ground_speed_k);
+            closest_pt_on_path_3d(2) = path_sp.pos(2);
+        }
+        else if (path_sp.type == PathTypes::LINE) {
+            pos_k_3d << pos_k, 0.0; // z component actually unused here..
+            calcRefPoseOnLine(closest_pt_on_path_3d, path_sp.pos, path_sp.dir, pos_k_3d);
+            closest_pt_on_path.segment(0,2) = closest_pt_on_path_3d.segment(0,2);
+        }
+        pos_k = closest_pt_on_path;
+
+        dt_run_over = 0.0;
+    }
+    else { // default: lateral_mode_ == LateralMode::GUIDE_TO_PATH  // -------------------------------------------------------- //
+        // follow guidance vector field to path
+
+        if (path_sp.type == PathTypes::LOITER) {
+            path_curvature = 1.0 / path_sp.signed_radius;
+        }
+        else if (path_sp.type == PathTypes::LINE) {
+            unit_path_tangent = path_sp.dir.segment(0,2).normalized();
+            path_curvature = 0.0;
+        }
+        else {
+            // XXX: handle this
+        }
+        npfg_.setPathCurvature(path_curvature);
+
+        bool converged = false;
+        while (!converged && k < len_traj) {
+
+            ground_speed_k = ground_vel_k.norm();
+
+            if (path_sp.type == PathTypes::LOITER) {
+                calcRefPoseOnLoiter2D(closest_pt_on_path, unit_path_tangent, path_sp.pos.segment(0,2), path_sp.signed_radius, pos_k, ground_vel_k, ground_speed_k);
+                closest_pt_on_path_3d(2) = path_sp.pos(2);
+            }
+            else if (path_sp.type == PathTypes::LINE) {
+                pos_k_3d << pos_k, 0.0; // z component actually unused here..
+                calcRefPoseOnLine(closest_pt_on_path_3d, path_sp.pos, path_sp.dir, pos_k_3d);
+                closest_pt_on_path.segment(0,2) = closest_pt_on_path_3d.segment(0,2);
+            }
+            else {
+                // XXX: handle this
+            }
+            Eigen::Vector2d track_error_vec = closest_pt_on_path - pos_k;
+
+            const double track_error = track_error_vec.norm();
+            Eigen::Vector2d unit_track_error;
+            if (track_error < track_err_thres_) {
+                unit_track_error = track_error_vec;
+            }
+            else {
+                unit_track_error = track_error_vec / track_error;
+            }
+
+            const double track_error_bound = npfg_.calcTrackErrorBound(ground_speed_k);
+
+            const double normalized_track_error = constrain(fabs(track_error / track_error_bound), 0.0, 1.0);
+
+            const double look_ahead_angle = npfg_.calcLookAheadAngle(normalized_track_error);
+
+            double track_proximity, inv_track_proximity;
+            Eigen::Vector2d bearing_vec = npfg_.calcBearingVec(track_proximity, inv_track_proximity, unit_track_error, unit_path_tangent, look_ahead_angle);
+
+//            // *feedback airspeed for gain adjustment
+//            const double p_gain_adj = adjustPGain(wind_speed / airspeed_k, inv_track_proximity);
+
+            double wind_cross_bearing, wind_dot_bearing;
+            npfg_.trigWindToBearing(wind_cross_bearing, wind_dot_bearing, wind_vel, bearing_vec);
+
+//                const double feas = calcBearingFeas(wind_cross_bearing, wind_dot_bearing, airspeed_k, wind_speed);
+
+            // adjust along-bearing minimum ground speed for constant set point and/or track error
+            double min_ground_speed = npfg_.calcMinGroundSpeed(normalized_track_error);
+
+            // get the heading reference assuming any airspeed incrementing is instantaneously achieved
+            Eigen::Vector2d air_vel_ref = npfg_.calcRefAirVelocityFF(wind_vel, bearing_vec, wind_cross_bearing, wind_dot_bearing, wind_speed, min_ground_speed, false);
+            airspeed_k = air_vel_ref.norm(); // instantaneous airspeed tracking
+
+//            // air velocity curvature adjustment -- feedback
+//            Eigen::Vector2d air_vel_ref_curv = air_vel_ref;
+//            adjustRefAirVelForCurvature(air_vel_ref_curv, wind_vel, unit_path_tangent, wind_speed, airspeed_k, feas, track_proximity, p_gain_adj, false);
+//
+//            // acceleration *feedback
+//            const double lateral_accel = calcLateralAccel(airspeed_k * unit_air_vel, air_vel_ref_curv, airspeed_k, p_gain_adj);
+
+            // output
+            pos_traj.block(0,k,2,1) = pos_k;
+            airsp_traj(0, k) = airspeed_k; // instantaneous airspeed tracking
+            heading_traj(0, k) = atan2f(air_vel_ref(1), air_vel_ref(0)); // setting heading *reference
+            roll_traj(0, k) = 0.0; // constrain(atanf(lateral_accel * INV_ONE_G), -roll_lim_rad, roll_lim_rad); // feed-forward guidance roll commands
+            ground_speed_traj[k] = ground_speed_k;
+            closest_pt_on_path_d[k] = closest_pt_on_path_3d(2);
+
+            // propagate
+            const double inv_airspeed_k = 1.0 / airspeed_k;
+            ground_vel_k = air_vel_ref + wind_vel;
+            pos_k += dt_ * ground_vel_k;
+
+            // check if converged
+//            const double dot_heading_err = unit_air_vel(0) * air_vel_ref(0) + unit_air_vel(1) * air_vel_ref(1);
+//            const double cross_heading_err = (unit_air_vel(0) * air_vel_ref(1) - unit_air_vel(1) * air_vel_ref(0))* inv_airspeed_k;
+//            bool dir_cond = dot_heading_err > 0.0 && fabs(cross_heading_err) < cross_err_thres_; // directional condition
+            bool pos_cond = track_error < track_err_thres_; // positional condition
+            converged = pos_cond; // dir_cond && pos_cond;
+
+            k++;
+        }
+
+        // point on next path (snap propagated position to path)
+        if (path_sp.type == PathTypes::LOITER) {
+            calcRefPoseOnLoiter2D(closest_pt_on_path, unit_path_tangent, path_sp.pos.segment(0,2), path_sp.signed_radius, pos_k, ground_vel_k, ground_speed_k);
+            closest_pt_on_path_3d(2) = path_sp.pos(2);
+        }
+        else if (path_sp.type == PathTypes::LINE) {
+            pos_k_3d << pos_k, 0.0; // z component actually unused here..
+            calcRefPoseOnLine(closest_pt_on_path_3d, path_sp.pos, path_sp.dir, pos_k_3d);
+            closest_pt_on_path.segment(0,2) = closest_pt_on_path_3d.segment(0,2);
+        }
+        pos_k = closest_pt_on_path;
+
+        dt_run_over = 0.0;
+    } // end sample to path
+
+    // END SAMPLE TO PATH ------------------------------------------------------------------------ END SAMPLE TO PATH //
+
+    // START SAMPLE PATH -------------------------------------------------------------------------- START SAMPLE PATH //
+
+    // sample the path
+    if (k < len_traj) {
+
+        if (path_sp.type == PathTypes::LOITER) {
+
+            // initial path step
+
+            path_curvature = 1.0 / path_sp.signed_radius;
+            npfg_.setPathCurvature(path_curvature);
+
+            const double min_ground_speed = npfg_.calcMinGroundSpeed(0.0);
+
+            double wind_cross_bearing, wind_dot_bearing;
+            npfg_.trigWindToBearing(wind_cross_bearing, wind_dot_bearing, wind_vel, unit_path_tangent);
+
+            Eigen::Vector2d air_vel_ref = npfg_.calcRefAirVelocityFF(wind_vel, unit_path_tangent, wind_cross_bearing, wind_dot_bearing, wind_speed, min_ground_speed, false);
+            airspeed_k = air_vel_ref.norm();
+
+            ground_vel_k = air_vel_ref + wind_vel;
+            ground_speed_k = ground_vel_k.norm();
+
+            // step through remainder of time step on path
+            double mult = dt_run_over * ground_speed_k * path_curvature;
+            unit_path_tangent(0) += mult * -unit_path_tangent(1);
+            unit_path_tangent(1) += mult * unit_path_tangent(0);
+            unit_path_tangent.normalize();
+
+            // sample the path
+            while (k < len_traj)  {
+
+                const double min_ground_speed = npfg_.calcMinGroundSpeed(0.0);
+
+                double wind_cross_bearing, wind_dot_bearing;
+                npfg_.trigWindToBearing(wind_cross_bearing, wind_dot_bearing, wind_vel, unit_path_tangent.segment(0,2));
+
+                // check feasibility
+                if (wind_speed > airspeed_max && !npfg_.bearingIsFeasible(wind_cross_bearing, wind_dot_bearing, airspeed_max, wind_speed)) {
+                    // only exit if the wind is both greater** than the max airspeed and tracking the path is infeasible
+                    // i.e. we want to still be able to come to a complete stop on the path (which would be designated as an infeasible bearing)
+                    break;
+                }
+
+                Eigen::Vector2d air_vel_ref = npfg_.calcRefAirVelocityFF(wind_vel, unit_path_tangent.segment(0,2), wind_cross_bearing, wind_dot_bearing, wind_speed, min_ground_speed, false);
+                airspeed_k = air_vel_ref.norm();
+
+                ground_vel_k = air_vel_ref + wind_vel;
+                ground_speed_k = ground_vel_k.norm();
+
+                const double feas = npfg_.calcBearingFeas(wind_cross_bearing, wind_dot_bearing, airspeed_k, wind_speed);
+                const double p_gain_adj = npfg_.adjustPGain(wind_speed / airspeed_k, 0.0);
+
+                Eigen::Vector2d air_vel_ref_curv = air_vel_ref;
+                npfg_.adjustRefAirVelForCurvature(air_vel_ref_curv, wind_vel, unit_path_tangent.segment(0,2), wind_speed, airspeed_k, feas, 1.0, p_gain_adj, false);
+
+                const double lateral_accel = npfg_.calcLateralAccel(air_vel_ref, air_vel_ref_curv, airspeed_k, p_gain_adj);
+
+                // output
+                pos_traj(0,k) = path_sp.pos(0) + unit_path_tangent(1) * path_sp.signed_radius;
+                pos_traj(1,k) = path_sp.pos(1) + -unit_path_tangent(0) * path_sp.signed_radius;
+                airsp_traj(0,k) = airspeed_k; // assume instantaneous airspeed tracking
+                heading_traj(0,k) = atan2f(air_vel_ref(1), air_vel_ref(0));
+                roll_traj(0,k) = constrain(atanf(lateral_accel / ONE_G), -roll_lim_rad, roll_lim_rad);
+                ground_speed_traj[k] = ground_speed_k;
+                closest_pt_on_path_d[k] = closest_pt_on_path_3d(2);
+
+                // propagate
+                double mult = dt_ * ground_speed_k * path_curvature;
+                unit_path_tangent(0) += mult * -unit_path_tangent(1);
+                unit_path_tangent(1) += mult * unit_path_tangent(0);
+                unit_path_tangent.normalize();
+
+                k++;
+            }
+        }
+        else if (path_sp.type == PathTypes::LINE) {
+
+            // initial path step
+
+            path_curvature = 0.0;
+            npfg_.setPathCurvature(path_curvature);
+
+            const double min_ground_speed = npfg_.calcMinGroundSpeed(0.0);
+
+            double wind_cross_bearing, wind_dot_bearing;
+            npfg_.trigWindToBearing(wind_cross_bearing, wind_dot_bearing, wind_vel, unit_path_tangent);
+
+            // check feasibility
+            if (wind_speed <= airspeed_max || npfg_.bearingIsFeasible(wind_cross_bearing, wind_dot_bearing, airspeed_max, wind_speed)) {
+
+                Eigen::Vector2d air_vel_ref = npfg_.calcRefAirVelocityFF(wind_vel, unit_path_tangent, wind_cross_bearing, wind_dot_bearing, wind_speed, min_ground_speed, false);
+                airspeed_k = air_vel_ref.norm();
+                const double heading_k = atan2f(air_vel_ref(1), air_vel_ref(0));
+
+                ground_vel_k = air_vel_ref + wind_vel;
+                ground_speed_k = ground_vel_k.norm();
+
+                pos_k = closest_pt_on_path + dt_run_over * ground_vel_k;
+
+                closest_pt_on_path_d[k] = closest_pt_on_path_3d(2);
+                double incr_lat_along_line = dt_run_over * path_sp.dir(2) * ground_speed_k;
+
+                while (k < len_traj) {
+                    // evaluate on track
+
+                    // output
+                    pos_traj.block(0,k,2,1) = pos_k;
+                    airsp_traj(0, k) = airspeed_k; // assume instantaneous airspeed tracking
+                    heading_traj(0, k) = heading_k;
+                    roll_traj(0, k) = 0.0;
+                    ground_speed_traj[k] = ground_speed_k;
+                    closest_pt_on_path_d[k] += incr_lat_along_line;
+
+                    // propagate
+                    pos_k += dt_ * ground_vel_k;
+                    incr_lat_along_line = dt_ * path_sp.dir(2) * ground_speed_k;
+
+                    k++;
+                }
+            }
+        } // end path type
+    } // end sample path
+
+    // END SAMPLE PATH ------------------------------------------------------------------------------ END SAMPLE PATH //
+
+    // START DIVERGE FROM PATH -------------------------------------------------------------- START DIVERGE FROM PATH //
+
+    // TODO: this is all copy/pasted.. encapsulate, add a bool for divergence, and use the other code snippets
+
+    if (k < len_traj) {
+        // this means we diverged from the track and need to follow infeasible guidance logic from here
+
+        if (lateral_mode_ == LateralMode::GUIDE_TO_PATH_FROM_CURRENT_HEADING) { // ------------------------------------------- //
+            // follow guidance and propagate point mass dynamics
+
+            if (path_sp.type == PathTypes::LOITER) {
+                path_curvature = 1.0 / path_sp.signed_radius;
+            }
+            else if (path_sp.type == PathTypes::LINE) {
+                unit_path_tangent = path_sp.dir.segment(0,2).normalized();
+                path_curvature = 0.0;
+            }
+            else {
+                // XXX: handle this
+            }
+            npfg_.setPathCurvature(path_curvature);
+
+            while (k < len_traj) {
+
+                ground_speed_k = ground_vel_k.norm();
+
+                if (path_sp.type == PathTypes::LOITER) {
+                    calcRefPoseOnLoiter2D(closest_pt_on_path, unit_path_tangent, path_sp.pos.segment(0,2), path_sp.signed_radius, pos_k, ground_vel_k, ground_speed_k);
+                    closest_pt_on_path_3d(2) = path_sp.pos(2);
+                }
+                else if (path_sp.type == PathTypes::LINE) {
+                    pos_k_3d << pos_k, 0.0; // z component actually unused here..
+                    calcRefPoseOnLine(closest_pt_on_path_3d, path_sp.pos, path_sp.dir, pos_k_3d);
+                    closest_pt_on_path.segment(0,2) = closest_pt_on_path_3d.segment(0,2);
+                }
+                else {
+                    // XXX: handle this
+                }
+                Eigen::Vector2d track_error_vec = closest_pt_on_path - pos_k;
+
+                const double track_error = track_error_vec.norm();
+                Eigen::Vector2d unit_track_error;
+                if (track_error < track_err_thres_) {
+                    unit_track_error = track_error_vec;
+                }
+                else {
+                    unit_track_error = track_error_vec / track_error;
+                }
+
+                const double track_error_bound = npfg_.calcTrackErrorBound(ground_speed_k);
+
+                const double normalized_track_error = constrain(fabs(track_error / track_error_bound), 0.0, 1.0);
+
+                const double look_ahead_angle = npfg_.calcLookAheadAngle(normalized_track_error);
+
+                double track_proximity, inv_track_proximity;
+                Eigen::Vector2d bearing_vec = npfg_.calcBearingVec(track_proximity, inv_track_proximity, unit_track_error, unit_path_tangent, look_ahead_angle);
+
+                // *feedback airspeed for gain adjustment
+                const double p_gain_adj = npfg_.adjustPGain(wind_speed / airspeed_k, inv_track_proximity);
+
+                double wind_cross_bearing, wind_dot_bearing;
+                npfg_.trigWindToBearing(wind_cross_bearing, wind_dot_bearing, wind_vel, bearing_vec);
+
+                // adjust along-bearing minimum ground speed for constant set point and/or track error
+                double min_ground_speed = npfg_.calcMinGroundSpeed(normalized_track_error);
+
+                // get the heading reference assuming any airspeed incrementing is instantaneously achieved
+                Eigen::Vector2d air_vel_ref = npfg_.calcRefAirVelocityFF(wind_vel, bearing_vec, wind_cross_bearing, wind_dot_bearing, wind_speed, min_ground_speed, false);
+                airspeed_k = air_vel_ref.norm(); // instantaneous airspeed tracking
+
+                const double feas = npfg_.calcBearingFeas(wind_cross_bearing, wind_dot_bearing, airspeed_k, wind_speed);
+
+                // air velocity curvature adjustment -- feedback
+                Eigen::Vector2d air_vel_ref_curv = air_vel_ref;
+                npfg_.adjustRefAirVelForCurvature(air_vel_ref_curv, wind_vel, unit_path_tangent, wind_speed, airspeed_k, feas, track_proximity, p_gain_adj, false);
+
+                // acceleration *feedback
+                const double lateral_accel = npfg_.calcLateralAccel(airspeed_k * unit_air_vel, air_vel_ref_curv, airspeed_k, p_gain_adj);
+
+                // output
+                pos_traj.block(0,k,2,1) = pos_k;
+                airsp_traj(0, k) = airspeed_k; // instantaneous airspeed tracking
+                heading_traj(0, k) = atan2f(air_vel_ref(1), air_vel_ref(0)); // setting heading *reference
+                roll_traj(0, k) = (en_off_track_roll_ff_) ? constrain(atanf(lateral_accel * INV_ONE_G), -roll_lim_rad, roll_lim_rad) : 0.0; // feed-forward guidance roll commands
+                ground_speed_traj[k] = ground_speed_k;
+                closest_pt_on_path_d[k] = closest_pt_on_path_3d(2);
+
+                // propagate
+                const double inv_airspeed_k = 1.0 / airspeed_k;
+                ground_vel_k = unit_air_vel * airspeed_k + wind_vel;
+                pos_k += dt_ * ground_vel_k;
+                const double mult = dt_ * lateral_accel * inv_airspeed_k;
+                unit_air_vel(0) += mult * -unit_air_vel(1);
+                unit_air_vel(1) += mult * unit_air_vel(0);
+                unit_air_vel.normalize();
+
+                k++;
+            }
+        }
+        else { // default: lateral_mode_ == LateralMode::GUIDE_TO_PATH  // ---------------------------------------------------- //
+            // follow guidance vector field to path
+
+            if (path_sp.type == PathTypes::LOITER) {
+                path_curvature = 1.0 / path_sp.signed_radius;
+            }
+            else if (path_sp.type == PathTypes::LINE) {
+                unit_path_tangent = path_sp.dir.segment(0,2).normalized();
+                path_curvature = 0.0;
+            }
+            else {
+                // XXX: handle this
+            }
+            npfg_.setPathCurvature(path_curvature);
+
+            while (k < len_traj) {
+
+                ground_speed_k = ground_vel_k.norm();
+
+                if (path_sp.type == PathTypes::LOITER) {
+                    calcRefPoseOnLoiter2D(closest_pt_on_path, unit_path_tangent, path_sp.pos.segment(0,2), path_sp.signed_radius, pos_k, ground_vel_k, ground_speed_k);
+                    closest_pt_on_path_3d(2) = path_sp.pos(2);
+                }
+                else if (path_sp.type == PathTypes::LINE) {
+                    pos_k_3d << pos_k, 0.0; // z component actually unused here..
+                    calcRefPoseOnLine(closest_pt_on_path_3d, path_sp.pos, path_sp.dir, pos_k_3d);
+                    closest_pt_on_path.segment(0,2) = closest_pt_on_path_3d.segment(0,2);
+                }
+                else {
+                    // XXX: handle this
+                }
+                Eigen::Vector2d track_error_vec = closest_pt_on_path - pos_k;
+
+                const double track_error = track_error_vec.norm();
+                Eigen::Vector2d unit_track_error;
+                if (track_error < track_err_thres_) {
+                    unit_track_error = track_error_vec;
+                }
+                else {
+                    unit_track_error = track_error_vec / track_error;
+                }
+
+                const double track_error_bound = npfg_.calcTrackErrorBound(ground_speed_k);
+
+                const double normalized_track_error = constrain(fabs(track_error / track_error_bound), 0.0, 1.0);
+
+                const double look_ahead_angle = npfg_.calcLookAheadAngle(normalized_track_error);
+
+                double track_proximity, inv_track_proximity;
+                Eigen::Vector2d bearing_vec = npfg_.calcBearingVec(track_proximity, inv_track_proximity, unit_track_error, unit_path_tangent, look_ahead_angle);
+
+//                // *feedback airspeed for gain adjustment
+//                const double p_gain_adj = adjustPGain(wind_speed / airspeed_k, inv_track_proximity);
+
+                double wind_cross_bearing, wind_dot_bearing;
+                npfg_.trigWindToBearing(wind_cross_bearing, wind_dot_bearing, wind_vel, bearing_vec);
+
+//                    const double feas = calcBearingFeas(wind_cross_bearing, wind_dot_bearing, airspeed_k, wind_speed);
+
+                // adjust along-bearing minimum ground speed for constant set point and/or track error
+                double min_ground_speed = npfg_.calcMinGroundSpeed(normalized_track_error);
+
+                // get the heading reference assuming any airspeed incrementing is instantaneously achieved
+                Eigen::Vector2d air_vel_ref = npfg_.calcRefAirVelocityFF(wind_vel, bearing_vec, wind_cross_bearing, wind_dot_bearing, wind_speed, min_ground_speed, false);
+                airspeed_k = air_vel_ref.norm(); // instantaneous airspeed tracking
+
+//                // air velocity curvature adjustment -- feedback
+//                Eigen::Vector2d air_vel_ref_curv = air_vel_ref;
+//                adjustRefAirVelForCurvature(air_vel_ref_curv, wind_vel, unit_path_tangent, wind_speed, airspeed, feas, track_proximity, p_gain_adj, false);
+//
+//                // acceleration *feedback
+//                const double lateral_accel = calcLateralAccel(airspeed_k * unit_air_vel, air_vel_ref_curv, airspeed_k, p_gain_adj);
+
+                // output
+                pos_traj.block(0,k,2,1) = pos_k;
+                airsp_traj(0, k) = airspeed_k; // instantaneous airspeed tracking
+                heading_traj(0, k) = atan2f(air_vel_ref(1), air_vel_ref(0)); // setting heading *reference
+                roll_traj(0, k) = 0.0; // constrain(atanf(lateral_accel * INV_ONE_G), -roll_lim_rad, roll_lim_rad); // feed-forward guidance roll commands
+                ground_speed_traj[k] = ground_speed_k;
+                closest_pt_on_path_d[k] = closest_pt_on_path_3d(2);
+
+                // propagate
+                const double inv_airspeed_k = 1.0 / airspeed_k;
+                ground_vel_k = air_vel_ref + wind_vel;
+                pos_k += dt_ * ground_vel_k;
+
+                k++;
+            }
+        }
+    }
+
+    // END DIVERGE FROM PATH ------------------------------------------------------------------ END DIVERGE FROM PATH //
+
+} // genTrajectoryToPath
+
+void TrajectoryGenerator::genLongitudinalTrajectory(Eigen::Ref<Eigen::MatrixXd> fpa_traj, Eigen::Ref<Eigen::MatrixXd> jac_fpa_sp_traj, Eigen::Ref<Eigen::MatrixXd> pos_d_traj,
+    Eigen::Ref<Eigen::MatrixXd> airsp_traj, double *ground_speed_traj, double *closest_pt_on_path_d, const int len_traj,
+    const double pos_d_0, const double wind_vel_d, const double unit_path_tangent_d)
+{
+    // init
+    double pos_d_k = pos_d_0;
+    int k = 0;
+
+    // on track FPA -- adjust for wind (small angle assumption)
+    const double fpa_path_uncnstr = -(ground_speed_traj[k] * unit_path_tangent_d - wind_vel_d) / airsp_traj(0, k);
+    const double fpa_path = constrain(fpa_path_uncnstr, -pwqg_.getFPAAppMax(), pwqg_.getFPAAppMax());
+    bool feas = fabs(fpa_path_uncnstr) < pwqg_.getFPAAppMax(); // tracking feasibility
+
+    double err_lon; // dummy
+    double jac_fpa_sp[1];
+    bool converged = false;
+    while (k < len_traj) {
+
+        if (fabs(closest_pt_on_path_d[k] - pos_d_k) < 0.1 || converged) { //XXX: MAGIC NUMBER
+            if (feas) {
+                converged = true;
+                pos_d_k = closest_pt_on_path_d[k];
+            }
+            else {
+                converged = false;
+            }
+        }
+
+        // output
+        fpa_traj(0, k) = pwqg_.evaluate(err_lon, jac_fpa_sp, feas, closest_pt_on_path_d[k], unit_path_tangent_d, pos_d_k, ground_speed_traj[k], airsp_traj(0, k), wind_vel_d);
+        jac_fpa_sp_traj(0, k) = jac_fpa_sp[0];
+        pos_d_traj(0, k) = pos_d_k + ((en_vert_pos_carrot_) ? pwqg_.calcPositionCarrot(pos_d_k, closest_pt_on_path_d[k], ground_speed_traj[k]) : 0.0);
+
+        // propagate
+        pos_d_k += dt_ * (wind_vel_d - fpa_traj(0, k) * airsp_traj(0, k));
+
+        k++;
+    }
+} // genFPATrajectory
+
 double TrajectoryGenerator::evaluateLongitudinalGuidance(double &err_lon, double *jac_fpa_sp, const PathSetpoint &path_sp, const Eigen::Vector3d &veh_pos,
     const double ground_speed, const double airspeed, const double wind_vel_d)
 {
@@ -819,7 +1450,8 @@ double TrajectoryGenerator::evaluateLongitudinalGuidance(double &err_lon, double
         // XXX: handle this
     }
 
-    return pwqg_.evaluate(err_lon, jac_fpa_sp, pos_d_ref, path_sp.dir(2), veh_pos(2), ground_speed, airspeed, wind_vel_d); // return fpa
+    bool feas;
+    return pwqg_.evaluate(err_lon, jac_fpa_sp, feas, pos_d_ref, path_sp.dir(2), veh_pos(2), ground_speed, airspeed, wind_vel_d); // return fpa
 } // evaluateLongitudinalGuidance
 
 void TrajectoryGenerator::evaluateLateralDirectionalGuidance(double &airsp_ref, double &heading_ref, double &roll_ref,
@@ -879,12 +1511,14 @@ double TrajectoryGenerator::getManualFPASetpoint(double &err_lon, double *jac_fp
         // TODO: for now flat.. could potentially calculate the slope based on the current course .. it is calculated anyway internally in the cost jacobian.
         const double unit_path_tangent_d = 0.0;
 
-        return pwqg_.evaluate(err_lon, jac_fpa_sp, -alt, unit_path_tangent_d, veh_pos_d, ground_speed, airspeed, wind_vel_d);
+        bool feas;
+        return pwqg_.evaluate(err_lon, jac_fpa_sp, feas, -alt, unit_path_tangent_d, veh_pos_d, ground_speed, airspeed, wind_vel_d);
     }
     else if (manual_control_sp.lon_mode == MCLongitudinalModes::ALTITUDE) {
         // track manual bearing and altitude setpoints
 
-        return pwqg_.evaluate(err_lon, jac_fpa_sp, -manual_control_sp.alt, 0.0, veh_pos_d, ground_speed, airspeed, wind_vel_d);
+        bool feas;
+        return pwqg_.evaluate(err_lon, jac_fpa_sp, feas, -manual_control_sp.alt, 0.0, veh_pos_d, ground_speed, airspeed, wind_vel_d);
     }
     else { // if (manual_control_sp.lon_mode == MCLongitudinalModes::FPA) {
         // track the commanded flight path angle

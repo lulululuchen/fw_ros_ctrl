@@ -34,6 +34,7 @@
     <!-- objective inverse squared output scaling -->
     <param name="/nmpc/inv_y_scale_sq/pos_n" type="double" value="1e2" />          <!-- 1/0.1^2 -->
     <param name="/nmpc/inv_y_scale_sq/pos_e" type="double" value="1e2" />          <!-- 1/0.1^2 -->
+    <param name="/nmpc/inv_y_scale_sq/pos_d" type="double" value="1e2" />          <!-- 1/0.1^2 -->
     <param name="/nmpc/inv_y_scale_sq/airsp" type="double" value="1e2" />          <!-- 1/0.1^2 -->
     <param name="/nmpc/inv_y_scale_sq/fpa" type="double" value="3.2828e3" />       <!-- 1/deg2rad(1)^2 -->
     <param name="/nmpc/inv_y_scale_sq/heading" type="double" value="3.2828e3" />   <!-- 1/deg2rad(1)^2 -->

@@ -62,29 +62,41 @@ class TrajectoryGenerator {
 
         TrajectoryGenerator();
 
-        enum TGMode {
+        enum LateralMode {
             GUIDE_TO_PATH = 0, // follow guidance to path
             GUIDE_TO_PATH_FROM_CURRENT_HEADING // follow guidance to path starting from current heading
-        }; // trajectory generation mode
+        }; // lateral-directional trajectory generation mode
 
         // NOTE: GUIDE_TO_PATH mode should NOT be used until we have a way to handle the rapid heading oscillations that can happen in excess wind scenarios
 
+        enum LongitudinalMode {
+            GUIDE_ALONG_LATERAL_TRAJECTORY = 0, // follow guidance to path
+            GUIDE_ON_CURRENT_HORIZON // follow guidance to path starting from current heading
+        }; // longitudinal trajectory generation mode
+
+        // gets
+
+        LongitudinalMode getLongitudinalMode() { return longitudinal_mode_; }
+
         // sets
 
+        void setLateralMode(LateralMode mode) { lateral_mode_ = mode; }
+        void setLongitudinalMode(LongitudinalMode mode) { longitudinal_mode_ = mode; }
         void enableOffTrackRollFF(bool en) { en_off_track_roll_ff_ = en; }
         void setMaxDeltaHeading(const double delta_heading) { max_delta_heading_ = delta_heading; }
         void setMaxDeltaAlt(const double delta_alt) { max_delta_alt_ = delta_alt; }
         void setDT(double dt) { dt_ = dt; }
-        void setMode(TGMode mode) { tg_mode_ = mode; }
         void setCrossErrThres(double thres) { cross_err_thres_ = thres; }
         void setTrackErrThres(double thres) { track_err_thres_ = thres; }
+        void enableVertPosCarrot(bool en) { en_vert_pos_carrot_ = en; }
 
         // guidance parameters
 
         void setNPFGParams(bool en_min_ground_speed, const double min_ground_speed_g, const double min_ground_speed_e_max,
             const double nte_fraction, const double p_gain, const double time_const, const double wind_ratio_buf);
 
-        void setPWQGParams(const double fix_vert_pos_err_bnd, const double time_const, const double fpa_app_max, const double vert_pos_err_bnd);
+        void setPWQGParams(const double fix_vert_pos_err_bnd, const double time_const, const double fpa_app_max, const double vert_pos_err_bnd,
+            const double pos_carrot_scale, PWQG::CarrotDynamics pos_carrot_dyn);
 
         // manual control
 
@@ -101,6 +113,15 @@ class TrajectoryGenerator {
             Eigen::Ref<Eigen::MatrixXd> heading_traj, Eigen::Ref<Eigen::MatrixXd> roll_traj, const int len_traj,
             Eigen::Vector2d pos_0, const Eigen::Vector2d &ground_vel_0, const double airspeed_0, const double heading_0, const Eigen::Vector2d &wind_vel,
             const double airspeed_nom, const double airspeed_max, const PathSetpoint &path_sp, const double roll_lim_rad);
+
+        void genTrajectoryToPath(Eigen::Ref<Eigen::MatrixXd> pos_traj, Eigen::Ref<Eigen::MatrixXd> airsp_traj,
+            Eigen::Ref<Eigen::MatrixXd> heading_traj, Eigen::Ref<Eigen::MatrixXd> roll_traj, double *ground_speed_traj, double *pos_d_ref_traj, const int len_traj,
+            Eigen::Vector2d pos_0, const Eigen::Vector2d &ground_vel_0, const double airspeed_0, const double heading_0, const Eigen::Vector2d &wind_vel,
+            const double airspeed_nom, const double airspeed_max, const PathSetpoint &path_sp, const double roll_lim_rad);
+
+        void genLongitudinalTrajectory(Eigen::Ref<Eigen::MatrixXd> fpa_traj, Eigen::Ref<Eigen::MatrixXd> jac_fpa_sp_traj, Eigen::Ref<Eigen::MatrixXd> pos_d_traj,
+            Eigen::Ref<Eigen::MatrixXd> airsp_traj, double *ground_speed_traj, double *pos_d_ref_traj, const int len_traj,
+            const double pos_d_0, const double wind_vel_d, const double unit_path_tangent_d);
 
         double evaluateLongitudinalGuidance(double &err_lon, double *jac_fpa_sp, const PathSetpoint &path_sp, const Eigen::Vector3d &veh_pos,
             const double ground_speed, const double airspeed, const double wind_vel_d);
@@ -141,8 +162,10 @@ class TrajectoryGenerator {
         double cross_err_thres_;
         double track_err_thres_;
 
-        TGMode tg_mode_;
+        LateralMode lateral_mode_;
+        LongitudinalMode longitudinal_mode_;
         bool en_off_track_roll_ff_;
+        bool en_vert_pos_carrot_;
 
         // path following calculations
 

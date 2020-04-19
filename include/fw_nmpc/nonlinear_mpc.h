@@ -49,6 +49,8 @@
 #include <fw_ctrl/NMPCOnlineData.h>
 #include <fw_ctrl/NMPCStates.h>
 #include <fw_ctrl/WindGroundTruth.h>
+#include <fw_ctrl/NMPCInvPrio.h>
+#include <fw_ctrl/NMPCOccDetections.h>
 #include <geometry_msgs/Quaternion.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <geometry_msgs/TwistStamped.h>
@@ -194,6 +196,8 @@ class NonlinearMPC {
         ros::Publisher thrust_pub_;
         ros::Publisher air_vel_ref_pub_;
         ros::Publisher wind_ground_truth_pub_;
+        ros::Publisher nmpc_inv_prio_pub_;
+        ros::Publisher nmpc_occ_detections_pub_;
 
         /* indexing */
 
@@ -215,7 +219,7 @@ class NonlinearMPC {
 
         enum IndexOutputs {
             IDX_Y_POS = 0,
-            IDX_Y_AIRSP = 2,
+            IDX_Y_AIRSP = 3,
             IDX_Y_FPA,
             IDX_Y_HEADING,
             IDX_Y_SOFT_AIRSP,
@@ -315,11 +319,13 @@ class NonlinearMPC {
             double airsp_max;
             bool enable_terrain_feedback;
             double tau_terr;
-            bool use_ff_roll_ref;
+            bool enable_ff_roll_ref;
+            bool enable_ff_pitch_ref;
             bool use_floating_ctrl_ref;
             double tau_u;
             double fixed_pitch_ref;
             double fixed_throt_ref;
+            bool en_fb_pitch_ref;
         } control_parameters_;
 
         /* dynamic reconfigure */
@@ -463,6 +469,11 @@ class NonlinearMPC {
         ManualControlSetpoint manual_control_sp_;       // structure for manual control setpoints
         ManualControlInput manual_control_input_;       // structure for raw manual control inputs
         PathSetpoint path_sp_;                          // structure for path setpoints
+        bool en_fpa_ref_jac_;                           // feed back the flight path angle reference jacobian
+        bool en_pos_d_obj_;                             // enable optimization of the down position
+        double ground_speed_traj_[ACADO_N+1];           // not always used.. could be better way to allocate or initialize these, this is a bit ugly
+        double closest_pt_on_path_d_[ACADO_N+1];        // not always used.. could be better way to allocate or initialize these, this is a bit ugly
+        double pitch_ref_fb_;
 
         /* external objective evaluation functions */
         NonlinearMPCObjectives ext_obj_;
@@ -486,7 +497,6 @@ class NonlinearMPC {
         Eigen::Matrix<double, ACADO_N+1, 1> terrain_alt_horizon_;
 
         /* soft constraints */
-        double aoa_p_;
         ExponentialHuberConstraint huber_airsp_{"lower"};
         ExponentialHuberConstraint huber_aoa_p_{"upper"};
         ExponentialHuberConstraint huber_aoa_m_{"lower"};

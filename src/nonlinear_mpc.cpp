@@ -90,7 +90,8 @@ NonlinearMPC::NonlinearMPC() :
     occ_window_start_(Eigen::Matrix<int, ACADO_N+1, 1>::Zero()),
     nearest_ray_origin_(Eigen::Matrix<int, ACADO_N+1, 1>::Zero()),
     surfel_radius_(0.0),
-    aoa_p_(0.1222),
+    en_fpa_ref_jac_(true),
+    en_pos_d_obj_(true),
     terrain_alt_horizon_(Eigen::Matrix<double, ACADO_N+1, 1>::Zero()),
     inv_prio_airsp_(Eigen::Matrix<double, ACADO_N+1, 1>::Ones()),
     inv_prio_aoa_(Eigen::Matrix<double, ACADO_N+1, 1>::Ones()),
@@ -142,6 +143,8 @@ NonlinearMPC::NonlinearMPC() :
     thrust_pub_ = nmpc_.advertise<mavros_msgs::Thrust>("/mavros/setpoint_attitude/thrust", 1);
     air_vel_ref_pub_ = nmpc_.advertise<visualization_msgs::MarkerArray>("/nmpc/air_vel_ref",1);
     wind_ground_truth_pub_ = nmpc_.advertise<fw_ctrl::WindGroundTruth>("/nmpc/wind_ground_truth",1);
+    nmpc_inv_prio_pub_ = nmpc_.advertise<fw_ctrl::NMPCInvPrio>("/nmpc/inv_prio",10);
+    nmpc_occ_detections_pub_ = nmpc_.advertise<fw_ctrl::NMPCOccDetections>("/nmpc/occ_detections",10);
 
     /* dynamic reconfigure */
 
@@ -419,8 +422,9 @@ void NonlinearMPC::checkSubs()
 void NonlinearMPC::parametersCallbackControl(const fw_ctrl::controlConfig &config, const uint32_t& level)
 {
     // state weights
-    w_(IDX_Y_POS) = config.q_pos;
-    w_(IDX_Y_POS+1) = config.q_pos;
+    w_(IDX_Y_POS) = config.q_pos_ne;
+    w_(IDX_Y_POS+1) = config.q_pos_ne;
+    w_(IDX_Y_POS+2) = config.q_pos_d;
     w_(IDX_Y_AIRSP) = config.q_airsp;
     w_(IDX_Y_FPA) = config.q_fpa;
     w_(IDX_Y_HEADING) = config.q_heading;
@@ -449,7 +453,8 @@ void NonlinearMPC::parametersCallbackControl(const fw_ctrl::controlConfig &confi
     control_parameters_.tau_terr = config.tau_terr;
 
     // control reference parameters
-    control_parameters_.use_ff_roll_ref = config.use_ff_roll_ref;
+    control_parameters_.enable_ff_roll_ref = config.en_ff_roll_ref;
+    control_parameters_.enable_ff_pitch_ref = config.en_ff_pitch_ref;
     control_parameters_.use_floating_ctrl_ref = config.use_floating_ctrl_ref;
     control_parameters_.tau_u = config.tau_u;
     control_parameters_.fixed_pitch_ref = config.fixed_pitch_ref * DEG_TO_RAD;
@@ -496,7 +501,6 @@ void NonlinearMPC::parametersCallbackSoftConstraints(const fw_ctrl::soft_constra
     huber_airsp_.setCostAtOne(config.cost_airsp_1);
 
     // soft angle of attack parameters
-    aoa_p_ = config.aoa_p*DEG_TO_RAD; // needed for pitch ref constraint
     huber_aoa_p_.setConstraint(config.aoa_p*DEG_TO_RAD);
     huber_aoa_p_.setDelta(config.delta_aoa*DEG_TO_RAD);
     huber_aoa_p_.setCostAtOne(config.cost_aoa_1);
@@ -520,12 +524,23 @@ void NonlinearMPC::parametersCallbackTrajectoryGeneration(const fw_ctrl::traject
 {
     traj_gen_.setNPFGParams(config.en_min_ground_speed, config.min_ground_speed_g, config.min_ground_speed_e_max,
         config.nte_fraction, config.lat_p_gain, config.lat_time_const, config.wind_ratio_buf);
-    traj_gen_.setPWQGParams(config.fix_vert_pos_err_bnd, config.lon_time_const, config.fpa_app_max * DEG_TO_RAD, config.vert_pos_err_bnd);
+    traj_gen_.setPWQGParams(config.fix_vert_pos_err_bnd, config.lon_time_const, config.fpa_app_max * DEG_TO_RAD, config.vert_pos_err_bnd,
+        config.pos_carrot_scale, PWQG::CarrotDynamics(config.pos_carrot_dyn));
+    traj_gen_.enableVertPosCarrot(config.en_vert_pos_carrot);
 
     traj_gen_.enableOffTrackRollFF(config.en_off_track_roll_ff);
-    traj_gen_.setMode(TrajectoryGenerator::TGMode::GUIDE_TO_PATH_FROM_CURRENT_HEADING); // for now, disallow the alternative
+    traj_gen_.setLateralMode(TrajectoryGenerator::LateralMode::GUIDE_TO_PATH_FROM_CURRENT_HEADING); // for now, disallow the alternative
     traj_gen_.setCrossErrThres(config.cross_err_thres);
     traj_gen_.setTrackErrThres(config.track_err_thres);
+
+    if (config.longitudinal_mode == TrajectoryGenerator::LongitudinalMode::GUIDE_ON_CURRENT_HORIZON) {
+        traj_gen_.setLongitudinalMode(TrajectoryGenerator::LongitudinalMode::GUIDE_ON_CURRENT_HORIZON);
+    }
+    else { // TrajectoryGenerator::LongitudinalMode::GUIDE_ALONG_LATERAL_TRAJECTORY
+        traj_gen_.setLongitudinalMode(TrajectoryGenerator::LongitudinalMode::GUIDE_ALONG_LATERAL_TRAJECTORY);
+    }
+    en_fpa_ref_jac_ = config.en_fpa_ref_jac;
+    en_pos_d_obj_ = config.en_pos_d_obj;
 } // parametersCallbackTrajectoryGeneration
 
 /*
@@ -607,6 +622,8 @@ void NonlinearMPC::publishNMPCStates()
     fw_ctrl::NMPCObjRef nmpc_obj_ref;
     fw_ctrl::NMPCObjNRef nmpc_objN_ref;
     fw_ctrl::NMPCAuxOut nmpc_aux_output;
+    fw_ctrl::NMPCInvPrio nmpc_inv_prio;
+    fw_ctrl::NMPCOccDetections nmpc_occ_detections; // TODO: avoid duplicates with similar visualization msgs
 
     /* measurements */
     nmpc_measurements.pos_n = (float)x0_(IDX_X_POS);
@@ -637,6 +654,14 @@ void NonlinearMPC::publishNMPCStates()
         nmpc_controls.throt[i] = (float)acadoVariables.u[ACADO_NU * i + IDX_U_THROT];
         nmpc_controls.roll_ref[i] = (float)acadoVariables.u[ACADO_NU * i + IDX_U_ROLL_REF];
         nmpc_controls.pitch_ref[i] = (float)acadoVariables.u[ACADO_NU * i + IDX_U_PITCH_REF];
+
+        nmpc_controls.throt_lb[i] = (float)acadoVariables.lbValues[ACADO_NU * i + IDX_U_THROT];
+        nmpc_controls.roll_ref_lb[i] = (float)acadoVariables.lbValues[ACADO_NU * i + IDX_U_ROLL_REF];
+        nmpc_controls.pitch_ref_lb[i] = (float)acadoVariables.lbValues[ACADO_NU * i + IDX_U_PITCH_REF];
+
+        nmpc_controls.throt_ub[i] = (float)acadoVariables.ubValues[ACADO_NU * i + IDX_U_THROT];
+        nmpc_controls.roll_ref_ub[i] = (float)acadoVariables.ubValues[ACADO_NU * i + IDX_U_ROLL_REF];
+        nmpc_controls.pitch_ref_ub[i] = (float)acadoVariables.ubValues[ACADO_NU * i + IDX_U_PITCH_REF];
     }
 
     /* online data */
@@ -677,6 +702,7 @@ void NonlinearMPC::publishNMPCStates()
     for (int i=0; i<ACADO_N; i++) {
         nmpc_obj_ref.pos_n[i] = (float)acadoVariables.y[ACADO_NY * i + IDX_Y_POS];
         nmpc_obj_ref.pos_e[i] = (float)acadoVariables.y[ACADO_NY * i + IDX_Y_POS+1];
+        nmpc_obj_ref.pos_d[i] = (float)acadoVariables.y[ACADO_NY * i + IDX_Y_POS+2];
         nmpc_obj_ref.airsp[i] = (float)acadoVariables.y[ACADO_NY * i + IDX_Y_AIRSP];
         nmpc_obj_ref.fpa[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_FPA_REF];//(float)acadoVariables.y[ACADO_NY * i + IDX_Y_FPA];
         nmpc_obj_ref.heading[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_HEADING_REF];//(float)acadoVariables.y[ACADO_NY * i + IDX_Y_HEADING];
@@ -690,6 +716,7 @@ void NonlinearMPC::publishNMPCStates()
     }
     nmpc_objN_ref.pos_n = (float)acadoVariables.yN[IDX_Y_POS];
     nmpc_objN_ref.pos_e = (float)acadoVariables.yN[IDX_Y_POS+1];
+    nmpc_objN_ref.pos_d = (float)acadoVariables.yN[IDX_Y_POS+2];
     nmpc_objN_ref.airsp = (float)acadoVariables.yN[IDX_Y_AIRSP];
     nmpc_objN_ref.fpa = (float)acadoVariables.od[ACADO_NOD * ACADO_N + IDX_OD_FPA_REF];//(float)acadoVariables.yN[IDX_Y_FPA];
     nmpc_objN_ref.heading = (float)acadoVariables.od[ACADO_NOD * ACADO_N + IDX_OD_HEADING_REF];//(float)acadoVariables.yN[IDX_Y_HEADING];
@@ -730,6 +757,62 @@ void NonlinearMPC::publishNMPCStates()
         }
     }
 
+    /* objective priorities */ //TODO: potentially remove for CPU perf when running on-board
+    for (int i=0; i<ACADO_N+1; i++) {
+        nmpc_inv_prio.soft_airsp[i] = inv_prio_airsp_(i);
+        nmpc_inv_prio.soft_aoa[i] = inv_prio_aoa_(i);
+        nmpc_inv_prio.soft_hagl[i] = inv_prio_hagl_(i);
+        nmpc_inv_prio.soft_rtd[i] = inv_prio_rtd_(i);
+    }
+
+    /* occlusion detections / attributes */ //TODO: potentially remove for CPU perf when running on-board
+
+    // detector parameters
+    nmpc_occ_detections.len_occ_data = len_occ_data_;
+    nmpc_occ_detections.len_occ_window = len_occ_window_;
+    nmpc_occ_detections.len_occ_buffer = len_occ_buffer_;
+    nmpc_occ_detections.ray_casting_interval = ray_casting_interval_;
+    nmpc_occ_detections.rtd_node_interval = rtd_node_interval_;
+    nmpc_occ_detections.surfel_radius = surfel_radius_;
+
+    // detections / attributes
+    int buf_head;
+    for (int i_data = 0; i_data < len_occ_data_; i_data++) {
+        // forward rays
+        buf_head = occ_[IDX_OCC_FWD].getBufferHead();
+        nmpc_occ_detections.fwd_detections[i_data] = occ_[IDX_OCC_FWD].detections_[buf_head][i_data];
+        if (occ_[IDX_OCC_FWD].detections_[buf_head][i_data]) {
+            nmpc_occ_detections.fwd_pos_0[i_data] = occ_[IDX_OCC_FWD].attributes_[buf_head][i_data][IDX_OCC_POS];
+            nmpc_occ_detections.fwd_pos_1[i_data] = occ_[IDX_OCC_FWD].attributes_[buf_head][i_data][IDX_OCC_POS+1];
+            nmpc_occ_detections.fwd_pos_2[i_data] = occ_[IDX_OCC_FWD].attributes_[buf_head][i_data][IDX_OCC_POS+2];
+            nmpc_occ_detections.fwd_normal_0[i_data] = occ_[IDX_OCC_FWD].attributes_[buf_head][i_data][IDX_OCC_NORMAL];
+            nmpc_occ_detections.fwd_normal_1[i_data] = occ_[IDX_OCC_FWD].attributes_[buf_head][i_data][IDX_OCC_NORMAL+1];
+            nmpc_occ_detections.fwd_normal_2[i_data] = occ_[IDX_OCC_FWD].attributes_[buf_head][i_data][IDX_OCC_NORMAL+2];
+        }
+        // right rays
+        buf_head = occ_[IDX_OCC_RIGHT].getBufferHead();
+        nmpc_occ_detections.right_detections[i_data] = occ_[IDX_OCC_RIGHT].detections_[buf_head][i_data];
+        if (occ_[IDX_OCC_RIGHT].detections_[buf_head][i_data]) {
+            nmpc_occ_detections.right_pos_0[i_data] = occ_[IDX_OCC_RIGHT].attributes_[buf_head][i_data][IDX_OCC_POS];
+            nmpc_occ_detections.right_pos_1[i_data] = occ_[IDX_OCC_RIGHT].attributes_[buf_head][i_data][IDX_OCC_POS+1];
+            nmpc_occ_detections.right_pos_2[i_data]= occ_[IDX_OCC_RIGHT].attributes_[buf_head][i_data][IDX_OCC_POS+2];
+            nmpc_occ_detections.right_normal_0[i_data] = occ_[IDX_OCC_RIGHT].attributes_[buf_head][i_data][IDX_OCC_NORMAL];
+            nmpc_occ_detections.right_normal_1[i_data] = occ_[IDX_OCC_RIGHT].attributes_[buf_head][i_data][IDX_OCC_NORMAL+1];
+            nmpc_occ_detections.right_normal_2[i_data] = occ_[IDX_OCC_RIGHT].attributes_[buf_head][i_data][IDX_OCC_NORMAL+2];
+        }
+        // left rays
+        buf_head = occ_[IDX_OCC_LEFT].getBufferHead();
+        nmpc_occ_detections.left_detections[i_data] = occ_[IDX_OCC_LEFT].detections_[buf_head][i_data];
+        if (occ_[IDX_OCC_LEFT].detections_[buf_head][i_data]) {
+            nmpc_occ_detections.left_pos_0[i_data] = occ_[IDX_OCC_LEFT].attributes_[buf_head][i_data][IDX_OCC_POS];
+            nmpc_occ_detections.left_pos_1[i_data] = occ_[IDX_OCC_LEFT].attributes_[buf_head][i_data][IDX_OCC_POS+1];
+            nmpc_occ_detections.left_pos_2[i_data] = occ_[IDX_OCC_LEFT].attributes_[buf_head][i_data][IDX_OCC_POS+2];
+            nmpc_occ_detections.left_normal_0[i_data] = occ_[IDX_OCC_LEFT].attributes_[buf_head][i_data][IDX_OCC_NORMAL];
+            nmpc_occ_detections.left_normal_1[i_data] = occ_[IDX_OCC_LEFT].attributes_[buf_head][i_data][IDX_OCC_NORMAL+1];
+            nmpc_occ_detections.left_normal_2[i_data] = occ_[IDX_OCC_LEFT].attributes_[buf_head][i_data][IDX_OCC_NORMAL+2];
+        }
+    }
+
     /* publish */
     nmpc_meas_pub_.publish(nmpc_measurements);
     nmpc_states_pub_.publish(nmpc_states);
@@ -738,6 +821,8 @@ void NonlinearMPC::publishNMPCStates()
     nmpc_obj_ref_pub_.publish(nmpc_obj_ref);
     nmpc_objN_ref_pub_.publish(nmpc_objN_ref);
     nmpc_aux_out_pub_.publish(nmpc_aux_output);
+    nmpc_inv_prio_pub_.publish(nmpc_inv_prio);
+    nmpc_occ_detections_pub_.publish(nmpc_occ_detections);
 } // publishNMPCStates
 
 void NonlinearMPC::publishNMPCVisualizations()
@@ -760,7 +845,7 @@ void NonlinearMPC::publishNMPCVisualizations()
         nmpc_guidance_path_pub_.publish(guidance_path);
     }
 
-    // predicted poses (converted to robotic frame)
+    // reference poses (converted to robotic frame)
     nav_msgs::Path nmpc_traj_ref;
     nmpc_traj_ref.header.frame_id = "map";
     nmpc_traj_ref.poses = std::vector<geometry_msgs::PoseStamped>(ACADO_N+1);
@@ -768,7 +853,7 @@ void NonlinearMPC::publishNMPCVisualizations()
         // NED->ENU
         nmpc_traj_ref.poses[i].pose.position.x = y_(IDX_Y_POS+1, i);
         nmpc_traj_ref.poses[i].pose.position.y = y_(IDX_Y_POS, i);
-        nmpc_traj_ref.poses[i].pose.position.z = -x0_pos_(2);
+        nmpc_traj_ref.poses[i].pose.position.z = -y_(IDX_Y_POS+2, i);
         // NED->ENU
         tf::Quaternion q_ned;
         q_ned.setRPY(y_(IDX_Y_ROLL_REF, i), od_(IDX_OD_FPA_REF, i), od_(IDX_OD_HEADING_REF, i));
@@ -1424,7 +1509,8 @@ void NonlinearMPC::setManualControlReferences()
         double jac_fpa_ref[1];
         od_(IDX_OD_FPA_REF, i) = traj_gen_.getManualFPASetpoint(err_lon, jac_fpa_ref, manual_control_sp_, terrain_alt_horizon_(i),
             acadoVariables.x[i * ACADO_NX + IDX_X_POS+2], spds_[i].ground_sp, acadoVariables.x[i * ACADO_NX + IDX_X_AIRSP], x0_wind_(2));
-        od_(IDX_OD_JAC_FPA_REF, i) = jac_fpa_ref[0];
+        od_(IDX_OD_JAC_FPA_REF, i) = (en_fpa_ref_jac_) ? jac_fpa_ref[0] : 0.0;
+        y_(IDX_Y_POS+2, i) = acadoVariables.x[i * ACADO_NX + IDX_X_POS+2];
 
     } // end i loop
 
@@ -1440,45 +1526,43 @@ void NonlinearMPC::setPathFollowingReferences()
     const double airsp_max = std::min(control_parameters_.airsp_max, veh_parameters_.airsp_max);
     bool excess_wind = x0_wind_.segment(0,2).norm() > airsp_max;
 
-    if (!excess_wind) {
-        Eigen::Ref<Eigen::MatrixXd> y_pos_ = y_.block(IDX_Y_POS, 0, 2, ACADO_N+1);
-        Eigen::Ref<Eigen::MatrixXd> y_phi_ref_ = y_.block(IDX_Y_ROLL_REF, 0, 1, ACADO_N+1);
-        Eigen::Ref<Eigen::MatrixXd> y_airsp_ = y_.block(IDX_Y_AIRSP, 0, 1, ACADO_N+1);
-        Eigen::Ref<Eigen::MatrixXd> y_heading_ = od_.block(IDX_OD_HEADING_REF, 0, 1, ACADO_N+1);
+    if (excess_wind) {
+        // excess wind case, TODO: something better than this.
 
-        // generate a 2D trajectory to the path
-        traj_gen_.setDT(node_parameters_.iteration_timestep); // XXX: does this need to be set here every time? -- maybe move it up to the dyn reconfig callback
-        traj_gen_.genTrajectoryToPath2D(y_pos_, y_airsp_, y_heading_, y_phi_ref_, ACADO_N+1,
-            x0_pos_.segment(0,2), x0_vel_.segment(0,2), x0_(IDX_X_AIRSP), x0_(IDX_X_HEADING), x0_wind_.segment(0,2),
-            control_parameters_.airsp_ref, airsp_max, path_sp_, control_parameters_.roll_lim_rad);
-    }
-
-    // evaluate longitudinal guidance at every node with current state prediction // XXX: this is more of a feedback term currently, need to extend windy guidance to 3D for a proper 3D trajectory generation
-    Eigen::Vector3d veh_pos;
-    double err_lon; // dummy
-    for (int i = 0; i < ACADO_N+1; i++) {
-
-        veh_pos(0) = acadoVariables.x[i * ACADO_NX + IDX_X_POS];
-        veh_pos(1) = acadoVariables.x[i * ACADO_NX + IDX_X_POS+1];
-        veh_pos(2) = acadoVariables.x[i * ACADO_NX + IDX_X_POS+2];
-
+        Eigen::Vector3d veh_pos;
+        double err_lon; // dummy
         double jac_fpa_ref[1];
-        od_(IDX_OD_FPA_REF, i) = traj_gen_.evaluateLongitudinalGuidance(err_lon, jac_fpa_ref, path_sp_, veh_pos, spds_[i].ground_sp,
-            acadoVariables.x[i * ACADO_NX + IDX_X_AIRSP], x0_wind_(2));
-        od_(IDX_OD_JAC_FPA_REF, i) = jac_fpa_ref[0];
+        for (int i = 0; i < ACADO_N+1; i++) {
 
-        if (excess_wind) {
-            // excess wind case, TODO: something better than this.
+            veh_pos(0) = acadoVariables.x[i * ACADO_NX + IDX_X_POS];
+            veh_pos(1) = acadoVariables.x[i * ACADO_NX + IDX_X_POS+1];
+            veh_pos(2) = acadoVariables.x[i * ACADO_NX + IDX_X_POS+2];
+            y_(IDX_Y_POS+2, i) = veh_pos(2);
+
+            /*
+                longitudinal guidance
+            */
+
+            od_(IDX_OD_FPA_REF, i) = traj_gen_.evaluateLongitudinalGuidance(err_lon, jac_fpa_ref, path_sp_, veh_pos, spds_[i].ground_sp,
+                acadoVariables.x[i * ACADO_NX + IDX_X_AIRSP], x0_wind_(2));
+            od_(IDX_OD_JAC_FPA_REF, i) = (en_fpa_ref_jac_) ? jac_fpa_ref[0] : 0.0;
+
+            /*
+                lateral-directionl guidance
+            */
+
             y_.block(IDX_Y_POS, 0, 2, ACADO_N+1) = veh_pos.segment(0,2); // these are not actually used in this case.. more just for visualization
 
             // kill the position weights -- TODO: this should probably be done in the prioritization function to keep things orderly/easy to follow..
             if (i < ACADO_N) {
                 acadoVariables.W[ACADO_NY*ACADO_NY*i+ACADO_NY*IDX_Y_POS+IDX_Y_POS] = 0.0; // y pos_n
                 acadoVariables.W[ACADO_NY*ACADO_NY*i+ACADO_NY*(IDX_Y_POS+1)+IDX_Y_POS+1] = 0.0; // y pos_e
+                acadoVariables.W[ACADO_NY*ACADO_NY*i+ACADO_NY*(IDX_Y_POS+2)+IDX_Y_POS+2] = 0.0; // y pos_d
             }
             else {
                 acadoVariables.WN[ACADO_NYN*IDX_Y_POS+IDX_Y_POS] = 0.0; // y pos_n
                 acadoVariables.WN[ACADO_NYN*(IDX_Y_POS+1)+IDX_Y_POS+1] = 0.0; // y pos_e
+                acadoVariables.WN[ACADO_NYN*(IDX_Y_POS+2)+IDX_Y_POS+2] = 0.0; // y pos_d
             }
 
             // evaluate the lateral-directional guidance at each node
@@ -1486,6 +1570,92 @@ void NonlinearMPC::setPathFollowingReferences()
             traj_gen_.evaluateLateralDirectionalGuidance(y_(IDX_Y_AIRSP, i), od_(IDX_OD_HEADING_REF, i), y_(IDX_Y_ROLL_REF, i),
                 veh_pos.segment(0,2), ground_vel, spds_[i].ground_sp, x0_wind_.segment(0,2), control_parameters_.airsp_ref, airsp_max,
                 path_sp_, control_parameters_.roll_lim_rad);
+        }
+    }
+    else {
+
+        if (traj_gen_.getLongitudinalMode() == TrajectoryGenerator::LongitudinalMode::GUIDE_ON_CURRENT_HORIZON) {
+
+            /*
+                lateral-directionl guidance
+            */
+
+            Eigen::Ref<Eigen::MatrixXd> y_pos_ = y_.block(IDX_Y_POS, 0, 2, ACADO_N+1);
+            Eigen::Ref<Eigen::MatrixXd> y_phi_ref_ = y_.block(IDX_Y_ROLL_REF, 0, 1, ACADO_N+1);
+            Eigen::Ref<Eigen::MatrixXd> y_airsp_ = y_.block(IDX_Y_AIRSP, 0, 1, ACADO_N+1);
+            Eigen::Ref<Eigen::MatrixXd> y_heading_ = od_.block(IDX_OD_HEADING_REF, 0, 1, ACADO_N+1);
+
+            // generate a 2D trajectory to the path
+            traj_gen_.setDT(node_parameters_.iteration_timestep); // for some reason this doesnt work when set in the dyn reconfig callback..
+            traj_gen_.genTrajectoryToPath2D(y_pos_, y_airsp_, y_heading_, y_phi_ref_, ACADO_N+1,
+                x0_pos_.segment(0,2), x0_vel_.segment(0,2), x0_(IDX_X_AIRSP), x0_(IDX_X_HEADING), x0_wind_.segment(0,2),
+                control_parameters_.airsp_ref, airsp_max, path_sp_, control_parameters_.roll_lim_rad);
+
+            /*
+                longitudinal guidance
+            */
+
+            Eigen::Vector3d veh_pos;
+            double err_lon; // dummy
+            double jac_fpa_ref[1];
+            for (int i = 0; i < ACADO_N+1; i++) {
+
+                veh_pos(0) = acadoVariables.x[i * ACADO_NX + IDX_X_POS];
+                veh_pos(1) = acadoVariables.x[i * ACADO_NX + IDX_X_POS+1];
+                veh_pos(2) = acadoVariables.x[i * ACADO_NX + IDX_X_POS+2];
+                y_(IDX_Y_POS+2, i) = veh_pos(2);
+
+                od_(IDX_OD_FPA_REF, i) = traj_gen_.evaluateLongitudinalGuidance(err_lon, jac_fpa_ref, path_sp_, veh_pos, spds_[i].ground_sp,
+                    acadoVariables.x[i * ACADO_NX + IDX_X_AIRSP], x0_wind_(2));
+                od_(IDX_OD_JAC_FPA_REF, i) = (en_fpa_ref_jac_) ? jac_fpa_ref[0] : 0.0;
+            }
+        }
+        else { // TrajectoryGenerator::LongitudinalMode::GUIDE_ALONG_LATERAL_TRAJECTORY
+
+            traj_gen_.setDT(node_parameters_.iteration_timestep); // for some reason this doesnt work when set in the dyn reconfig callback..
+
+            /*
+                lateral-directionl guidance
+            */
+
+            Eigen::Ref<Eigen::MatrixXd> y_pos_lat_ = y_.block(IDX_Y_POS, 0, 2, ACADO_N+1);
+            Eigen::Ref<Eigen::MatrixXd> y_phi_ref_ = y_.block(IDX_Y_ROLL_REF, 0, 1, ACADO_N+1);
+            Eigen::Ref<Eigen::MatrixXd> y_airsp_ = y_.block(IDX_Y_AIRSP, 0, 1, ACADO_N+1);
+            Eigen::Ref<Eigen::MatrixXd> y_heading_ = od_.block(IDX_OD_HEADING_REF, 0, 1, ACADO_N+1);
+
+            traj_gen_.genTrajectoryToPath(y_pos_lat_, y_airsp_, y_heading_, y_phi_ref_, ground_speed_traj_, closest_pt_on_path_d_, ACADO_N+1,
+                x0_pos_.segment(0,2), x0_vel_.segment(0,2), x0_(IDX_X_AIRSP), x0_(IDX_X_HEADING), x0_wind_.segment(0,2),
+                control_parameters_.airsp_ref, airsp_max, path_sp_, control_parameters_.roll_lim_rad);
+
+            /*
+                longitudinal guidance
+            */
+
+            Eigen::Ref<Eigen::MatrixXd> y_pos_d_ = y_.block(IDX_Y_POS+2, 0, 1, ACADO_N+1);
+            Eigen::Ref<Eigen::MatrixXd> fpa_ref_traj_ = od_.block(IDX_OD_FPA_REF, 0, 1, ACADO_N+1);
+            Eigen::Ref<Eigen::MatrixXd> jac_fpa_ref_traj_ = od_.block(IDX_OD_JAC_FPA_REF, 0, 1, ACADO_N+1);
+
+            traj_gen_.genLongitudinalTrajectory(fpa_ref_traj_, jac_fpa_ref_traj_, y_pos_d_, y_airsp_, ground_speed_traj_, closest_pt_on_path_d_, ACADO_N+1,
+                x0_pos_(2), x0_wind_(2), path_sp_.dir(2));
+
+            if (!en_fpa_ref_jac_) {
+                // this is a bit shitty to need to reset directly after setting
+                od_.block(IDX_OD_JAC_FPA_REF, 0, 1, ACADO_N+1).setZero();
+            }
+        }
+
+        if (!en_pos_d_obj_) {
+            // this is more just for demonstration.. could remove this later
+
+            for (int i = 0; i < ACADO_N+1; i++) {
+                // kill the position weights -- TODO: this should probably be done in the prioritization function to keep things orderly/easy to follow..
+                if (i < ACADO_N) {
+                    acadoVariables.W[ACADO_NY*ACADO_NY*i+ACADO_NY*(IDX_Y_POS+2)+IDX_Y_POS+2] = 0.0; // y pos_d
+                }
+                else {
+                    acadoVariables.WN[ACADO_NYN*(IDX_Y_POS+2)+IDX_Y_POS+2] = 0.0; // y pos_d
+                }
+            }
         }
     }
 } // setPathFollowingReferences
@@ -1708,6 +1878,7 @@ void NonlinearMPC::prioritizeObjectives()
             inv_prio = inv_prio_hagl_(i) * inv_prio_rtd_(i);
             acadoVariables.W[ACADO_NY*ACADO_NY*i+ACADO_NY*IDX_Y_POS+IDX_Y_POS] = 0.0;                                       // y pos_n
             acadoVariables.W[ACADO_NY*ACADO_NY*i+ACADO_NY*(IDX_Y_POS+1)+IDX_Y_POS+1] = 0.0;                                 // y pos_e
+            acadoVariables.W[ACADO_NY*ACADO_NY*i+ACADO_NY*(IDX_Y_POS+2)+IDX_Y_POS+2] = 0.0;                                 // y pos_d
             y_(IDX_Y_AIRSP, i) = y_(IDX_Y_AIRSP, i) * inv_prio + (1.0 - inv_prio) * control_parameters_.airsp_ref;          // y airsp ref
             acadoVariables.W[ACADO_NY*ACADO_NY*i+ACADO_NY*IDX_Y_FPA+IDX_Y_FPA] *= inv_prio;                                 // y fpa
             if (manual_control_sp_.lat_mode == MCLateralModes::HEADING) {
@@ -1717,10 +1888,12 @@ void NonlinearMPC::prioritizeObjectives()
                 acadoVariables.W[ACADO_NY*ACADO_NY*i+ACADO_NY*IDX_Y_HEADING+IDX_Y_HEADING] = 0.0;                           // y heading
             }
             y_(IDX_Y_ROLL_REF, i) *= inv_prio;                                                                              // y roll ref ff
+            y_(IDX_Y_PITCH_REF, i) = y_(IDX_Y_PITCH_REF, i) * inv_prio + (1.0 - inv_prio) * control_parameters_.fixed_pitch_ref; // y pitch ref ff
         }
         inv_prio = inv_prio_hagl_(ACADO_N) * inv_prio_rtd_(ACADO_N);
         acadoVariables.WN[ACADO_NYN*IDX_Y_POS+IDX_Y_POS] = 0.0;                                                             // y pos_n
         acadoVariables.WN[ACADO_NYN*(IDX_Y_POS+1)+IDX_Y_POS+1] = 0.0;                                                       // y pos_e
+        acadoVariables.WN[ACADO_NYN*(IDX_Y_POS+2)+IDX_Y_POS+2] = 0.0;                                                       // y pos_d
         y_(IDX_Y_AIRSP, ACADO_N) = y_(IDX_Y_AIRSP, ACADO_N) * inv_prio + (1.0 - inv_prio) * control_parameters_.airsp_ref;  // y airsp ref
         acadoVariables.WN[ACADO_NYN*IDX_Y_FPA+IDX_Y_FPA] *= inv_prio;                                                       // y fpa
         if (manual_control_sp_.lat_mode == MCLateralModes::HEADING) {
@@ -1737,14 +1910,17 @@ void NonlinearMPC::prioritizeObjectives()
             inv_prio = inv_prio_hagl_(i) * inv_prio_rtd_(i);
             acadoVariables.W[ACADO_NY*ACADO_NY*i+ACADO_NY*IDX_Y_POS+IDX_Y_POS] *= inv_prio;                                 // y pos_n
             acadoVariables.W[ACADO_NY*ACADO_NY*i+ACADO_NY*(IDX_Y_POS+1)+IDX_Y_POS+1] *= inv_prio;                           // y pos_e
+            acadoVariables.W[ACADO_NY*ACADO_NY*i+ACADO_NY*(IDX_Y_POS+2)+IDX_Y_POS+2] *= inv_prio;                           // y pos_d
             y_(IDX_Y_AIRSP, i) = y_(IDX_Y_AIRSP, i) * inv_prio + (1.0 - inv_prio) * control_parameters_.airsp_ref;          // y airsp ref
             acadoVariables.W[ACADO_NY*ACADO_NY*i+ACADO_NY*IDX_Y_FPA+IDX_Y_FPA] *= inv_prio;                                 // y fpa
             acadoVariables.W[ACADO_NY*ACADO_NY*i+ACADO_NY*IDX_Y_HEADING+IDX_Y_HEADING] *= inv_prio;                         // y heading
             y_(IDX_Y_ROLL_REF, i) *= inv_prio;                                                                              // y roll ref ff
+            y_(IDX_Y_PITCH_REF, i) = y_(IDX_Y_PITCH_REF, i) * inv_prio + (1.0 - inv_prio) * control_parameters_.fixed_pitch_ref; // y pitch ref ff
         }
         inv_prio = inv_prio_hagl_(ACADO_N) * inv_prio_rtd_(ACADO_N);
         acadoVariables.WN[ACADO_NYN*IDX_Y_POS+IDX_Y_POS] *= inv_prio;                                                       // y pos_n
         acadoVariables.WN[ACADO_NYN*(IDX_Y_POS+1)+IDX_Y_POS+1] *= inv_prio;                                                 // y pos_e
+        acadoVariables.WN[ACADO_NYN*(IDX_Y_POS+2)+IDX_Y_POS+2] *= inv_prio;                                                 // y pos_d
         y_(IDX_Y_AIRSP, ACADO_N) = y_(IDX_Y_AIRSP, ACADO_N) * inv_prio + (1.0 - inv_prio) * control_parameters_.airsp_ref;  // y airsp ref
         acadoVariables.WN[ACADO_NYN*IDX_Y_FPA+IDX_Y_FPA] *= inv_prio;                                                       // y fpa
         acadoVariables.WN[ACADO_NYN*IDX_Y_HEADING+IDX_Y_HEADING] *= inv_prio;                                               // y heading
@@ -1762,6 +1938,9 @@ void NonlinearMPC::setControlObjectiveReferences()
 
             // pitch reference
             y_(IDX_Y_PITCH_REF, i) = control_parameters_.fixed_pitch_ref; //TODO: in future could schedule these also with airsp / fpa / roll*** setpoints
+            if (control_parameters_.enable_ff_pitch_ref) {
+                y_(IDX_Y_PITCH_REF, i) += od_(IDX_OD_FPA_REF, i);
+            }
 
             // throttle reference
             y_(IDX_Y_THROT, i) = control_parameters_.fixed_throt_ref; //TODO: in future could schedule these also with airsp / fpa setpoints
@@ -1770,7 +1949,11 @@ void NonlinearMPC::setControlObjectiveReferences()
             if (manual_control_sp_.enabled) {
                 y_(IDX_Y_ROLL_REF, i) = manual_control_sp_.roll;
             }
-            // else the trajectory generation already handles roll feed-forwards -- see XXXX()
+            else if (!control_parameters_.enable_ff_roll_ref) { // trajectory generation handles roll feed-forwards
+                // kill any feed-forward we already had
+                y_(IDX_Y_ROLL_REF, i) = 0.0;
+            }
+
 
         } // end i loop
     }
@@ -1791,7 +1974,7 @@ void NonlinearMPC::updateAcadoConstraints()
 
         acadoVariables.ubValues[ACADO_NU * i + IDX_U_THROT] = ub_(IDX_U_THROT);
         acadoVariables.ubValues[ACADO_NU * i + IDX_U_ROLL_REF] = ub_(IDX_U_ROLL_REF);
-        acadoVariables.ubValues[ACADO_NU * i + IDX_U_PITCH_REF] = std::min(ub_(IDX_U_PITCH_REF), acadoVariables.x[ACADO_NX * i + IDX_X_FPA] + aoa_p_);
+        acadoVariables.ubValues[ACADO_NU * i + IDX_U_PITCH_REF] = ub_(IDX_U_PITCH_REF);
     }
 
 } // updateAcadoConstraints
@@ -2189,6 +2372,10 @@ int NonlinearMPC::initializeParameters()
     }
     if (!nmpc_.getParam("/nmpc/inv_y_scale_sq/pos_e", inv_y_scale_sq_(IDX_Y_POS+1))) {
         ROS_ERROR("initializeParameters: inv_y_scale_sq/pos_e not found");
+        return 1;
+    }
+    if (!nmpc_.getParam("/nmpc/inv_y_scale_sq/pos_d", inv_y_scale_sq_(IDX_Y_POS+2))) {
+        ROS_ERROR("initializeParameters: inv_y_scale_sq/pos_d not found");
         return 1;
     }
     if (!nmpc_.getParam("/nmpc/inv_y_scale_sq/airsp", inv_y_scale_sq_(IDX_Y_AIRSP))) {

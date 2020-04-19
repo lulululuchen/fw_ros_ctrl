@@ -29,6 +29,8 @@ add_message_files(
   NMPCOnlineData.msg
   NMPCStates.msg
   WindGroundTruth.msg
+  NMPCInvPrio.msg
+  NMPCOccDetections.msg
 )
 
 generate_messages(
