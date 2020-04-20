@@ -747,6 +747,8 @@ void NonlinearMPC::publishNMPCStates()
     const double terrain_alt = getTerrainAltitude(x0_pos_(0), x0_pos_(1), map_origin_north_, map_origin_east_,
         map_height_, map_width_, map_resolution_, map_array_);
 
+    nmpc_aux_output.terrain_alt = terrain_alt;
+
     if (manual_control_sp_.enabled) {
         double err_lon;
         double jac_fpa_sp[1];

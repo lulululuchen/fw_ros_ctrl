@@ -3,3 +3,4 @@
 
 float32 path_error_lat # lateral-directional path error [m]
 float32 path_error_lon # longitudinal path error [m]
+float32 terrain_alt # terrain altitude [m]
