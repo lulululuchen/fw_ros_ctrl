@@ -20,6 +20,8 @@ float32[51] jac_soft_airsp_0    # jacobian 0 of soft airspeed
 float32[51] soft_aoa            # soft angle of attack (AoA)
 float32[51] jac_soft_aoa_0      # jacobian 0 of soft angle of attack (AoA)
 float32[51] jac_soft_aoa_1      # jacobian 1 of soft angle of attack (AoA)
+
+# filtered
 float32[51] soft_hagl           # soft height above ground level (HAGL)
 float32[51] jac_soft_hagl_0     # jacobian 0 of soft height above ground level (HAGL)
 float32[51] jac_soft_hagl_1     # jacobian 1 of soft height above ground level (HAGL)
@@ -32,3 +34,17 @@ float32[51] jac_soft_rtd_2      # jacobian 2 of soft radial terrain distance (RT
 float32[51] jac_soft_rtd_3      # jacobian 3 of soft radial terrain distance (RTD)
 float32[51] jac_soft_rtd_4      # jacobian 4 of soft radial terrain distance (RTD)
 float32[51] jac_soft_rtd_5      # jacobian 5 of soft radial terrain distance (RTD)
+
+# raw
+float32[51] soft_hagl_raw           # soft height above ground level (HAGL)
+float32[51] jac_soft_hagl_0_raw     # jacobian 0 of soft height above ground level (HAGL)
+float32[51] jac_soft_hagl_1_raw     # jacobian 1 of soft height above ground level (HAGL)
+float32[51] jac_soft_hagl_2_raw     # jacobian 2 of soft height above ground level (HAGL)
+float32[51] jac_soft_hagl_3_raw     # jacobian 3 of soft height above ground level (HAGL)
+float32[51] soft_rtd_raw            # soft radial terrain distance (RTD)
+float32[51] jac_soft_rtd_0_raw      # jacobian 0 of soft radial terrain distance (RTD)
+float32[51] jac_soft_rtd_1_raw      # jacobian 1 of soft radial terrain distance (RTD)
+float32[51] jac_soft_rtd_2_raw      # jacobian 2 of soft radial terrain distance (RTD)
+float32[51] jac_soft_rtd_3_raw      # jacobian 3 of soft radial terrain distance (RTD)
+float32[51] jac_soft_rtd_4_raw      # jacobian 4 of soft radial terrain distance (RTD)
+float32[51] jac_soft_rtd_5_raw      # jacobian 5 of soft radial terrain distance (RTD)

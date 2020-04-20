@@ -2,7 +2,7 @@
 
   <arg name="file_name" value="/home/thomas/Documents/rosbags/nmpc" />
 
-  <arg name="nmpc_subs" value="/mavros/target_actuator_control map_mpc /mavros/home_position/home /mavros/imu/data /mavros/global_position/local /mavros/manual_control/control /mavros/imu/static_pressure /mavros/state /mavros/extended_state /mavros/imu/temperature_imu /mavros/wind_estimation" />
+  <arg name="nmpc_subs" value="/mavros/target_actuator_control /mavros/home_position/home /mavros/imu/data /mavros/global_position/local /mavros/manual_control/control /mavros/imu/static_pressure /mavros/state /mavros/extended_state /mavros/imu/temperature_imu /mavros/wind_estimation" />
 
   <arg name="nmpc_pubs" value="/mavros/setpoint_attitude/attitude /nmpc/aux_out /nmpc/controls /nmpc/guidance_path /nmpc/info /nmpc/measurements /nmpc/obj_ref /nmpc/objN_ref /nmpc/occ_detect /nmpc/online_data /nmpc/states /nmpc/traj_pred /nmpc/status /mavros/setpoint_attitude/thrust /nmpc/wind_ground_truth /nmpc/inv_prio /nmpc/occ_detections" />
 
@@ -10,7 +10,7 @@
 
   <arg name="tf" value="/tf /tf_static" />
 
-  <arg name="recorded_topics" value="$(arg nmpc_subs) $(arg nmpc_pubs) $(arg tf)" />
+  <arg name="recorded_topics" value="$(arg nmpc_subs) $(arg nmpc_pubs) $(arg vision) $(arg tf)" />
 
   <node pkg="rosbag" type="record" name="record" args="-o $(arg file_name) $(arg recorded_topics)" />
 </launch>

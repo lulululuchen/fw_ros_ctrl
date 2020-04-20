@@ -684,6 +684,8 @@ void NonlinearMPC::publishNMPCStates()
         nmpc_online_data.soft_aoa[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_SOFT_AOA];
         nmpc_online_data.jac_soft_aoa_0[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_AOA];
         nmpc_online_data.jac_soft_aoa_1[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_AOA+1];
+
+        // filtered
         nmpc_online_data.soft_hagl[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_SOFT_HAGL];
         nmpc_online_data.jac_soft_hagl_0[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_HAGL];
         nmpc_online_data.jac_soft_hagl_1[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_HAGL+1];
@@ -696,6 +698,20 @@ void NonlinearMPC::publishNMPCStates()
         nmpc_online_data.jac_soft_rtd_3[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_RTD+3];
         nmpc_online_data.jac_soft_rtd_4[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_RTD+4];
         nmpc_online_data.jac_soft_rtd_5[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_RTD+5];
+
+        // raw
+        nmpc_online_data.soft_hagl_raw[i] = (float)od_(IDX_OD_SOFT_HAGL, i);
+        nmpc_online_data.jac_soft_hagl_0_raw[i] = (float)od_(IDX_OD_JAC_SOFT_HAGL, i);
+        nmpc_online_data.jac_soft_hagl_1_raw[i] = (float)od_(IDX_OD_JAC_SOFT_HAGL+1, i);
+        nmpc_online_data.jac_soft_hagl_2_raw[i] = (float)od_(IDX_OD_JAC_SOFT_HAGL+2, i);
+        nmpc_online_data.jac_soft_hagl_3_raw[i] = (float)od_(IDX_OD_JAC_SOFT_HAGL+3, i);
+        nmpc_online_data.soft_rtd_raw[i] = (float)od_(IDX_OD_SOFT_RTD, i);
+        nmpc_online_data.jac_soft_rtd_0_raw[i] = (float)od_(IDX_OD_JAC_SOFT_RTD, i);
+        nmpc_online_data.jac_soft_rtd_1_raw[i] = (float)od_(IDX_OD_JAC_SOFT_RTD+1, i);
+        nmpc_online_data.jac_soft_rtd_2_raw[i] = (float)od_(IDX_OD_JAC_SOFT_RTD+2, i);
+        nmpc_online_data.jac_soft_rtd_3_raw[i] = (float)od_(IDX_OD_JAC_SOFT_RTD+3, i);
+        nmpc_online_data.jac_soft_rtd_4_raw[i] = (float)od_(IDX_OD_JAC_SOFT_RTD+4, i);
+        nmpc_online_data.jac_soft_rtd_5_raw[i] = (float)od_(IDX_OD_JAC_SOFT_RTD+5, i);
     }
 
     /* objective references */
@@ -2005,10 +2021,10 @@ void NonlinearMPC::updateAcadoOD()
     // symmetric flaps setting
     od_.block(IDX_OD_FLAPS, 0, 1, ACADO_N+1).setConstant(flapsToRad(flaps_normalized_));
 
+    Eigen::Map<Eigen::Matrix<double, ACADO_NOD, ACADO_N+1>>(const_cast<double*>(acadoVariables.od)) = od_; // TODO: dont set terrain costs/jacobians here, as they are anyway filtered directly after
+
     // time delayed terrain cost jacobians
     filterTerrainCostJacobian();
-
-    Eigen::Map<Eigen::Matrix<double, ACADO_NOD, ACADO_N+1>>(const_cast<double*>(acadoVariables.od)) = od_;
 } // updateAcadoOD
 
 void NonlinearMPC::updateAcadoW()
