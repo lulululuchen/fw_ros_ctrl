@@ -95,8 +95,8 @@ class TrajectoryGenerator {
         void setNPFGParams(bool en_min_ground_speed, const double min_ground_speed_g, const double min_ground_speed_e_max,
             const double nte_fraction, const double p_gain, const double time_const, const double wind_ratio_buf);
 
-        void setPWQGParams(const double fix_vert_pos_err_bnd, const double time_const, const double fpa_app_max, const double vert_pos_err_bnd,
-            const double pos_carrot_scale, PWQG::CarrotDynamics pos_carrot_dyn);
+        void setPWQGParams(const double fix_vert_pos_err_bnd, const double time_const, const double fpa_climb, const double fpa_sink, const double vert_pos_err_bnd,
+            const double pos_carrot_scale, PWQG::CarrotDynamics pos_carrot_dyn, const double max_unit_err_lon);
 
         // manual control
 
@@ -105,7 +105,7 @@ class TrajectoryGenerator {
             const double roll_lim);
 
         double getManualFPASetpoint(double &err_lon, double *jac_fpa_sp, const ManualControlSetpoint &manual_control_sp,
-            const double terr_alt, const double veh_pos_d, const double ground_speed, const double airspeed, const double wind_vel_d);
+            const double terr_alt, const double veh_pos_d, const double ground_speed, const double airspeed, const double wind_vel_d, const Eigen::Vector3d &ground_vel, const Eigen::Vector3d &air_vel);
 
         // trajectory generation
 
@@ -124,7 +124,7 @@ class TrajectoryGenerator {
             const double pos_d_0, const double wind_vel_d, const double unit_path_tangent_d);
 
         double evaluateLongitudinalGuidance(double &err_lon, double *jac_fpa_sp, const PathSetpoint &path_sp, const Eigen::Vector3d &veh_pos,
-            const double ground_speed, const double airspeed, const double wind_vel_d);
+            const double ground_speed, const double airspeed, const double wind_vel_d, const Eigen::Vector3d &ground_vel, const Eigen::Vector3d &air_vel);
 
         void evaluateLateralDirectionalGuidance(double &airsp_ref, double &heading_ref, double &roll_ref,
             const Eigen::Vector2d &pos, const Eigen::Vector2d &ground_vel, const double ground_speed, const Eigen::Vector2d &wind_vel,

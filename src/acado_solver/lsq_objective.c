@@ -25,38 +25,40 @@ void lsq_obj_eval( const real_t *in, real_t *out, bool eval_end_term )
 
     /* flight path angle reference */
     const double fpa_ref = in[22-idx_shift];
-    const double jac_fpa_ref = in[23-idx_shift];
+    double jac_fpa_ref[2];
+    jac_fpa_ref[0] = in[23-idx_shift];
+    jac_fpa_ref[1] = in[24-idx_shift];
     
     /* heading reference */
-    const double heading_ref = in[24-idx_shift];
+    const double heading_ref = in[25-idx_shift];
 
     /* soft airsp */
-    const double soft_airsp = in[25-idx_shift];
-    const double jac_soft_airsp = in[26-idx_shift];
+    const double soft_airsp = in[26-idx_shift];
+    const double jac_soft_airsp = in[27-idx_shift];
 
     /* soft aoa */
-    const double soft_aoa = in[27-idx_shift];
+    const double soft_aoa = in[28-idx_shift];
     double jac_soft_aoa[2];
-    jac_soft_aoa[0] = in[28-idx_shift];
-    jac_soft_aoa[1] = in[29-idx_shift];
+    jac_soft_aoa[0] = in[29-idx_shift];
+    jac_soft_aoa[1] = in[30-idx_shift];
 
     /* soft height */
-    const double soft_hagl = in[30-idx_shift];
+    const double soft_hagl = in[31-idx_shift];
     double jac_soft_hagl[4];
-    jac_soft_hagl[0] = in[31-idx_shift];
-    jac_soft_hagl[1] = in[32-idx_shift];
-    jac_soft_hagl[2] = in[33-idx_shift];
-    jac_soft_hagl[3] = in[34-idx_shift];
+    jac_soft_hagl[0] = in[32-idx_shift];
+    jac_soft_hagl[1] = in[33-idx_shift];
+    jac_soft_hagl[2] = in[34-idx_shift];
+    jac_soft_hagl[3] = in[35-idx_shift];
 
     /* soft radial */
-    const double soft_rtd = in[35-idx_shift];
+    const double soft_rtd = in[36-idx_shift];
     double jac_soft_rtd[6];
-    jac_soft_rtd[0] = in[36-idx_shift];
-    jac_soft_rtd[1] = in[37-idx_shift];
-    jac_soft_rtd[2] = in[38-idx_shift];
-    jac_soft_rtd[3] = in[39-idx_shift];
-    jac_soft_rtd[4] = in[40-idx_shift];
-    jac_soft_rtd[5] = in[41-idx_shift];
+    jac_soft_rtd[0] = in[37-idx_shift];
+    jac_soft_rtd[1] = in[38-idx_shift];
+    jac_soft_rtd[2] = in[39-idx_shift];
+    jac_soft_rtd[3] = in[40-idx_shift];
+    jac_soft_rtd[4] = in[41-idx_shift];
+    jac_soft_rtd[5] = in[42-idx_shift];
 
     /* OBJECTIVES - - - - - - - - - - - - - - - - - - - - - - - - - - - -*/
 
@@ -131,8 +133,8 @@ void lsq_obj_eval( const real_t *in, real_t *out, bool eval_end_term )
         out[45] = 0.0;
         out[46] = 0.0; /* - - - - - - - - - - - - - - - - - -d(fpa)/d(x) */
         out[47] = 0.0;
-        out[48] = jac_fpa_ref;
-        out[49] = 0.0;
+        out[48] = jac_fpa_ref[0];
+        out[49] = jac_fpa_ref[1];
         out[50] = jac_fpa;
         out[51] = 0.0;
         out[52] = 0.0;
@@ -236,8 +238,8 @@ void lsq_obj_eval( const real_t *in, real_t *out, bool eval_end_term )
         out[48] = 0.0;
         out[49] = 0.0; /* - - - - - - - - - - - - - - - - - -d(fpa)/d(x) */
         out[50] = 0.0;
-        out[51] = jac_fpa_ref;
-        out[52] = 0.0;
+        out[51] = jac_fpa_ref[0];
+        out[52] = jac_fpa_ref[1];
         out[53] = jac_fpa;
         out[54] = 0.0;
         out[55] = 0.0;

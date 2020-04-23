@@ -13,7 +13,8 @@ float32 tau_prop    # propeller speed time constant [s]
 float32 flaps       # symmetric flap deflection [rad]
 
 float32[51] fpa_ref             # flight path angle reference [rad]
-float32[51] jac_fpa_ref         # jacobian 0 of flight path angle reference
+float32[51] jac_fpa_ref_0       # jacobian 0 of flight path angle reference
+float32[51] jac_fpa_ref_1       # jacobian 1 of flight path angle reference
 float32[51] heading_ref         # heading reference [rad]
 float32[51] soft_airsp          # soft airspeed
 float32[51] jac_soft_airsp_0    # jacobian 0 of soft airspeed

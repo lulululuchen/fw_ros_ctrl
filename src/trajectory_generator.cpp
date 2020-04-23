@@ -42,15 +42,17 @@ void TrajectoryGenerator::setNPFGParams(bool en_min_ground_speed, const double m
     npfg_.setWindRatioBuf(wind_ratio_buf);
 } // setNPFGParams
 
-void TrajectoryGenerator::setPWQGParams(const double fix_vert_pos_err_bnd, const double time_const, const double fpa_app_max, const double vert_pos_err_bnd,
-    const double pos_carrot_scale, PWQG::CarrotDynamics pos_carrot_dyn)
+void TrajectoryGenerator::setPWQGParams(const double fix_vert_pos_err_bnd, const double time_const, const double fpa_climb, const double fpa_sink, const double vert_pos_err_bnd,
+    const double pos_carrot_scale, PWQG::CarrotDynamics pos_carrot_dyn, const double max_unit_err_lon)
 {
     pwqg_.setFixedVertPosErrBound(fix_vert_pos_err_bnd);
     pwqg_.setTimeConstant(time_const);
     pwqg_.setVertPosErrBound(vert_pos_err_bnd);
-    pwqg_.setFPAAppMax(fpa_app_max);
+    pwqg_.setFPAClimb(fpa_climb);
+    pwqg_.setFPASink(fpa_sink);
     pwqg_.setCarrotScale(pos_carrot_scale);
     pwqg_.setCarrotDynamics(pos_carrot_dyn);
+    pwqg_.setMaxUnitErrLon(max_unit_err_lon);
 } // setPWQGParams
 
 /*
@@ -1404,11 +1406,15 @@ void TrajectoryGenerator::genLongitudinalTrajectory(Eigen::Ref<Eigen::MatrixXd> 
 
     // on track FPA -- adjust for wind (small angle assumption)
     const double fpa_path_uncnstr = -(ground_speed_traj[k] * unit_path_tangent_d - wind_vel_d) / airsp_traj(0, k);
-    const double fpa_path = constrain(fpa_path_uncnstr, -pwqg_.getFPAAppMax(), pwqg_.getFPAAppMax());
-    bool feas = fabs(fpa_path_uncnstr) < pwqg_.getFPAAppMax(); // tracking feasibility
+    const double fpa_path = constrain(fpa_path_uncnstr, pwqg_.getFPASink(), pwqg_.getFPAClimb());
+    bool feas = pwqg_.getFPASink() < fpa_path_uncnstr && fpa_path_uncnstr < pwqg_.getFPAClimb(); // tracking feasibility
+
+    //TODO: get the actual values of these on the trajectory..
+    Eigen::Vector3d ground_vel(0.0, 0.0, 0.0);
+    Eigen::Vector3d air_vel(0.0, 0.0, 0.0);
 
     double err_lon; // dummy
-    double jac_fpa_sp[1];
+    double jac_fpa_sp[2];
     bool converged = false;
     while (k < len_traj) {
 
@@ -1422,9 +1428,13 @@ void TrajectoryGenerator::genLongitudinalTrajectory(Eigen::Ref<Eigen::MatrixXd> 
             }
         }
 
+        air_vel(0) = airsp_traj(0, k); // XXX
+
         // output
-        fpa_traj(0, k) = pwqg_.evaluate(err_lon, jac_fpa_sp, feas, closest_pt_on_path_d[k], unit_path_tangent_d, pos_d_k, ground_speed_traj[k], airsp_traj(0, k), wind_vel_d);
+        fpa_traj(0, k) = pwqg_.evaluate(err_lon, jac_fpa_sp, feas, closest_pt_on_path_d[k], unit_path_tangent_d, pos_d_k, ground_speed_traj[k], airsp_traj(0, k), wind_vel_d,
+            ground_vel, air_vel);
         jac_fpa_sp_traj(0, k) = jac_fpa_sp[0];
+        jac_fpa_sp_traj(1, k) = jac_fpa_sp[1];
         pos_d_traj(0, k) = pos_d_k + ((en_vert_pos_carrot_) ? pwqg_.calcPositionCarrot(pos_d_k, closest_pt_on_path_d[k], ground_speed_traj[k]) : 0.0);
 
         // propagate
@@ -1435,7 +1445,7 @@ void TrajectoryGenerator::genLongitudinalTrajectory(Eigen::Ref<Eigen::MatrixXd> 
 } // genFPATrajectory
 
 double TrajectoryGenerator::evaluateLongitudinalGuidance(double &err_lon, double *jac_fpa_sp, const PathSetpoint &path_sp, const Eigen::Vector3d &veh_pos,
-    const double ground_speed, const double airspeed, const double wind_vel_d)
+    const double ground_speed, const double airspeed, const double wind_vel_d, const Eigen::Vector3d &ground_vel, const Eigen::Vector3d &air_vel)
 {
     double pos_d_ref;
     if (path_sp.type == PathTypes::LOITER) {
@@ -1451,7 +1461,7 @@ double TrajectoryGenerator::evaluateLongitudinalGuidance(double &err_lon, double
     }
 
     bool feas;
-    return pwqg_.evaluate(err_lon, jac_fpa_sp, feas, pos_d_ref, path_sp.dir(2), veh_pos(2), ground_speed, airspeed, wind_vel_d); // return fpa
+    return pwqg_.evaluate(err_lon, jac_fpa_sp, feas, pos_d_ref, path_sp.dir(2), veh_pos(2), ground_speed, airspeed, wind_vel_d, ground_vel, air_vel); // return fpa
 } // evaluateLongitudinalGuidance
 
 void TrajectoryGenerator::evaluateLateralDirectionalGuidance(double &airsp_ref, double &heading_ref, double &roll_ref,
@@ -1497,7 +1507,7 @@ void TrajectoryGenerator::evaluateLateralDirectionalGuidance(double &airsp_ref, 
 */
 
 double TrajectoryGenerator::getManualFPASetpoint(double &err_lon, double *jac_fpa_sp, const ManualControlSetpoint &manual_control_sp,
-    const double terr_alt, const double veh_pos_d, const double ground_speed, const double airspeed, const double wind_vel_d)
+    const double terr_alt, const double veh_pos_d, const double ground_speed, const double airspeed, const double wind_vel_d, const Eigen::Vector3d &ground_vel, const Eigen::Vector3d &air_vel)
 {
     // NOTE: manual setpoints should ALREADY BE SET IN STRUCT after calling the updateManualSetpoint() function BEFORE this one
 
@@ -1512,13 +1522,13 @@ double TrajectoryGenerator::getManualFPASetpoint(double &err_lon, double *jac_fp
         const double unit_path_tangent_d = 0.0;
 
         bool feas;
-        return pwqg_.evaluate(err_lon, jac_fpa_sp, feas, -alt, unit_path_tangent_d, veh_pos_d, ground_speed, airspeed, wind_vel_d);
+        return pwqg_.evaluate(err_lon, jac_fpa_sp, feas, -alt, unit_path_tangent_d, veh_pos_d, ground_speed, airspeed, wind_vel_d, ground_vel, air_vel);
     }
     else if (manual_control_sp.lon_mode == MCLongitudinalModes::ALTITUDE) {
         // track manual bearing and altitude setpoints
 
         bool feas;
-        return pwqg_.evaluate(err_lon, jac_fpa_sp, feas, -manual_control_sp.alt, 0.0, veh_pos_d, ground_speed, airspeed, wind_vel_d);
+        return pwqg_.evaluate(err_lon, jac_fpa_sp, feas, -manual_control_sp.alt, 0.0, veh_pos_d, ground_speed, airspeed, wind_vel_d, ground_vel, air_vel);
     }
     else { // if (manual_control_sp.lon_mode == MCLongitudinalModes::FPA) {
         // track the commanded flight path angle
@@ -1676,7 +1686,7 @@ void TrajectoryGenerator::updateManualSetpoint(ManualControlSetpoint &setpoint, 
             }
         }
         else { // default == MCLongitudinalModes::FPA
-            setpoint.fpa = x_input * pwqg_.getFPAAppMax();
+            setpoint.fpa = (x_input < 0.0) ? -x_input * pwqg_.getFPASink() : x_input * pwqg_.getFPAClimb();
         }
 
         // throttle stick controls airspeed set point

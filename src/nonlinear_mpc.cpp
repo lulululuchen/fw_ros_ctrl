@@ -80,6 +80,7 @@ NonlinearMPC::NonlinearMPC() :
     inv_y_scale_sq_(Eigen::Matrix<double, ACADO_NY, 1>::Zero()),
     w_(Eigen::Matrix<double, ACADO_NY, 1>::Zero()),
     od_(Eigen::Matrix<double, ACADO_NOD, ACADO_N+1>::Zero()),
+    terr_obj_raw_(Eigen::Matrix<double, 2 + LEN_JAC_SOFT_HAGL + LEN_JAC_SOFT_RTD, ACADO_N+1>::Zero()),
     lb_(Eigen::Matrix<double, ACADO_NU, 1>::Zero()),
     ub_(Eigen::Matrix<double, ACADO_NU, 1>::Zero()),
     ray_casting_interval_(1),
@@ -92,6 +93,8 @@ NonlinearMPC::NonlinearMPC() :
     surfel_radius_(0.0),
     en_fpa_ref_jac_(true),
     en_pos_d_obj_(true),
+    en_pos_obj_ramp_(false),
+    pos_obj_ramp_end_(10),
     terrain_alt_horizon_(Eigen::Matrix<double, ACADO_N+1, 1>::Zero()),
     inv_prio_airsp_(Eigen::Matrix<double, ACADO_N+1, 1>::Ones()),
     inv_prio_aoa_(Eigen::Matrix<double, ACADO_N+1, 1>::Ones()),
@@ -524,8 +527,8 @@ void NonlinearMPC::parametersCallbackTrajectoryGeneration(const fw_ctrl::traject
 {
     traj_gen_.setNPFGParams(config.en_min_ground_speed, config.min_ground_speed_g, config.min_ground_speed_e_max,
         config.nte_fraction, config.lat_p_gain, config.lat_time_const, config.wind_ratio_buf);
-    traj_gen_.setPWQGParams(config.fix_vert_pos_err_bnd, config.lon_time_const, config.fpa_app_max * DEG_TO_RAD, config.vert_pos_err_bnd,
-        config.pos_carrot_scale, PWQG::CarrotDynamics(config.pos_carrot_dyn));
+    traj_gen_.setPWQGParams(config.fix_vert_pos_err_bnd, config.lon_time_const, config.fpa_climb * DEG_TO_RAD, config.fpa_sink * DEG_TO_RAD, config.vert_pos_err_bnd,
+        config.pos_carrot_scale, PWQG::CarrotDynamics(config.pos_carrot_dyn), config.max_unit_err_lon);
     traj_gen_.enableVertPosCarrot(config.en_vert_pos_carrot);
 
     traj_gen_.enableOffTrackRollFF(config.en_off_track_roll_ff);
@@ -541,6 +544,10 @@ void NonlinearMPC::parametersCallbackTrajectoryGeneration(const fw_ctrl::traject
     }
     en_fpa_ref_jac_ = config.en_fpa_ref_jac;
     en_pos_d_obj_ = config.en_pos_d_obj;
+
+    en_pos_obj_ramp_ = config.en_pos_obj_ramp;
+    pos_obj_ramp_end_ = constrain(config.pos_obj_ramp_end, 0, ACADO_N);
+
 } // parametersCallbackTrajectoryGeneration
 
 /*
@@ -677,7 +684,8 @@ void NonlinearMPC::publishNMPCStates()
     nmpc_online_data.flaps = (float)acadoVariables.od[IDX_OD_FLAPS];
     for (int i=0; i<ACADO_N+1; i++) { // all prior online data are held constant through the horizon
         nmpc_online_data.fpa_ref[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_FPA_REF];
-        nmpc_online_data.jac_fpa_ref[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_FPA_REF];
+        nmpc_online_data.jac_fpa_ref_0[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_FPA_REF];
+        nmpc_online_data.jac_fpa_ref_1[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_FPA_REF+1];
         nmpc_online_data.heading_ref[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_HEADING_REF];
         nmpc_online_data.soft_airsp[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_SOFT_AIRSP];
         nmpc_online_data.jac_soft_airsp_0[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_AIRSP];
@@ -700,18 +708,18 @@ void NonlinearMPC::publishNMPCStates()
         nmpc_online_data.jac_soft_rtd_5[i] = (float)acadoVariables.od[ACADO_NOD * i + IDX_OD_JAC_SOFT_RTD+5];
 
         // raw
-        nmpc_online_data.soft_hagl_raw[i] = (float)od_(IDX_OD_SOFT_HAGL, i);
-        nmpc_online_data.jac_soft_hagl_0_raw[i] = (float)od_(IDX_OD_JAC_SOFT_HAGL, i);
-        nmpc_online_data.jac_soft_hagl_1_raw[i] = (float)od_(IDX_OD_JAC_SOFT_HAGL+1, i);
-        nmpc_online_data.jac_soft_hagl_2_raw[i] = (float)od_(IDX_OD_JAC_SOFT_HAGL+2, i);
-        nmpc_online_data.jac_soft_hagl_3_raw[i] = (float)od_(IDX_OD_JAC_SOFT_HAGL+3, i);
-        nmpc_online_data.soft_rtd_raw[i] = (float)od_(IDX_OD_SOFT_RTD, i);
-        nmpc_online_data.jac_soft_rtd_0_raw[i] = (float)od_(IDX_OD_JAC_SOFT_RTD, i);
-        nmpc_online_data.jac_soft_rtd_1_raw[i] = (float)od_(IDX_OD_JAC_SOFT_RTD+1, i);
-        nmpc_online_data.jac_soft_rtd_2_raw[i] = (float)od_(IDX_OD_JAC_SOFT_RTD+2, i);
-        nmpc_online_data.jac_soft_rtd_3_raw[i] = (float)od_(IDX_OD_JAC_SOFT_RTD+3, i);
-        nmpc_online_data.jac_soft_rtd_4_raw[i] = (float)od_(IDX_OD_JAC_SOFT_RTD+4, i);
-        nmpc_online_data.jac_soft_rtd_5_raw[i] = (float)od_(IDX_OD_JAC_SOFT_RTD+5, i);
+        nmpc_online_data.soft_hagl_raw[i] = (float)terr_obj_raw_(IDX_OD_SOFT_HAGL - IDX_OD_SOFT_HAGL, i);
+        nmpc_online_data.jac_soft_hagl_0_raw[i] = (float)terr_obj_raw_(IDX_OD_JAC_SOFT_HAGL - IDX_OD_SOFT_HAGL, i);
+        nmpc_online_data.jac_soft_hagl_1_raw[i] = (float)terr_obj_raw_(IDX_OD_JAC_SOFT_HAGL+1 - IDX_OD_SOFT_HAGL, i);
+        nmpc_online_data.jac_soft_hagl_2_raw[i] = (float)terr_obj_raw_(IDX_OD_JAC_SOFT_HAGL+2 - IDX_OD_SOFT_HAGL, i);
+        nmpc_online_data.jac_soft_hagl_3_raw[i] = (float)terr_obj_raw_(IDX_OD_JAC_SOFT_HAGL+3 - IDX_OD_SOFT_HAGL, i);
+        nmpc_online_data.soft_rtd_raw[i] = (float)terr_obj_raw_(IDX_OD_SOFT_RTD - IDX_OD_SOFT_HAGL, i);
+        nmpc_online_data.jac_soft_rtd_0_raw[i] = (float)terr_obj_raw_(IDX_OD_JAC_SOFT_RTD - IDX_OD_SOFT_HAGL, i);
+        nmpc_online_data.jac_soft_rtd_1_raw[i] = (float)terr_obj_raw_(IDX_OD_JAC_SOFT_RTD+1 - IDX_OD_SOFT_HAGL, i);
+        nmpc_online_data.jac_soft_rtd_2_raw[i] = (float)terr_obj_raw_(IDX_OD_JAC_SOFT_RTD+2 - IDX_OD_SOFT_HAGL, i);
+        nmpc_online_data.jac_soft_rtd_3_raw[i] = (float)terr_obj_raw_(IDX_OD_JAC_SOFT_RTD+3 - IDX_OD_SOFT_HAGL, i);
+        nmpc_online_data.jac_soft_rtd_4_raw[i] = (float)terr_obj_raw_(IDX_OD_JAC_SOFT_RTD+4 - IDX_OD_SOFT_HAGL, i);
+        nmpc_online_data.jac_soft_rtd_5_raw[i] = (float)terr_obj_raw_(IDX_OD_JAC_SOFT_RTD+5 - IDX_OD_SOFT_HAGL, i);
     }
 
     /* objective references */
@@ -752,7 +760,7 @@ void NonlinearMPC::publishNMPCStates()
     if (manual_control_sp_.enabled) {
         double err_lon;
         double jac_fpa_sp[1];
-        traj_gen_.getManualFPASetpoint(err_lon, jac_fpa_sp, manual_control_sp_, terrain_alt, x0_pos_(2), x0_vel_.norm(), x0_(IDX_X_AIRSP), x0_wind_(2));
+        traj_gen_.getManualFPASetpoint(err_lon, jac_fpa_sp, manual_control_sp_, terrain_alt, x0_pos_(2), x0_vel_.norm(), x0_(IDX_X_AIRSP), x0_wind_(2), x0_vel_, x0_vel_ - x0_wind_);
         nmpc_aux_output.path_error_lat = 0.0;
         nmpc_aux_output.path_error_lon = err_lon;
     }
@@ -1304,21 +1312,21 @@ void NonlinearMPC::evaluateSoftHAGLObjective()
             huber_hagl_.costAndJacobian(huber_cost, huber_jac, inv_prio, hagl, jac_hagl, LEN_JAC_SOFT_HAGL);
 
             // cost
-            od_(IDX_OD_SOFT_HAGL, i_node) = huber_cost;
+            terr_obj_raw_(IDX_OD_SOFT_HAGL-IDX_OD_SOFT_HAGL, i_node) = huber_cost;
 
             // inverse priority
             inv_prio_hagl_(i_node) = inv_prio;
 
             // jacobian
             for (int ii = 0; ii < LEN_JAC_SOFT_HAGL; ii++) {
-                od_(IDX_OD_JAC_SOFT_HAGL+ii, i_node) = huber_jac[ii];
+                terr_obj_raw_(IDX_OD_JAC_SOFT_HAGL+ii-IDX_OD_SOFT_HAGL, i_node) = huber_jac[ii];
             }
         } // end i_node loop
     }
     else {
         // zero
-        od_.block(IDX_OD_SOFT_HAGL, 0, 1, ACADO_N+1);
-        od_.block(IDX_OD_JAC_SOFT_HAGL, 0, LEN_JAC_SOFT_HAGL, ACADO_N+1);
+        terr_obj_raw_.block(IDX_OD_SOFT_HAGL-IDX_OD_SOFT_HAGL, 0, 1, ACADO_N+1);
+        terr_obj_raw_.block(IDX_OD_JAC_SOFT_HAGL-IDX_OD_SOFT_HAGL, 0, LEN_JAC_SOFT_HAGL, ACADO_N+1);
         inv_prio_hagl_.setOnes();
     }
 } // evaluateSoftHAGLObjective
@@ -1406,7 +1414,7 @@ void NonlinearMPC::evaluateSoftRTDObjective()
             } // end j_buf loop
 
             // set node cost
-            od_(IDX_OD_SOFT_RTD, i_node) = rtd_cost;
+            terr_obj_raw_(IDX_OD_SOFT_RTD-IDX_OD_SOFT_HAGL, i_node) = rtd_cost;
 
             // and corresponding inverse priority
             inv_prio_rtd_(i_node) = rtd_inv_prio;
@@ -1415,7 +1423,7 @@ void NonlinearMPC::evaluateSoftRTDObjective()
             double inv_cost_sum = 0.0;
             if (rtd_cost_sum > 0.0001) inv_cost_sum = 1.0 / rtd_cost_sum;
             for (int ii = 0; ii < LEN_JAC_SOFT_RTD; ii++) {
-                od_(IDX_OD_JAC_SOFT_RTD+ii, i_node) = rtd_jac_sum[ii] * inv_cost_sum;
+                terr_obj_raw_(IDX_OD_JAC_SOFT_RTD+ii-IDX_OD_SOFT_HAGL, i_node) = rtd_jac_sum[ii] * inv_cost_sum;
             }
         } // end i_node loop
 
@@ -1429,12 +1437,12 @@ void NonlinearMPC::evaluateSoftRTDObjective()
                 const double inv_di = 1.0 / (i - i_last);
 
                 // slope of the cost
-                const double slope_cost = (od_(IDX_OD_SOFT_RTD, i) - od_(IDX_OD_SOFT_RTD, i_last)) * inv_di;
+                const double slope_cost = (terr_obj_raw_(IDX_OD_SOFT_RTD-IDX_OD_SOFT_HAGL, i) - terr_obj_raw_(IDX_OD_SOFT_RTD-IDX_OD_SOFT_HAGL, i_last)) * inv_di;
 
                 // slope of the jacobians
                 double slope_jac[LEN_JAC_SOFT_RTD];
                 for (int ii = 0; ii < LEN_JAC_SOFT_RTD; ii++) {
-                    slope_jac[ii] = (od_(IDX_OD_JAC_SOFT_RTD+ii, i) - od_(IDX_OD_JAC_SOFT_RTD+ii, i_last)) * inv_di;
+                    slope_jac[ii] = (terr_obj_raw_(IDX_OD_JAC_SOFT_RTD+ii-IDX_OD_SOFT_HAGL, i) - terr_obj_raw_(IDX_OD_JAC_SOFT_RTD+ii-IDX_OD_SOFT_HAGL, i_last)) * inv_di;
                 }
 
                 // slope of the inverse priority
@@ -1444,11 +1452,11 @@ void NonlinearMPC::evaluateSoftRTDObjective()
                 for (int j = i_last + 1; j < i; j++) {
 
                     // cost
-                    od_(IDX_OD_SOFT_RTD, j) = slope_cost * (j - i_last) + od_(IDX_OD_SOFT_RTD, i_last);
+                    terr_obj_raw_(IDX_OD_SOFT_RTD-IDX_OD_SOFT_HAGL, j) = slope_cost * (j - i_last) + terr_obj_raw_(IDX_OD_SOFT_RTD-IDX_OD_SOFT_HAGL, i_last);
 
                     // jacobians
                     for (int ii = 0; ii < LEN_JAC_SOFT_RTD; ii++) {
-                        od_(IDX_OD_JAC_SOFT_RTD+ii, j) = slope_jac[ii] * (j - i_last) + od_(IDX_OD_JAC_SOFT_RTD+ii, i_last);
+                        terr_obj_raw_(IDX_OD_JAC_SOFT_RTD+ii-IDX_OD_SOFT_HAGL, j) = slope_jac[ii] * (j - i_last) + terr_obj_raw_(IDX_OD_JAC_SOFT_RTD+ii-IDX_OD_SOFT_HAGL, i_last);
                     }
 
                     // inverse priority
@@ -1463,11 +1471,11 @@ void NonlinearMPC::evaluateSoftRTDObjective()
                 // hold costs / jacobians / inverse priorities constant through remaining nodes
                 for (int i = i_remaining; i < ACADO_N+1; i++) {
                     // cost
-                    od_(IDX_OD_SOFT_RTD, i) = od_(IDX_OD_SOFT_RTD, i_last);
+                    terr_obj_raw_(IDX_OD_SOFT_RTD-IDX_OD_SOFT_HAGL, i) = terr_obj_raw_(IDX_OD_SOFT_RTD-IDX_OD_SOFT_HAGL, i_last);
 
                     // jacobians
                     for (int ii = 0; ii < LEN_JAC_SOFT_RTD; ii++) {
-                        od_(IDX_OD_JAC_SOFT_RTD+ii, i) = od_(IDX_OD_JAC_SOFT_RTD+ii, i_last);
+                        terr_obj_raw_(IDX_OD_JAC_SOFT_RTD+ii-IDX_OD_SOFT_HAGL, i) = terr_obj_raw_(IDX_OD_JAC_SOFT_RTD+ii-IDX_OD_SOFT_HAGL, i_last);
                     }
 
                     // inverse priority
@@ -1478,8 +1486,8 @@ void NonlinearMPC::evaluateSoftRTDObjective()
     }
     else {
         // zero
-        od_.block(IDX_OD_SOFT_RTD, 0, 1, ACADO_N+1);
-        od_.block(IDX_OD_JAC_SOFT_RTD, 0, LEN_JAC_SOFT_RTD, ACADO_N+1);
+        terr_obj_raw_.block(IDX_OD_SOFT_RTD-IDX_OD_SOFT_HAGL, 0, 1, ACADO_N+1);
+        terr_obj_raw_.block(IDX_OD_JAC_SOFT_RTD-IDX_OD_SOFT_HAGL, 0, LEN_JAC_SOFT_RTD, ACADO_N+1);
         inv_prio_rtd_.setOnes();
     }
 } // evaluateSoftRTDObjective
@@ -1521,13 +1529,22 @@ void NonlinearMPC::setManualControlReferences()
     y_.block(IDX_Y_AIRSP, 0, 1, ACADO_N+1).setConstant(manual_control_sp_.airspeed);
 
     double err_lon; // dummy
+    Eigen::Vector3d ground_vel_temp;
+    Eigen::Vector3d air_vel_temp;
     for (int i = 0; i < ACADO_N+1; i++) {
 
         // flight path angle reference
-        double jac_fpa_ref[1];
+        double jac_fpa_ref[2];
+        ground_vel_temp(0) = spds_[i].ground_vel[0];
+        ground_vel_temp(1) = spds_[i].ground_vel[1];
+        ground_vel_temp(2) = spds_[i].ground_vel[2];
+        air_vel_temp(0) = spds_[i].air_vel[0];
+        air_vel_temp(1) = spds_[i].air_vel[1];
+        air_vel_temp(2) = spds_[i].air_vel[2];
         od_(IDX_OD_FPA_REF, i) = traj_gen_.getManualFPASetpoint(err_lon, jac_fpa_ref, manual_control_sp_, terrain_alt_horizon_(i),
-            acadoVariables.x[i * ACADO_NX + IDX_X_POS+2], spds_[i].ground_sp, acadoVariables.x[i * ACADO_NX + IDX_X_AIRSP], x0_wind_(2));
+            acadoVariables.x[i * ACADO_NX + IDX_X_POS+2], spds_[i].ground_sp, acadoVariables.x[i * ACADO_NX + IDX_X_AIRSP], x0_wind_(2), ground_vel_temp, air_vel_temp);
         od_(IDX_OD_JAC_FPA_REF, i) = (en_fpa_ref_jac_) ? jac_fpa_ref[0] : 0.0;
+        od_(IDX_OD_JAC_FPA_REF+1, i) = (en_fpa_ref_jac_) ? jac_fpa_ref[1] : 0.0;
         y_(IDX_Y_POS+2, i) = acadoVariables.x[i * ACADO_NX + IDX_X_POS+2];
 
     } // end i loop
@@ -1549,7 +1566,9 @@ void NonlinearMPC::setPathFollowingReferences()
 
         Eigen::Vector3d veh_pos;
         double err_lon; // dummy
-        double jac_fpa_ref[1];
+        double jac_fpa_ref[2];
+        Eigen::Vector3d ground_vel_temp;
+        Eigen::Vector3d air_vel_temp;
         for (int i = 0; i < ACADO_N+1; i++) {
 
             veh_pos(0) = acadoVariables.x[i * ACADO_NX + IDX_X_POS];
@@ -1557,13 +1576,21 @@ void NonlinearMPC::setPathFollowingReferences()
             veh_pos(2) = acadoVariables.x[i * ACADO_NX + IDX_X_POS+2];
             y_(IDX_Y_POS+2, i) = veh_pos(2);
 
+            ground_vel_temp(0) = spds_[i].ground_vel[0];
+            ground_vel_temp(1) = spds_[i].ground_vel[1];
+            ground_vel_temp(2) = spds_[i].ground_vel[2];
+            air_vel_temp(0) = spds_[i].air_vel[0];
+            air_vel_temp(1) = spds_[i].air_vel[1];
+            air_vel_temp(2) = spds_[i].air_vel[2];
+
             /*
                 longitudinal guidance
             */
 
             od_(IDX_OD_FPA_REF, i) = traj_gen_.evaluateLongitudinalGuidance(err_lon, jac_fpa_ref, path_sp_, veh_pos, spds_[i].ground_sp,
-                acadoVariables.x[i * ACADO_NX + IDX_X_AIRSP], x0_wind_(2));
+                acadoVariables.x[i * ACADO_NX + IDX_X_AIRSP], x0_wind_(2), ground_vel_temp, air_vel_temp);
             od_(IDX_OD_JAC_FPA_REF, i) = (en_fpa_ref_jac_) ? jac_fpa_ref[0] : 0.0;
+            od_(IDX_OD_JAC_FPA_REF+1, i) = (en_fpa_ref_jac_) ? jac_fpa_ref[1] : 0.0;
 
             /*
                 lateral-directionl guidance
@@ -1615,7 +1642,9 @@ void NonlinearMPC::setPathFollowingReferences()
 
             Eigen::Vector3d veh_pos;
             double err_lon; // dummy
-            double jac_fpa_ref[1];
+            double jac_fpa_ref[2];
+            Eigen::Vector3d ground_vel_temp;
+            Eigen::Vector3d air_vel_temp;
             for (int i = 0; i < ACADO_N+1; i++) {
 
                 veh_pos(0) = acadoVariables.x[i * ACADO_NX + IDX_X_POS];
@@ -1623,9 +1652,17 @@ void NonlinearMPC::setPathFollowingReferences()
                 veh_pos(2) = acadoVariables.x[i * ACADO_NX + IDX_X_POS+2];
                 y_(IDX_Y_POS+2, i) = veh_pos(2);
 
+                ground_vel_temp(0) = spds_[i].ground_vel[0];
+                ground_vel_temp(1) = spds_[i].ground_vel[1];
+                ground_vel_temp(2) = spds_[i].ground_vel[2];
+                air_vel_temp(0) = spds_[i].air_vel[0];
+                air_vel_temp(1) = spds_[i].air_vel[1];
+                air_vel_temp(2) = spds_[i].air_vel[2];
+
                 od_(IDX_OD_FPA_REF, i) = traj_gen_.evaluateLongitudinalGuidance(err_lon, jac_fpa_ref, path_sp_, veh_pos, spds_[i].ground_sp,
-                    acadoVariables.x[i * ACADO_NX + IDX_X_AIRSP], x0_wind_(2));
+                    acadoVariables.x[i * ACADO_NX + IDX_X_AIRSP], x0_wind_(2), ground_vel_temp, air_vel_temp);
                 od_(IDX_OD_JAC_FPA_REF, i) = (en_fpa_ref_jac_) ? jac_fpa_ref[0] : 0.0;
+                od_(IDX_OD_JAC_FPA_REF+1, i) = (en_fpa_ref_jac_) ? jac_fpa_ref[1] : 0.0;
             }
         }
         else { // TrajectoryGenerator::LongitudinalMode::GUIDE_ALONG_LATERAL_TRAJECTORY
@@ -1651,14 +1688,14 @@ void NonlinearMPC::setPathFollowingReferences()
 
             Eigen::Ref<Eigen::MatrixXd> y_pos_d_ = y_.block(IDX_Y_POS+2, 0, 1, ACADO_N+1);
             Eigen::Ref<Eigen::MatrixXd> fpa_ref_traj_ = od_.block(IDX_OD_FPA_REF, 0, 1, ACADO_N+1);
-            Eigen::Ref<Eigen::MatrixXd> jac_fpa_ref_traj_ = od_.block(IDX_OD_JAC_FPA_REF, 0, 1, ACADO_N+1);
+            Eigen::Ref<Eigen::MatrixXd> jac_fpa_ref_traj_ = od_.block(IDX_OD_JAC_FPA_REF, 0, 2, ACADO_N+1);
 
             traj_gen_.genLongitudinalTrajectory(fpa_ref_traj_, jac_fpa_ref_traj_, y_pos_d_, y_airsp_, ground_speed_traj_, closest_pt_on_path_d_, ACADO_N+1,
                 x0_pos_(2), x0_wind_(2), path_sp_.dir(2));
 
             if (!en_fpa_ref_jac_) {
                 // this is a bit shitty to need to reset directly after setting
-                od_.block(IDX_OD_JAC_FPA_REF, 0, 1, ACADO_N+1).setZero();
+                od_.block(IDX_OD_JAC_FPA_REF, 0, 2, ACADO_N+1).setZero();
             }
         }
 
@@ -1740,7 +1777,7 @@ void NonlinearMPC::filterTerrainCostJacobian()
     // first order filter on terrain based jacobian
     for (int i = 0; i < ACADO_N+1; i++) {
         for (int j = IDX_OD_SOFT_HAGL; j < ACADO_NOD; j++) {
-            acadoVariables.od[ACADO_NOD * i + j] = (od_(j, i) - acadoVariables.od[ACADO_NOD * i + j]) / control_parameters_.tau_terr * node_parameters_.iteration_timestep + acadoVariables.od[ACADO_NOD * i + j];
+            od_(j, i) += (terr_obj_raw_(j - IDX_OD_SOFT_HAGL, i) - od_(j, i)) / control_parameters_.tau_terr * node_parameters_.iteration_timestep;
         }
     }
 } // filterTerrainCostJacobian
@@ -1944,6 +1981,25 @@ void NonlinearMPC::prioritizeObjectives()
         acadoVariables.WN[ACADO_NYN*IDX_Y_HEADING+IDX_Y_HEADING] *= inv_prio;                                               // y heading
     }
 
+    // ramp in position objective weights if ramp enabled
+    if (en_pos_obj_ramp_) {
+        for (int i=0; i<pos_obj_ramp_end_; i++) {
+
+            double ramp = double(constrain(i, 0, pos_obj_ramp_end_) / pos_obj_ramp_end_);
+
+            if (i < ACADO_N) {
+                acadoVariables.W[ACADO_NY*ACADO_NY*i+ACADO_NY*IDX_Y_POS+IDX_Y_POS] *= ramp;                                 // y pos_n
+                acadoVariables.W[ACADO_NY*ACADO_NY*i+ACADO_NY*(IDX_Y_POS+1)+IDX_Y_POS+1] *= ramp;                           // y pos_e
+                acadoVariables.W[ACADO_NY*ACADO_NY*i+ACADO_NY*(IDX_Y_POS+2)+IDX_Y_POS+2] *= ramp;                           // y pos_d
+            }
+            else {
+                acadoVariables.WN[ACADO_NYN*IDX_Y_POS+IDX_Y_POS] *= ramp;                                                       // y pos_n
+                acadoVariables.WN[ACADO_NYN*(IDX_Y_POS+1)+IDX_Y_POS+1] *= ramp;                                                 // y pos_e
+                acadoVariables.WN[ACADO_NYN*(IDX_Y_POS+2)+IDX_Y_POS+2] *= ramp;                                                 // y pos_d
+            }
+        }
+    }
+
     // TODO: should we de-prioritize off-nominal airspeed refs and feed-forward heading refs when far from the position setpoints?
 } // prioritizeObjectives
 
@@ -2023,10 +2079,11 @@ void NonlinearMPC::updateAcadoOD()
     // symmetric flaps setting
     od_.block(IDX_OD_FLAPS, 0, 1, ACADO_N+1).setConstant(flapsToRad(flaps_normalized_));
 
-    Eigen::Map<Eigen::Matrix<double, ACADO_NOD, ACADO_N+1>>(const_cast<double*>(acadoVariables.od)) = od_; // TODO: dont set terrain costs/jacobians here, as they are anyway filtered directly after
-
     // time delayed terrain cost jacobians
     filterTerrainCostJacobian();
+
+    // TODO: find a more elegant way to filter the terrain costs while keeping this map.. ugly to have "terr_obj_raw_(i - IDX_OD_SOFT_HAGL, j)" everywhere
+    Eigen::Map<Eigen::Matrix<double, ACADO_NOD, ACADO_N+1>>(const_cast<double*>(acadoVariables.od)) = od_;
 } // updateAcadoOD
 
 void NonlinearMPC::updateAcadoW()

@@ -242,20 +242,20 @@ class NonlinearMPC {
             IDX_OD_FLAPS,
             IDX_OD_FPA_REF, // externally evaluated objectives and jacobians
             IDX_OD_JAC_FPA_REF,
-            IDX_OD_HEADING_REF,
+            IDX_OD_HEADING_REF = 13,
             IDX_OD_SOFT_AIRSP,
             IDX_OD_JAC_SOFT_AIRSP,
             IDX_OD_SOFT_AOA,
             IDX_OD_JAC_SOFT_AOA,
-            IDX_OD_SOFT_HAGL = 18,
+            IDX_OD_SOFT_HAGL = 19,
             IDX_OD_JAC_SOFT_HAGL,
-            IDX_OD_SOFT_RTD = 23,
+            IDX_OD_SOFT_RTD = 24,
             IDX_OD_JAC_SOFT_RTD
         }; // online data
-        const int LEN_JAC_SOFT_AIRSP = IDX_OD_SOFT_AOA - IDX_OD_JAC_SOFT_AIRSP; // how many states we are taking the jacobian w.r.t.
-        const int LEN_JAC_SOFT_AOA = IDX_OD_SOFT_HAGL - IDX_OD_JAC_SOFT_AOA; // how many states we are taking the jacobian w.r.t.
-        const int LEN_JAC_SOFT_HAGL = IDX_OD_SOFT_RTD - IDX_OD_JAC_SOFT_HAGL; // how many states we are taking the jacobian w.r.t.
-        const int LEN_JAC_SOFT_RTD = 6; // how many states we are taking the jacobian w.r.t.
+        static const int LEN_JAC_SOFT_AIRSP = IDX_OD_SOFT_AOA - IDX_OD_JAC_SOFT_AIRSP; // how many states we are taking the jacobian w.r.t.
+        static const int LEN_JAC_SOFT_AOA = IDX_OD_SOFT_HAGL - IDX_OD_JAC_SOFT_AOA; // how many states we are taking the jacobian w.r.t.
+        static const int LEN_JAC_SOFT_HAGL = IDX_OD_SOFT_RTD - IDX_OD_JAC_SOFT_HAGL; // how many states we are taking the jacobian w.r.t.
+        static const int LEN_JAC_SOFT_RTD = 6; // how many states we are taking the jacobian w.r.t.
 
         enum OffboardControlStatus {
             NOMINAL = 0,                // nmpc is running as expected
@@ -450,6 +450,7 @@ class NonlinearMPC {
         Eigen::Matrix<double, ACADO_NY, 1> inv_y_scale_sq_; // inverse output scale squared diagonal
         Eigen::Matrix<double, ACADO_NY, 1> w_;              // weight diagonal (before scaling / prioritization)
         Eigen::Matrix<double, ACADO_NOD, ACADO_N+1> od_;    // online data
+        Eigen::Matrix<double, 2 + LEN_JAC_SOFT_HAGL + LEN_JAC_SOFT_RTD, ACADO_N+1> terr_obj_raw_; // raw terrain objectives
         Eigen::Matrix<double, ACADO_NU, 1> lb_;             // lower bound of control constraints
         Eigen::Matrix<double, ACADO_NU, 1> ub_;             // upper bound of control constraints
 
@@ -471,6 +472,8 @@ class NonlinearMPC {
         PathSetpoint path_sp_;                          // structure for path setpoints
         bool en_fpa_ref_jac_;                           // feed back the flight path angle reference jacobian
         bool en_pos_d_obj_;                             // enable optimization of the down position
+        bool en_pos_obj_ramp_;
+        int pos_obj_ramp_end_;
         double ground_speed_traj_[ACADO_N+1];           // not always used.. could be better way to allocate or initialize these, this is a bit ugly
         double closest_pt_on_path_d_[ACADO_N+1];        // not always used.. could be better way to allocate or initialize these, this is a bit ugly
         double pitch_ref_fb_;
